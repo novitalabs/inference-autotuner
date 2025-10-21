@@ -1,12 +1,12 @@
 
-* Plan an LLM inference engine parameters autotuning project.
-  * Movition: Optimize the performance of LLM inference engines by automatically tuning parameters for a specific model.
-  * Requirements:
-    * LLM deployment should use sglang's [ome](https://github.com/sgl-project/ome/).
-    * Benchmark metrics components should be based on [genai-bench](https://github.com/sgl-project/genai-bench).
-    * A web frontend is required to collect task input arguments and show the real-time status of tasks.
-
-  The current target is prototyping this project. Tell the architecture design firstly.
+> Plan an LLM inference engine parameters autotuning project.
+> * Movition: Optimize the performance of LLM inference engines by automatically tuning parameters for a specific model.
+> * Requirements:
+>   * LLM deployment should use sglang's [ome](https://github.com/sgl-project/ome/).
+>   * Benchmark metrics components should be based on [genai-bench](https://github.com/sgl-project/genai-bench).
+>   * A web frontend is required to collect task input arguments and show the real-time status of tasks.
+>
+> The current target is prototyping this project. Tell the architecture design firstly.
 
 * *Claude*:
   Plan an LLM inference engine parameters autotuning project.
@@ -239,3 +239,82 @@
       - Measure overhead of deployment changes
       - Validate metric collection pipeline
       - Test end-to-end workflow
+
+> Why can't you access github.com? Is a proxy server helpful?
+
+* *Claude*:
+  - Claude Code has built-in restrictions on WebFetch tool for certain domains including github.com
+  - Proxy server could help through MCP (Model Context Protocol) servers
+  - MCP servers extend Claude Code's functionality and may have fewer restrictions
+  - Need to install and configure MCP server in Claude Code settings
+  - WebSearch successfully retrieved comprehensive information about OME and genai-bench as alternative
+  - For accessing specific files from GitHub repos, alternatives include:
+    1. Clone repos locally and use Read tool
+    2. Use MCP server with web fetch capabilities
+    3. Continue using WebSearch for documentation
+
+> Try the deepwiki instead of github, e.g. https://deepwiki.com/sgl-project/ome
+
+* *Claude*:
+  - Attempted to fetch from deepwiki.com but it's also blocked by WebFetch tool
+  - Recommended alternatives:
+    1. Clone repositories locally for full access to documentation
+    2. Use MCP servers for web access
+    3. Proceed with existing information from WebSearch
+  - Recommended Option A (cloning repos) as best approach for immediate access
+
+> Okay, setup git submodules for ome & genai-bench
+
+* *Claude*:
+  - Initialized git repository (was already initialized)
+  - Added ome as git submodule: `third_party/ome` (v0.1.3-69-g78587ad)
+  - Added genai-bench as git submodule: `third_party/genai-bench` (v0.0.2-15-ga11575b)
+  - Verified submodules setup successfully
+  - Found comprehensive documentation in both repos:
+    * OME: Main README, Python SDK docs, runtime selector details, controller documentation
+    * genai-bench: Getting started guides, metrics definitions, task definitions, command guidelines, API docs, examples
+
+> Summary our dialog and append them to prompts.md, following the current format in this file.
+
+> Keep updating this prompts.md document, update it once some mini-milestone complished.
+
+---
+
+## Mini-milestone: OME Configuration Analysis
+
+> You have read ome basic usage, so what do you think better, to set a group parameters in a benchmark task, to create a new k8s config file or use some temporary environment variables for the user's input?
+
+* *Claude*:
+  **Analysis of OME Architecture:**
+  - Read OME README, sample configs, and API definitions (Go source code in `pkg/apis/ome/v1beta1/`)
+  - Key findings:
+    * **InferenceService** CR has hierarchical configuration: `spec.runtime` → `spec.engine.runner`
+    * **ServingRuntime/ClusterServingRuntime** define templates with SGLang launch parameters
+    * SGLang parameters are passed via command-line args in `runner.args` field (not env vars)
+    * Example: `--tp-size 2`, `--mem-frac 0.9`, `--schedule-policy`, etc.
+
+  **Recommendation: Use K8s Config Files with InferenceService Runner Override**
+
+  **Approach (Hybrid Strategy):**
+  1. Create one base ClusterServingRuntime (shared template)
+  2. For each tuning experiment, create InferenceService with `engine.runner.args` override
+  3. Template YAML manifests with parameter placeholders
+  4. Apply via kubectl/K8s API for each benchmark iteration
+
+  **Why NOT environment variables:**
+  - OME/SGLang don't support parameter injection via env vars
+  - Parameters must be passed as CLI flags in the launch command
+
+  **Advantages:**
+  - ✅ Declarative and auditable (YAML configs can be versioned)
+  - ✅ Leverages OME's native override mechanism
+  - ✅ Fast iteration (no ServingRuntime creation overhead per experiment)
+  - ✅ Clean separation: each InferenceService = one experiment
+  - ✅ Easy cleanup: delete InferenceService after benchmarking
+  - ✅ Reproducible: store configs in database for historical analysis
+
+  **Implementation:**
+  - Backend generates InferenceService YAML from Jinja2/template
+  - Uses K8s Python client to apply/delete resources
+  - Monitors `status.conditions` for readiness
+  - BenchmarkJob CR references the InferenceService endpoint
