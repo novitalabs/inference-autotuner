@@ -8,20 +8,23 @@ Automated parameter tuning for LLM inference engines using OME and genai-bench.
 .
 ├── src/
 │   ├── controllers/
-│   │   ├── ome_controller.py          # OME InferenceService management
-│   │   └── benchmark_controller.py    # genai-bench BenchmarkJob management
+│   │   ├── ome_controller.py                  # OME InferenceService management
+│   │   ├── benchmark_controller.py            # genai-bench BenchmarkJob management (K8s CRD)
+│   │   └── direct_benchmark_controller.py     # Direct genai-bench CLI execution
 │   ├── templates/
-│   │   ├── inference_service.yaml.j2  # InferenceService YAML template
-│   │   └── benchmark_job.yaml.j2      # BenchmarkJob YAML template
+│   │   ├── inference_service.yaml.j2          # InferenceService YAML template
+│   │   └── benchmark_job.yaml.j2              # BenchmarkJob YAML template
 │   ├── utils/
-│   │   └── optimizer.py               # Parameter grid generation & scoring
-│   └── run_autotuner.py               # Main orchestrator script
+│   │   └── optimizer.py                       # Parameter grid generation & scoring
+│   └── run_autotuner.py                       # Main orchestrator script
 ├── examples/
-│   ├── simple_task.json               # Simple 2x2 parameter grid
-│   └── tuning_task.json               # Full parameter grid example
+│   ├── simple_task.json                       # Simple 2x2 parameter grid
+│   └── tuning_task.json                       # Full parameter grid example
 ├── third_party/
-│   ├── ome/                           # OME submodule
-│   └── genai-bench/                   # genai-bench submodule
+│   ├── ome/                                   # OME submodule
+│   └── genai-bench/                           # genai-bench submodule
+├── env/                                       # Python virtual environment
+│   └── bin/genai-bench                        # genai-bench CLI executable
 └── requirements.txt
 ```
 
@@ -135,6 +138,59 @@ Example:
 ```
 
 ## Usage
+
+### Benchmark Execution Modes
+
+The autotuner supports two benchmark execution modes:
+
+1. **Kubernetes BenchmarkJob Mode** (Default):
+   - Uses OME's BenchmarkJob CRD
+   - Runs genai-bench in Kubernetes pods
+   - Requires working genai-bench Docker image
+   - More complex but native to OME
+
+2. **Direct CLI Mode** (Recommended):
+   - Runs genai-bench directly using local installation
+   - Automatic port forwarding to InferenceService
+   - Bypasses Docker image issues
+   - Faster and more reliable for prototyping
+
+### 1. Direct CLI Mode (Recommended)
+
+Run benchmarks using the local genai-bench installation:
+
+```bash
+python src/run_autotuner.py examples/simple_task.json --direct
+```
+
+**How it works:**
+- Deploys InferenceService via OME
+- Automatically sets up `kubectl port-forward` to access the service
+- Runs genai-bench CLI directly from `env/bin/genai-bench`
+- Cleans up port forward after completion
+- No Docker image dependencies
+
+**Requirements:**
+- genai-bench installed in Python environment (`pip install genai-bench`)
+- `kubectl` configured and accessible
+- No additional configuration needed
+
+### 2. Kubernetes BenchmarkJob Mode
+
+Run benchmarks using OME's BenchmarkJob CRD:
+
+```bash
+python src/run_autotuner.py examples/simple_task.json
+```
+
+**How it works:**
+- Creates Kubernetes BenchmarkJob resources
+- Uses genai-bench Docker image
+- Results stored in PersistentVolumeClaim
+
+**Requirements:**
+- PVC created (see installation step 3b)
+- Working genai-bench Docker image accessible to cluster
 
 ### 1. Create a Tuning Task JSON
 

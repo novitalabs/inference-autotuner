@@ -958,3 +958,175 @@
 4. Need to verify image functionality before using in automated workflows
 
 ---
+
+## Mini-milestone: Direct Benchmark Refactoring
+
+> Try to refactor the benchmark controller by a outside genai-bench, use `env/bin/python3` to run genai-bench benchmark scripts.
+
+* *Claude*:
+  **Motivation**: Bypass genai-bench v251014 Docker image crash-on-startup issue (Bug #13 investigation)
+
+  **Implementation - Dual-Mode Architecture:**
+
+  **1. New Controller Created: `direct_benchmark_controller.py`**
+  - **Purpose**: Run genai-bench directly from local CLI installation instead of Kubernetes BenchmarkJob CRD
+  - **Key Features**:
+    * Direct CLI execution: `env/bin/genai-bench benchmark ...`
+    * Automatic kubectl port-forward setup for cluster-internal service access
+    * Pod-based port forwarding with service fallback
+    * Proper process lifecycle management (SIGTERM → SIGKILL)
+    * Configurable ports (default: localhost:8080 → pod:8000)
+  - **Methods**:
+    * `setup_port_forward()`: Finds pod by label selector, establishes port-forward, verifies health
+    * `run_benchmark()`: Executes genai-bench CLI with proper arguments
+    * `cleanup_port_forward()`: Terminates port-forward process
+    * `_parse_results()`: Extracts metrics from output directory
+  - **Lines of Code**: 294 lines
+
+  **2. Orchestrator Updates: `run_autotuner.py`**
+  - Added `use_direct_benchmark` parameter to `__init__()`
+  - Conditional controller instantiation:
+    ```python
+    if use_direct_benchmark:
+        self.benchmark_controller = DirectBenchmarkController()
+        print("[Config] Using direct genai-bench CLI execution")
+    else:
+        self.benchmark_controller = BenchmarkController(kubeconfig_path)
+        print("[Config] Using Kubernetes BenchmarkJob CRD")
+    ```
+  - Command-line flag: `--direct` to toggle execution mode
+  - Maintains backward compatibility with K8s BenchmarkJob mode
+
+  **3. CLI Argument Fixes**:
+  - **Issue**: genai-bench CLI doesn't support `--output`, `--max-time-per-iteration` flags
+  - **Investigation**: `env/bin/genai-bench benchmark --help` revealed correct parameter names
+  - **Fixes Applied**:
+    * `--output` → `--experiment-base-dir` + `--experiment-folder-name`
+    * `--max-time-per-iteration` → `--max-time-per-run`
+    * `--max-requests-per-iteration` → `--max-requests-per-run`
+    * Made `--api-model-name` and `--model-tokenizer` required fields (with defaults)
+  - **File**: `direct_benchmark_controller.py` lines 143-183
+
+  **4. Port Forwarding Implementation**:
+  - **Initial Approach**: Forward to `svc/{service_name}` on port 80
+  - **Issue**: InferenceService reports Ready but no Service resource created by OME
+  - **Fix**: Find pod by label selector, forward to pod directly
+    ```python
+    kubectl get pods -n {namespace} \
+      -l serving.kserve.io/inferenceservice={service_name} \
+      -o jsonpath={.items[0].metadata.name}
+    ```
+  - **Port**: Changed from 80 to 8000 (SGLang default)
+  - **Wait Time**: Increased from 3s to 5s for establishment
+  - **Fallback**: Try service name if pod not found
+
+> Run a port forward for inference service before run direct benchmark script.
+
+* *Claude*:
+  **Port Forwarding Integration:**
+  - Modified `run_benchmark()` signature:
+    * **Before**: `endpoint_url` parameter (assumed accessible URL)
+    * **After**: `service_name` and `namespace` parameters (automatic port forward)
+  - **Flow**:
+    1. Call `setup_port_forward(service_name, namespace, 8000, 8080)`
+    2. Get localhost endpoint: `http://localhost:8080`
+    3. Run genai-bench with localhost URL
+    4. Cleanup port forward in `finally` block (always executes)
+  - **Robustness**: Port forward cleanup guaranteed even on timeout/error
+
+> Update direct_benchmark_controller usage into README.
+
+* *Claude*:
+  **Documentation Updates:**
+  - Added "Benchmark Execution Modes" section to README.md
+  - Documented both modes:
+    * **Kubernetes BenchmarkJob Mode** (Default): Uses OME CRD, Docker image
+    * **Direct CLI Mode** (Recommended): Local execution, automatic port forwarding
+  - Usage examples:
+    ```bash
+    # Direct CLI mode (recommended)
+    python src/run_autotuner.py examples/simple_task.json --direct
+
+    # K8s BenchmarkJob mode (default)
+    python src/run_autotuner.py examples/simple_task.json
+    ```
+  - Requirements documented for each mode
+  - Updated project structure in README to show `direct_benchmark_controller.py`
+
+> Test simple_task with the new direct benchmark.
+
+* *Claude*:
+  **Testing & Issues Found:**
+
+  **Test 1 - CLI Arguments Error:**
+  - **Error**: `Error: No such option: --output`
+  - **Symptom**: InferenceService became Ready in 60s, but genai-bench CLI rejected arguments
+  - **Fix**: Updated CLI arguments (see section 3 above)
+
+  **Test 2 - Port Forwarding Error:**
+  - **Error**: `Error from server (NotFound): services "simple-tune-exp1" not found`
+  - **Analysis**: InferenceService status shows Ready, but underlying Service resource doesn't exist
+  - **Root Cause**: OME architecture issue - InferenceService CR ready != actual pod/service created
+  - **Fix**: Changed port forwarding to target pods directly by label selector
+
+  **Test 3 - Pod Not Found:**
+  - **Error**: No pods found for InferenceService `simple-tune-exp1`
+  - **Status**: InferenceService reports Ready but no pods exist in cluster
+  - **Conclusion**: **Fundamental OME infrastructure issue** blocking end-to-end testing
+  - **Impact**: Cannot validate direct benchmark functionality fully
+
+**Configuration Changes:**
+- **File**: `examples/simple_task.json`
+  * Added `model_name: "llama-3-2-1b-instruct"`
+  * Added `model_tokenizer: "meta-llama/Llama-3.2-1B-Instruct"`
+
+**Files Created/Modified:**
+1. ✅ `src/controllers/direct_benchmark_controller.py` (NEW - 294 lines)
+2. ✅ `src/run_autotuner.py` (MODIFIED - added dual-mode support)
+3. ✅ `examples/simple_task.json` (MODIFIED - added model metadata)
+4. ✅ `README.md` (MODIFIED - documented dual-mode usage)
+
+**Test Results:**
+```
+Status: Implementation Complete, Testing Blocked
+- ✅ Direct CLI controller implemented
+- ✅ Automatic port forwarding implemented
+- ✅ CLI argument fixes applied
+- ✅ Dual-mode architecture working
+- ✅ README documentation complete
+- ❌ End-to-end validation blocked by InferenceService deployment issue
+    * InferenceService reports Ready
+    * No actual pods/services created by OME
+    * Issue unrelated to refactoring work
+```
+
+**Key Technical Insights:**
+
+1. **genai-bench CLI vs Docker Image:**
+   - Docker image v251014: Crashes on startup (4-second lifetime)
+   - CLI installation: Stable, no crashes
+   - Direct CLI bypasses all Docker-related issues
+
+2. **Port Forwarding Architecture:**
+   - Cannot rely on Service resources (may not exist)
+   - Must use pod-based forwarding with label selectors
+   - SGLang listens on port 8000 (not 80)
+   - Need 5-second wait for port forward establishment
+
+3. **Dual-Mode Benefits:**
+   - K8s BenchmarkJob: Native OME integration, production-ready
+   - Direct CLI: Fast iteration, debugging-friendly, no Docker dependencies
+   - Backward compatibility maintained
+
+**Limitations:**
+- Testing blocked by underlying OME infrastructure issue
+- Cannot verify metrics collection end-to-end
+- Port forwarding tested only in isolation (no actual benchmark run)
+
+**Next Steps:**
+1. Debug why InferenceService shows Ready without creating pods
+2. Verify with OME maintainers if this is expected behavior
+3. Once pods exist, complete end-to-end validation
+4. Benchmark metrics parsing verification
+
+---

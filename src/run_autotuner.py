@@ -17,20 +17,30 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from controllers.ome_controller import OMEController
 from controllers.benchmark_controller import BenchmarkController
+from controllers.direct_benchmark_controller import DirectBenchmarkController
 from utils.optimizer import generate_parameter_grid, calculate_objective_score
 
 
 class AutotunerOrchestrator:
     """Main orchestrator for the autotuning process."""
 
-    def __init__(self, kubeconfig_path: str = None):
+    def __init__(self, kubeconfig_path: str = None, use_direct_benchmark: bool = False):
         """Initialize the orchestrator.
 
         Args:
             kubeconfig_path: Path to kubeconfig file
+            use_direct_benchmark: If True, use direct genai-bench CLI instead of K8s BenchmarkJob
         """
         self.ome_controller = OMEController(kubeconfig_path)
-        self.benchmark_controller = BenchmarkController(kubeconfig_path)
+        self.use_direct_benchmark = use_direct_benchmark
+
+        if use_direct_benchmark:
+            self.benchmark_controller = DirectBenchmarkController()
+            print("[Config] Using direct genai-bench CLI execution")
+        else:
+            self.benchmark_controller = BenchmarkController(kubeconfig_path)
+            print("[Config] Using Kubernetes BenchmarkJob CRD")
+
         self.results = []
 
     def load_task(self, task_file: Path) -> Dict[str, Any]:
@@ -106,41 +116,66 @@ class AutotunerOrchestrator:
 
         # Step 3: Run benchmark
         print(f"\n[Step 3/4] Running benchmark...")
-        benchmark_name = self.benchmark_controller.create_benchmark_job(
-            task_name=task_name,
-            experiment_id=experiment_id,
-            namespace=namespace,
-            isvc_name=isvc_name,
-            benchmark_config=task["benchmark"]
-        )
 
-        if not benchmark_name:
-            print("Failed to create BenchmarkJob")
-            self.cleanup_experiment(isvc_name, None, namespace)
-            return experiment_result
+        if self.use_direct_benchmark:
+            # Direct CLI execution with automatic port forwarding
+            metrics = self.benchmark_controller.run_benchmark(
+                task_name=task_name,
+                experiment_id=experiment_id,
+                service_name=isvc_name,
+                namespace=namespace,
+                benchmark_config=task["benchmark"],
+                timeout=timeout
+            )
+            benchmark_name = None  # No K8s resource to track
 
-        # Wait for benchmark to complete
-        if not self.benchmark_controller.wait_for_completion(
-            benchmark_name, namespace, timeout=timeout
-        ):
-            print("Benchmark did not complete in time")
-            self.cleanup_experiment(isvc_name, benchmark_name, namespace)
-            return experiment_result
-
-        # Step 4: Collect results
-        print(f"\n[Step 4/4] Collecting results...")
-        metrics = self.benchmark_controller.get_benchmark_results(
-            benchmark_name, namespace
-        )
-
-        if metrics:
-            experiment_result["status"] = "success"
-            experiment_result["metrics"] = metrics
-            score = calculate_objective_score(metrics, task["optimization"]["objective"])
-            experiment_result["objective_score"] = score
-            print(f"Experiment {experiment_id} completed. Score: {score}")
+            # Step 4: Process results
+            print(f"\n[Step 4/4] Processing results...")
+            if metrics:
+                experiment_result["status"] = "success"
+                experiment_result["metrics"] = metrics
+                score = calculate_objective_score(metrics, task["optimization"]["objective"])
+                experiment_result["objective_score"] = score
+                print(f"Experiment {experiment_id} completed. Score: {score}")
+            else:
+                print("Failed to retrieve benchmark results")
         else:
-            print("Failed to retrieve benchmark results")
+            # K8s BenchmarkJob execution
+            benchmark_name = self.benchmark_controller.create_benchmark_job(
+                task_name=task_name,
+                experiment_id=experiment_id,
+                namespace=namespace,
+                isvc_name=isvc_name,
+                benchmark_config=task["benchmark"]
+            )
+
+            if not benchmark_name:
+                print("Failed to create BenchmarkJob")
+                self.cleanup_experiment(isvc_name, None, namespace)
+                return experiment_result
+
+            # Wait for benchmark to complete
+            if not self.benchmark_controller.wait_for_completion(
+                benchmark_name, namespace, timeout=timeout
+            ):
+                print("Benchmark did not complete in time")
+                self.cleanup_experiment(isvc_name, benchmark_name, namespace)
+                return experiment_result
+
+            # Step 4: Collect results
+            print(f"\n[Step 4/4] Collecting results...")
+            metrics = self.benchmark_controller.get_benchmark_results(
+                benchmark_name, namespace
+            )
+
+            if metrics:
+                experiment_result["status"] = "success"
+                experiment_result["metrics"] = metrics
+                score = calculate_objective_score(metrics, task["optimization"]["objective"])
+                experiment_result["objective_score"] = score
+                print(f"Experiment {experiment_id} completed. Score: {score}")
+            else:
+                print("Failed to retrieve benchmark results")
 
         # Cleanup
         print(f"\n[Cleanup] Removing experiment resources...")
@@ -152,7 +187,8 @@ class AutotunerOrchestrator:
         self,
         isvc_name: str,
         benchmark_name: str,
-        namespace: str
+        namespace: str,
+        experiment_id: int = None
     ):
         """Clean up experiment resources.
 
@@ -160,9 +196,16 @@ class AutotunerOrchestrator:
             isvc_name: InferenceService name
             benchmark_name: BenchmarkJob name (can be None)
             namespace: K8s namespace
+            experiment_id: Experiment ID (for direct benchmark cleanup)
         """
-        if benchmark_name:
+        if self.use_direct_benchmark and experiment_id:
+            self.benchmark_controller.cleanup_results(
+                task_name=isvc_name.rsplit('-exp', 1)[0],
+                experiment_id=experiment_id
+            )
+        elif benchmark_name:
             self.benchmark_controller.delete_benchmark_job(benchmark_name, namespace)
+
         if isvc_name:
             self.ome_controller.delete_inference_service(isvc_name, namespace)
 
@@ -227,7 +270,8 @@ class AutotunerOrchestrator:
 def main():
     """Main entry point."""
     if len(sys.argv) < 2:
-        print("Usage: python run_autotuner.py <task_json_file> [kubeconfig_path]")
+        print("Usage: python run_autotuner.py <task_json_file> [kubeconfig_path] [--direct]")
+        print("  --direct: Use direct genai-bench CLI instead of K8s BenchmarkJob")
         sys.exit(1)
 
     task_file = Path(sys.argv[1])
@@ -235,10 +279,17 @@ def main():
         print(f"Error: Task file not found: {task_file}")
         sys.exit(1)
 
-    kubeconfig_path = sys.argv[2] if len(sys.argv) > 2 else None
+    kubeconfig_path = None
+    use_direct_benchmark = False
+
+    for arg in sys.argv[2:]:
+        if arg == "--direct":
+            use_direct_benchmark = True
+        else:
+            kubeconfig_path = arg
 
     # Run autotuning
-    orchestrator = AutotunerOrchestrator(kubeconfig_path)
+    orchestrator = AutotunerOrchestrator(kubeconfig_path, use_direct_benchmark)
     summary = orchestrator.run_task(task_file)
 
     # Save results
