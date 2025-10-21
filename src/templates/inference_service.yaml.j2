@@ -1,0 +1,43 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ namespace }}
+---
+apiVersion: ome.io/v1beta1
+kind: InferenceService
+metadata:
+  name: {{ isvc_name }}
+  namespace: {{ namespace }}
+  labels:
+    autotuner.io/task: "{{ task_name }}"
+    autotuner.io/experiment-id: "{{ experiment_id }}"
+spec:
+  model:
+    name: {{ model_name }}
+  runtime:
+    name: {{ runtime_name }}
+  engine:
+    minReplicas: 1
+    maxReplicas: 1
+    runner:
+      name: ome-container
+      command:
+        - python3
+        - -m
+        - sglang.launch_server
+      args:
+        - --host=0.0.0.0
+        - --port=8080
+        - --enable-metrics
+        - --log-requests
+        - --model-path
+        - $(MODEL_PATH)
+        - --tp-size
+        - "{{ tp_size }}"
+        - --mem-frac
+        - "{{ mem_frac }}"{% if max_total_tokens %}
+        - --max-total-tokens
+        - "{{ max_total_tokens }}"{% endif %}{% if schedule_policy %}
+        - --schedule-policy
+        - "{{ schedule_policy }}"{% endif %}

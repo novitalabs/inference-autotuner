@@ -1,0 +1,36 @@
+{
+  "task_name": "simple-tune",
+  "total_experiments": 3,
+  "successful_experiments": 0,
+  "elapsed_time": 210.6004810333252,
+  "best_result": null,
+  "all_results": [
+    {
+      "experiment_id": 1,
+      "parameters": {
+        "tp_size": 1,
+        "mem_frac": 0.8
+      },
+      "status": "failed",
+      "metrics": null
+    },
+    {
+      "experiment_id": 2,
+      "parameters": {
+        "tp_size": 1,
+        "mem_frac": 0.85
+      },
+      "status": "failed",
+      "metrics": null
+    },
+    {
+      "experiment_id": 3,
+      "parameters": {
+        "tp_size": 1,
+        "mem_frac": 0.9
+      },
+      "status": "failed",
+      "metrics": null
+    }
+  ]
+}

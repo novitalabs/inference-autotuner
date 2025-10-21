@@ -1,0 +1,35 @@
+{
+  "task_name": "simple-tune",
+  "description": "Simple prototype test with 2 parameter combinations",
+  "model": {
+    "name": "llama-3-2-1b-instruct",
+    "namespace": "autotuner"
+  },
+  "base_runtime": "llama-3-2-1b-instruct-rt",
+  "parameters": {
+    "tp_size": {
+      "type": "choice",
+      "values": [1]
+    },
+    "mem_frac": {
+      "type": "choice",
+      "values": [0.8, 0.85, 0.9]
+    }
+  },
+  "optimization": {
+    "strategy": "grid_search",
+    "objective": "minimize_latency",
+    "max_iterations": 3,
+    "timeout_per_iteration": 600
+  },
+  "benchmark": {
+    "task": "text-to-text",
+    "traffic_scenarios": ["D(100,100)"],
+    "num_concurrency": [1, 4],
+    "max_time_per_iteration": 10,
+    "max_requests_per_iteration": 50,
+    "additional_params": {
+      "temperature": "0.0"
+    }
+  }
+}

@@ -1,0 +1,33 @@
+---
+apiVersion: ome.io/v1beta1
+kind: BenchmarkJob
+metadata:
+  name: {{ benchmark_name }}
+  namespace: {{ namespace }}
+  labels:
+    autotuner.io/task: "{{ task_name }}"
+    autotuner.io/experiment-id: "{{ experiment_id }}"
+spec:
+  podOverride:
+    image: "ghcr.io/moirai-internal/genai-bench:v0.0.2"
+  endpoint:
+    inferenceService:
+      name: {{ isvc_name }}
+      namespace: {{ namespace }}
+  task: {{ task_type }}
+  trafficScenarios:
+{% for scenario in traffic_scenarios %}
+    - "{{ scenario }}"
+{% endfor %}
+  numConcurrency:
+{% for concurrency in num_concurrency %}
+    - {{ concurrency }}
+{% endfor %}
+  maxTimePerIteration: {{ max_time_per_iteration }}
+  maxRequestsPerIteration: {{ max_requests_per_iteration }}
+  additionalRequestParams:
+{% for key, value in additional_params.items() %}
+    {{ key }}: "{{ value }}"
+{% endfor %}
+  outputLocation:
+    storageUri: "pvc://benchmark-results-pvc/{{ benchmark_name }}"

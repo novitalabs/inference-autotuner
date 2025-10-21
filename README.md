@@ -27,19 +27,111 @@ Automated parameter tuning for LLM inference engines using OME and genai-bench.
 
 ## Prerequisites
 
-1. **Kubernetes cluster** with OME installed
-2. **kubectl** configured to access the cluster
-3. **Python 3.8+**
-4. **Base ServingRuntime** created in the cluster
+### Environment Requirements
+
+1. **Kubernetes cluster** (v1.28+) with OME installed
+   - Tested on Minikube v1.34.0
+   - Single-node or multi-node cluster
+
+2. **OME Operator** (Open Model Engine)
+   - Version: v0.1.3 or later
+   - Installed in `ome` namespace
+   - All CRDs must be present: `inferenceservices`, `benchmarkjobs`, `clusterbasemodels`, `clusterservingruntimes`
+
+3. **kubectl** configured to access the cluster
+
+4. **Python 3.8+** with pip
+
+5. **Model and Runtime Resources**
+   - At least one `ClusterBaseModel` available
+   - At least one `ClusterServingRuntime` configured
+   - Example: `llama-3-2-1b-instruct` model with `llama-3-2-1b-instruct-rt` runtime
+
+### Environment Verification
+
+Run these commands to verify your environment:
+
+```bash
+# Check Kubernetes connection
+kubectl cluster-info
+
+# Check OME installation
+kubectl get pods -n ome
+kubectl get crd | grep ome.io
+
+# Check available models and runtimes
+kubectl get clusterbasemodels
+kubectl get clusterservingruntimes
+
+# Verify resources
+kubectl describe node | grep -A 5 "Allocated resources"
+```
+
+Expected output:
+- OME controller pods running
+- CRDs: `inferenceservices.ome.io`, `benchmarkjobs.ome.io`, etc.
+- At least one model in Ready state
+- At least one runtime available
 
 ## Installation
 
-```bash
-# Install dependencies
-pip install -r requirements.txt
+### 1. Clone Repository and Submodules
 
-# Initialize submodules (if not already done)
+```bash
+git clone <repository-url>
+cd inference-autotuner
+
+# Initialize submodules
 git submodule update --init --recursive
+```
+
+### 2. Install Python Dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+Required packages:
+- `kubernetes>=28.1.0` - K8s Python client
+- `pyyaml>=6.0` - YAML parsing
+- `jinja2>=3.1.0` - Template rendering
+
+### 3. Create Required Resources
+
+#### a) Create Namespace
+
+```bash
+kubectl create namespace autotuner
+```
+
+#### b) Create PersistentVolumeClaim for Benchmark Results
+
+```bash
+kubectl apply -f config/benchmark-pvc.yaml
+```
+
+This creates a 1Gi PVC named `benchmark-results-pvc` where benchmark results will be stored.
+
+### 4. Configure Task JSON
+
+Update `examples/simple_task.json` or `examples/tuning_task.json` with:
+- Correct model name (must match a `ClusterBaseModel`)
+- Correct runtime name (must match a `ClusterServingRuntime`)
+- Parameters appropriate for your hardware (e.g., `tp_size` limited by GPU count)
+
+Example:
+```json
+{
+  "model": {
+    "name": "llama-3-2-1b-instruct",  // Must exist as ClusterBaseModel
+    "namespace": "autotuner"
+  },
+  "base_runtime": "llama-3-2-1b-instruct-rt",  // Must exist as ClusterServingRuntime
+  "parameters": {
+    "tp_size": {"type": "choice", "values": [1]},  // Adjust based on GPU count
+    "mem_frac": {"type": "choice", "values": [0.8, 0.85, 0.9]}
+  }
+}
 ```
 
 ## Usage
@@ -152,6 +244,200 @@ Currently supported:
 - Sequential execution (no parallel experiments)
 - Basic error handling
 - Simplified metric extraction
+
+## Troubleshooting
+
+### Common Issues and Solutions
+
+#### 1. InferenceService Creation Fails: "cannot unmarshal number into Go struct field"
+
+**Error:**
+```
+cannot unmarshal number into Go struct field ObjectMeta.labels of type string
+```
+
+**Cause:** Label values in Kubernetes must be strings, but numeric values were provided.
+
+**Solution:** Already fixed in templates. Labels are now quoted:
+```yaml
+labels:
+  autotuner.io/experiment-id: "{{ experiment_id }}"  # Quoted
+```
+
+#### 2. Deployment Fails: "spec.template.spec.containers[0].name: Required value"
+
+**Error:**
+```
+spec.template.spec.containers[0].name: Required value
+```
+
+**Cause:** Container name was missing in the runner specification.
+
+**Solution:** Already fixed. Template now includes:
+```yaml
+runner:
+  name: ome-container  # Required field
+```
+
+#### 3. SGLang Fails: "Can't load the configuration of '$MODEL_PATH'"
+
+**Error:**
+```
+OSError: Can't load the configuration of '$MODEL_PATH'
+```
+
+**Cause:** Environment variable not being expanded in the args list.
+
+**Solution:** Already fixed. Template uses K8s env var syntax:
+```yaml
+args:
+  - --model-path
+  - $(MODEL_PATH)  # Proper K8s env var expansion
+```
+
+#### 4. BenchmarkJob Creation Fails: "spec.outputLocation: Required value"
+
+**Error:**
+```
+spec.outputLocation: Required value
+```
+
+**Cause:** OME BenchmarkJob CRD requires an output storage location.
+
+**Solution:** Already fixed. Template includes:
+```yaml
+outputLocation:
+  storageUri: "pvc://benchmark-results-pvc/{{ benchmark_name }}"
+```
+
+Make sure the PVC exists:
+```bash
+kubectl apply -f config/benchmark-pvc.yaml
+```
+
+#### 5. BenchmarkJob Fails: "unknown storage type for URI: local:///"
+
+**Error:**
+```
+unknown storage type for URI: local:///tmp/...
+```
+
+**Cause:** OME only supports `pvc://` (Persistent Volume Claims) and `oci://` (Object Storage).
+
+**Solution:** Use PVC storage (already configured):
+```bash
+# Create PVC first
+kubectl apply -f config/benchmark-pvc.yaml
+
+# Template automatically uses pvc://benchmark-results-pvc/
+```
+
+#### 6. InferenceService Not Becoming Ready
+
+**Symptoms:**
+- InferenceService shows `Ready=False`
+- Status: "ComponentNotReady: Target service not ready for ingress creation"
+
+**Debugging Steps:**
+```bash
+# Check pod status
+kubectl get pods -n autotuner
+
+# Check pod logs
+kubectl logs <pod-name> -n autotuner --tail=50
+
+# Check InferenceService events
+kubectl describe inferenceservice <name> -n autotuner
+```
+
+**Common Causes:**
+- Model not found or not ready
+- Runtime mismatch with model
+- Insufficient GPU resources
+- Container image pull errors
+
+**Typical Wait Time:** 60-90 seconds for model loading and CUDA graph capture
+
+#### 7. Wrong Model or Runtime Name
+
+**Symptoms:**
+- InferenceService fails to create
+- Error about model or runtime not found
+
+**Solution:**
+```bash
+# List available models
+kubectl get clusterbasemodels
+
+# List available runtimes
+kubectl get clusterservingruntimes
+
+# Update examples/simple_task.json with correct names
+```
+
+#### 8. BenchmarkJob Stays in "Running" Status
+
+**Symptoms:**
+- BenchmarkJob doesn't complete
+- No error messages
+
+**Debugging:**
+```bash
+# Check benchmark pod logs
+kubectl get pods -n autotuner | grep bench
+kubectl logs <benchmark-pod> -n autotuner
+
+# Check BenchmarkJob status
+kubectl describe benchmarkjob <name> -n autotuner
+```
+
+**Common Causes:**
+- InferenceService endpoint not reachable
+- Traffic scenarios too demanding
+- Timeout settings too low
+
+### Monitoring Tips
+
+**Watch resources in real-time:**
+```bash
+# All resources in autotuner namespace
+watch kubectl get inferenceservices,benchmarkjobs,pods -n autotuner
+
+# Just InferenceServices
+kubectl get inferenceservices -n autotuner -w
+
+# Pod logs
+kubectl logs -f <pod-name> -n autotuner
+```
+
+**Check OME controller logs:**
+```bash
+kubectl logs -n ome deployment/ome-controller-manager --tail=100
+```
+
+### Performance Tips
+
+1. **Reduce timeout values** for faster iteration during development:
+   ```json
+   "optimization": {
+     "timeout_per_iteration": 300  // 5 minutes instead of 10
+   }
+   ```
+
+2. **Use smaller benchmark workloads** for testing:
+   ```json
+   "benchmark": {
+     "traffic_scenarios": ["D(100,100)"],  // Lighter load
+     "max_requests_per_iteration": 50      // Fewer requests
+   }
+   ```
+
+3. **Limit parameter grid** for initial testing:
+   ```json
+   "parameters": {
+     "mem_frac": {"type": "choice", "values": [0.85, 0.9]}  // Just 2 values
+   }
+   ```
 
 ## Next Steps
 
