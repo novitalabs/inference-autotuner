@@ -7,7 +7,7 @@ Manages BenchmarkJob resources and collects metrics.
 import time
 import yaml
 from pathlib import Path
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional
 from jinja2 import Template
 from kubernetes import client, config
 from kubernetes.client.rest import ApiException
@@ -131,21 +131,18 @@ class BenchmarkController:
                     name=benchmark_name
                 )
 
-                # Check status conditions
+                # Check status state
                 status = job.get("status", {})
-                conditions = status.get("conditions", [])
+                state = status.get("state", "")
 
-                for condition in conditions:
-                    if condition.get("type") == "Complete":
-                        if condition.get("status") == "True":
-                            print(f"BenchmarkJob '{benchmark_name}' completed successfully")
-                            return True
-                    elif condition.get("type") == "Failed":
-                        if condition.get("status") == "True":
-                            reason = condition.get("reason", "Unknown")
-                            message = condition.get("message", "No details")
-                            print(f"BenchmarkJob failed - {reason}: {message}")
-                            return False
+                # Check for completion
+                if state == "Complete":
+                    print(f"BenchmarkJob '{benchmark_name}' completed successfully")
+                    return True
+                elif state == "Failed":
+                    failure_message = status.get("failureMessage", "No details")
+                    print(f"BenchmarkJob '{benchmark_name}' failed: {failure_message}")
+                    return False
 
                 elapsed = int(time.time() - start_time)
                 print(f"Waiting for BenchmarkJob '{benchmark_name}' to complete... ({elapsed}s)")

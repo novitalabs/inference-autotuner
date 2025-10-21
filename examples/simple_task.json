@@ -20,7 +20,7 @@
     "strategy": "grid_search",
     "objective": "minimize_latency",
     "max_iterations": 3,
-    "timeout_per_iteration": 600
+    "timeout_per_iteration": 1200
   },
   "benchmark": {
     "task": "text-to-text",
