@@ -1,0 +1,241 @@
+
+* Plan an LLM inference engine parameters autotuning project.
+  * Movition: Optimize the performance of LLM inference engines by automatically tuning parameters for a specific model.
+  * Requirements:
+    * LLM deployment should use sglang's [ome](https://github.com/sgl-project/ome/).
+    * Benchmark metrics components should be based on [genai-bench](https://github.com/sgl-project/genai-bench).
+    * A web frontend is required to collect task input arguments and show the real-time status of tasks.
+
+  The current target is prototyping this project. Tell the architecture design firstly.
+
+* *Claude*:
+  Plan an LLM inference engine parameters autotuning project.
+  * Movition: Optimize the performance of LLM inference engines by automatically tuning parameters for a specific model.
+  * Requirements:
+      * LLM deployment should use sglang's [ome](https://github.com/sgl-project/ome/).
+      * Benchmark metrics components should be based on [genai-bench](https://github.com/sgl-project/genai-bench).
+      * A web frontend is required to collect task input arguments and show the real-time status of tasks.
+
+  The current target is prototyping this project. Tell the architecture design firstly. 
+  ⎿  ⧉ Selected 8 lines from prompts.md in Visual Studio Code
+
+  ● I'll help you design the architecture for this LLM inference engine autotuning project. Let me first research the key components (ome and genai-bench) to understand their
+  capabilities, then propose a comprehensive architecture.
+
+  ● Fetch(https://github.com/sgl-project/ome)
+  ⎿  Error: Claude Code is unable to fetch from github.com
+
+  ● Fetch(https://github.com/sgl-project/genai-bench)
+  ⎿  Error: Claude Code is unable to fetch from github.com
+
+  ● Let me search for documentation about these projects:
+
+  ● Web Search("sglang ome LLM deployment system documentation")
+  ⎿  Did 1 search in 26s                                                                                                                                                      
+
+  ● Web Search("genai-bench sglang benchmarking metrics API")
+  ⎿  Did 1 search in 28s                                                                                                                                                      
+
+  ● Based on my research, here's a comprehensive architecture design for your LLM inference engine parameters autotuning project:
+
+  Architecture Design
+
+  System Overview
+
+  The autotuning system follows a multi-tier architecture with clear separation of concerns:
+
+  ```
+  ┌─────────────────────────────────────────────────────────────┐
+  │                   Web Frontend (React/Vue)                  │
+  │ - Task Configuration UI                                     │
+  │ - Real-time Status Dashboard                                │
+  │ - Visualization of Metrics & Results                        │
+  └──────────────────────┬──────────────────────────────────────┘
+                         │ REST/WebSocket API
+  ┌──────────────────────▼──────────────────────────────────────┐
+  │             Backend Orchestrator (FastAPI/Flask)            │
+  │ - Task Management & Scheduling                              │
+  │ - Parameter Space Definition                                │
+  │ - Optimization Algorithm (Bayesian Opt/Grid Search)         │
+  │ - Results Storage & Analysis                                │
+  └─────┬────────────────────────────────┬──────────────────────┘
+        │                                │
+        │ Deploy/Configure               │ Trigger Benchmarks
+        │                                │
+  ┌─────▼────────────────┐      ┌────────▼──────────────────────┐
+  │   OME Deployment     │      │   Benchmarking Engine         │
+  │   Manager            │      │   (genai-bench wrapper)       │
+  │                      │      │                               │
+  │ - Model deployment   │      │ - Execute benchmark runs      │
+  │ - Runtime config     │      │ - Collect metrics             │
+  │ - Parameter updates  │      │ - Prometheus integration      │
+  └─────┬────────────────┘      └────────┬──────────────────────┘
+        │                                │
+        │ K8s Resources                  │ HTTP/gRPC
+        │                                │
+  ┌─────▼────────────────────────────────▼───────────────────────┐
+  │              Kubernetes Cluster (OME Operator)               │
+  │  ┌──────────────────────────────────────────────────┐        │
+  │  │  SGLang Runtime Instances (with different params)│        │
+  │  │  - Tensor parallelism                            │        │
+  │  │  - Pipeline parallelism                          │        │
+  │  │  - Memory configs                                │        │
+  │  │  - Batch sizes                                   │        │
+  │  └──────────────────────────────────────────────────┘        │
+  └──────────────────────────────────────────────────────────────┘
+  ```
+
+  Core Components
+
+  1. Web Frontend
+
+  - Technology: React/Vue.js with WebSocket support
+  - Responsibilities:
+      - Task configuration form (model selection, parameter ranges, optimization strategy)
+      - Real-time task status monitoring (pending, running, completed, failed)
+      - Live metrics visualization (latency, throughput, TPOT charts)
+      - Historical results comparison and analysis
+      - Parameter recommendation display
+
+  2. Backend Orchestrator (Core Intelligence)
+
+  - Technology: Python (FastAPI for async support)
+  - Sub-components:
+
+  - a) Task Manager
+      - Accept and validate tuning tasks from frontend
+      - Manage task lifecycle (queuing, execution, completion)
+      - Persist task configurations and results to database
+
+  b) Parameter Optimizer
+      - Define search space for tunable parameters:
+          - SGLang runtime params (batch size, memory pool, scheduling policies)
+      - Tensor/pipeline parallelism degrees
+      - KV cache configurations
+      - Implement optimization strategies:
+          - Bayesian Optimization (for sample-efficient search)
+      - Grid Search (for exhaustive search)
+      - Random Search (baseline)
+      - Track best configurations and convergence
+
+  c) Deployment Controller
+      - Interface with OME Kubernetes operator
+      - Create/update SGLang ServingRuntime configurations
+      - Manage model deployments with different parameter sets
+      - Handle cleanup of test deployments
+
+  d) Benchmark Coordinator
+      - Wrap genai-bench CLI/API
+      - Define benchmark workloads (traffic patterns, concurrency levels)
+      - Execute benchmarks against deployed models
+      - Parse and normalize metrics
+
+  e) Results Analyzer
+      - Aggregate metrics across multiple runs
+      - Calculate objective functions (weighted combination of latency, throughput, cost)
+      - Store results in time-series database
+      - Generate recommendations
+
+  3. OME Deployment Layer
+
+  - Technology: OME Kubernetes Operator
+  - Responsibilities:
+      - Abstract LLM deployment complexity
+      - Manage SGLang runtime configurations
+      - Handle model loading and resource allocation
+      - Expose inference endpoints
+
+  Key Tunable Parameters (exposed via OME ServingRuntime):
+  # Example parameters to tune
+  - tp_size: Tensor parallelism degree
+  - dp_size: Data parallelism degree
+  - max_batch_size: Maximum batch size
+  - mem_fraction_static: Memory fraction for KV cache
+  - schedule_policy: Scheduling algorithm
+  - chunked_prefill_size: Chunked prefill configuration
+
+  4. Benchmarking Engine
+
+  - Technology: genai-bench + custom wrapper
+  - Responsibilities:
+      - Execute standardized benchmark suites
+      - Collect token-level metrics:
+          - End-to-end latency (E2E)
+      - Time Per Output Token (TPOT)
+      - Input/output throughput
+      - Total chars per hour
+      - Integrate with SGLang's Prometheus metrics endpoint
+      - Support various traffic patterns (constant, ramping, poisson)
+
+  5. Data Storage
+
+  - Databases:
+      - PostgreSQL: Task metadata, configurations, final results
+      - InfluxDB/TimescaleDB: Time-series metrics data
+      - Redis: Task queue, real-time status cache
+
+  Data Flow
+
+  Typical Autotuning Workflow:
+
+  1. Task Submission (Frontend → Backend)
+      - User specifies: target model, parameter ranges, optimization goal, budget (time/iterations)
+      - Backend validates and creates task in database
+  2. Optimization Loop (Backend Orchestrator)
+  For iteration in budget:
+      a) Optimizer suggests next parameter configuration
+      b) Deployment Controller deploys model via OME with params
+      c) Wait for deployment ready
+      d) Benchmark Coordinator runs genai-bench suite
+      e) Collect metrics from genai-bench + Prometheus
+      f) Results Analyzer computes objective score
+      g) Optimizer updates model with new observation
+      h) Update task status via WebSocket to frontend
+  3. Results & Recommendations
+      - Identify best configuration(s)
+      - Generate deployment manifest
+      - Display Pareto frontier (latency vs throughput trade-offs)
+
+  Technology Stack Summary
+
+  | Component    | Technology Options                               |
+  |--------------|--------------------------------------------------|
+  | Frontend     | React + Ant Design/Material-UI, WebSocket client |
+  | Backend      | FastAPI (Python 3.10+)                           |
+  | Optimizer    | Optuna / Ax / scikit-optimize                    |
+  | Task Queue   | Celery + Redis                                   |
+  | Databases    | PostgreSQL + InfluxDB                            |
+  | Deployment   | OME (Kubernetes operator)                        |
+  | Inference    | SGLang runtime                                   |
+  | Benchmarking | genai-bench                                      |
+  | Monitoring   | Prometheus + Grafana                             |
+
+  Key Design Decisions
+
+  1. Asynchronous Architecture: Use async/await for non-blocking I/O during long-running deployments and benchmarks
+  2. Stateless Backend: Store all state in databases for horizontal scalability
+  3. Declarative Deployments: Leverage OME's Kubernetes-native approach for reliable model management
+  4. Pluggable Optimizers: Abstract optimization strategy to easily swap between Bayesian, genetic algorithms, etc.
+  5. Incremental Benchmarking: Start with lightweight benchmarks, progressively test promising configurations with heavier workloads
+  6. Safety Constraints: Define resource limits and timeout policies to prevent runaway experiments
+
+  ● Next Steps for Prototyping
+
+  For the prototype phase, I recommend:
+
+  1. Minimal Viable Components:
+      - Simple web UI (single page with form + status table)
+      - Basic FastAPI backend with hardcoded parameter grid
+      - Manual OME deployment (no automation initially)
+      - Direct genai-bench CLI invocation
+      - SQLite for storage
+  2. Prototype Scope:
+      - Focus on 2-3 key parameters (e.g., tp_size, max_batch_size)
+      - Single model support
+      - Grid search only (simplest optimizer)
+      - Manual trigger (no scheduling)
+  3. Validation Goals:
+      - Prove OME → SGLang → genai-bench integration works
+      - Measure overhead of deployment changes
+      - Validate metric collection pipeline
+      - Test end-to-end workflow

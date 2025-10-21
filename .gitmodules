@@ -1,0 +1,6 @@
+[submodule "third_party/ome"]
+	path = third_party/ome
+	url = https://github.com/sgl-project/ome.git
+[submodule "third_party/genai-bench"]
+	path = third_party/genai-bench
+	url = https://github.com/sgl-project/genai-bench.git
