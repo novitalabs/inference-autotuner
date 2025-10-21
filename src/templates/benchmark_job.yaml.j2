@@ -9,11 +9,18 @@ metadata:
     autotuner.io/experiment-id: "{{ experiment_id }}"
 spec:
   podOverride:
-    image: "ghcr.io/moirai-internal/genai-bench:v0.0.2"
+    image: "kllambda/genai-bench:v251014"
   endpoint:
+{% if model_tokenizer %}
+    endpoint:
+      url: "http://{{ isvc_name }}.{{ namespace }}.svc.cluster.local"
+      apiFormat: "openai"
+      modelName: "{{ model_tokenizer }}"
+{% else %}
     inferenceService:
       name: {{ isvc_name }}
       namespace: {{ namespace }}
+{% endif %}
   task: {{ task_type }}
   trafficScenarios:
 {% for scenario in traffic_scenarios %}

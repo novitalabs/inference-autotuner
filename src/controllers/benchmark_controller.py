@@ -61,6 +61,10 @@ class BenchmarkController:
         """
         benchmark_name = f"{task_name}-bench{experiment_id}"
 
+        # Debug: Check model_tokenizer value
+        model_tokenizer_value = benchmark_config.get("model_tokenizer")
+        print(f"DEBUG: model_tokenizer = '{model_tokenizer_value}' (type: {type(model_tokenizer_value).__name__}, bool: {bool(model_tokenizer_value)})")
+
         # Render template
         rendered = self.benchmark_template.render(
             benchmark_name=benchmark_name,
@@ -69,12 +73,15 @@ class BenchmarkController:
             experiment_id=experiment_id,
             isvc_name=isvc_name,
             task_type=benchmark_config.get("task", "text-to-text"),
+            model_tokenizer=model_tokenizer_value,
             traffic_scenarios=benchmark_config.get("traffic_scenarios", ["D(100,100)"]),
             num_concurrency=benchmark_config.get("num_concurrency", [1]),
             max_time_per_iteration=benchmark_config.get("max_time_per_iteration", 15),
             max_requests_per_iteration=benchmark_config.get("max_requests_per_iteration", 100),
             additional_params=benchmark_config.get("additional_params", {})
         )
+
+        print(f"DEBUG: First 600 chars of rendered YAML:\n{rendered[:600]}\n---END DEBUG---")
 
         # Parse YAML
         benchmark_resource = yaml.safe_load(rendered)

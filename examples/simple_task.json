@@ -13,7 +13,7 @@
     },
     "mem_frac": {
       "type": "choice",
-      "values": [0.8, 0.85, 0.9]
+      "values": [0.8]
     }
   },
   "optimization": {
