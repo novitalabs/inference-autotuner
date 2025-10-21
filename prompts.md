@@ -318,3 +318,90 @@
   - Uses K8s Python client to apply/delete resources
   - Monitors `status.conditions` for readiness
   - BenchmarkJob CR references the InferenceService endpoint
+
+---
+
+## Mini-milestone: Prototype Implementation
+
+> Good, that's important. Now begin prototyping this project, only includes OME & genai-bench deployment, let's define a input json file to simulate web UI input, and ignore storage.
+
+* *Claude*:
+  **Implemented Prototype Components:**
+
+  **1. Project Structure:**
+  ```
+  src/
+    ├── controllers/
+    │   ├── ome_controller.py          # OME InferenceService lifecycle management
+    │   └── benchmark_controller.py    # BenchmarkJob execution & metrics collection
+    ├── templates/
+    │   ├── inference_service.yaml.j2  # Jinja2 template for InferenceService
+    │   └── benchmark_job.yaml.j2      # Jinja2 template for BenchmarkJob
+    ├── utils/
+    │   └── optimizer.py               # Parameter grid generation & scoring
+    └── run_autotuner.py               # Main orchestrator
+  examples/
+    ├── simple_task.json               # 2x2 parameter grid (4 experiments)
+    └── tuning_task.json               # Full example with multiple parameters
+  ```
+
+  **2. Input JSON Schema:**
+  - Defines task configuration simulating web UI input
+  - Specifies: model, namespace, parameters (with types & values), optimization strategy, benchmark config
+  - Example: `{"task_name": "simple-tune", "parameters": {"tp_size": {"type": "choice", "values": [1, 2]}}}`
+
+  **3. Key Components Implemented:**
+
+  **a) OME Controller** (`ome_controller.py`):
+  - `deploy_inference_service()`: Renders Jinja2 template, creates InferenceService CR via K8s API
+  - `wait_for_ready()`: Polls `status.conditions` until Ready=True
+  - `delete_inference_service()`: Cleanup after experiment
+  - Uses K8s Python client to interact with custom resources
+
+  **b) Benchmark Controller** (`benchmark_controller.py`):
+  - `create_benchmark_job()`: Creates BenchmarkJob CR pointing to InferenceService
+  - `wait_for_completion()`: Polls until Complete=True or Failed=True
+  - `get_benchmark_results()`: Extracts metrics from `status.results`
+  - `delete_benchmark_job()`: Cleanup
+
+  **c) Optimizer Utilities** (`optimizer.py`):
+  - `generate_parameter_grid()`: Cartesian product of parameter values for grid search
+  - `calculate_objective_score()`: Extracts score from results (minimize_latency or maximize_throughput)
+
+  **d) Main Orchestrator** (`run_autotuner.py`):
+  - Loads JSON task file
+  - Generates parameter grid
+  - For each parameter combination:
+    1. Deploy InferenceService with parameters
+    2. Wait for ready
+    3. Run BenchmarkJob
+    4. Collect metrics & calculate score
+    5. Cleanup resources
+  - Reports best configuration at the end
+  - Saves results to JSON file
+
+  **4. Templates:**
+  - InferenceService template with `engine.runner.args` override for SGLang parameters
+  - BenchmarkJob template with traffic scenarios, concurrency levels, and task config
+
+  **5. Example Usage:**
+  ```bash
+  pip install -r requirements.txt
+  python src/run_autotuner.py examples/simple_task.json
+  ```
+
+  **Prototype Features:**
+  - ✅ JSON input (simulates web UI)
+  - ✅ OME InferenceService deployment with parameter overrides
+  - ✅ genai-bench BenchmarkJob integration
+  - ✅ Grid search optimization
+  - ✅ Automatic cleanup after each experiment
+  - ✅ Sequential execution (no parallel experiments in prototype)
+  - ✅ Results saved to JSON (no database)
+
+  **Limitations (by design for prototype):**
+  - No web frontend
+  - No database storage
+  - Sequential experiments only
+  - Grid search only (no Bayesian optimization)
+  - Basic error handling
