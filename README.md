@@ -1,32 +1,6 @@
 # LLM Inference Autotuner - Prototype
 
-Automated parameter tuning for LLM inference engines using OME and genai-bench.
-
-## Project Structure
-
-```
-.
-├── src/
-│   ├── controllers/
-│   │   ├── ome_controller.py                  # OME InferenceService management
-│   │   ├── benchmark_controller.py            # genai-bench BenchmarkJob management (K8s CRD)
-│   │   └── direct_benchmark_controller.py     # Direct genai-bench CLI execution
-│   ├── templates/
-│   │   ├── inference_service.yaml.j2          # InferenceService YAML template
-│   │   └── benchmark_job.yaml.j2              # BenchmarkJob YAML template
-│   ├── utils/
-│   │   └── optimizer.py                       # Parameter grid generation & scoring
-│   └── run_autotuner.py                       # Main orchestrator script
-├── examples/
-│   ├── simple_task.json                       # Simple 2x2 parameter grid
-│   └── tuning_task.json                       # Full parameter grid example
-├── third_party/
-│   ├── ome/                                   # OME submodule
-│   └── genai-bench/                           # genai-bench submodule
-├── env/                                       # Python virtual environment
-│   └── bin/genai-bench                        # genai-bench CLI executable
-└── requirements.txt
-```
+Automated parameters tuning for LLM inference engines.
 
 ## Prerequisites
 

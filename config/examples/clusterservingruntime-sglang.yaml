@@ -3,29 +3,56 @@ kind: ClusterServingRuntime
 metadata:
   name: llama-3-2-1b-instruct-rt
 spec:
-  supportedModels:
-    - llama-3-2-1b-instruct
-  engine:
-    type: sglang
-    version: "v0.4.8.post1"
-  image: "docker.io/lmsysorg/sglang:v0.4.8.post1-cu126"
-  protocol: "openai"  # OpenAI-compatible API
-  resources:
-    limits:
-      nvidia.com/gpu: 1
-      memory: 16Gi
-    requests:
-      cpu: 2
-      memory: 8Gi
-  runner:
-    command: ["python3", "-m", "sglang.launch_server"]
-    args:
-      - "--model-path"
-      - "$(MODEL_PATH)"
-      - "--host"
-      - "0.0.0.0"
-      - "--port"
-      - "8000"
-    env:
-      - name: CUDA_VISIBLE_DEVICES
-        value: "0"
+  disabled: false
+  supportedModelFormats:
+    - modelFramework:
+        name: transformers
+        version: "4.36.0"
+      modelFormat:
+        name: safetensors
+        version: "1.0.0"
+      modelArchitecture: LlamaForCausalLM
+      autoSelect: true
+      priority: 1
+  protocolVersions:
+    - openAI
+  modelSizeRange:
+    min: 1B
+    max: 3B
+  engineConfig:
+    runner:
+      name: ome-container
+      image: docker.io/lmsysorg/sglang:v0.5.2-cu126
+      command:
+        - python3
+        - -m
+        - sglang.launch_server
+      args:
+        - --host=0.0.0.0
+        - --port=8080
+        - --model-path=/mnt/data/models/llama-3.2-1b-instruct
+        - --tp-size=1
+      ports:
+        - containerPort: 8080
+          protocol: TCP
+      resources:
+        requests:
+          cpu: 2
+          memory: 8Gi
+          nvidia.com/gpu: 1
+        limits:
+          cpu: 2
+          memory: 8Gi
+          nvidia.com/gpu: 1
+      readinessProbe:
+        httpGet:
+          path: /health
+          port: 8080
+        initialDelaySeconds: 60
+        periodSeconds: 10
+      livenessProbe:
+        httpGet:
+          path: /health
+          port: 8080
+        initialDelaySeconds: 60
+        periodSeconds: 30

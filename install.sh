@@ -312,6 +312,20 @@ if [ "$SKIP_K8S" = false ]; then
                     log_info "OME CRDs already installed"
                 fi
 
+                # Install KEDA (required for OME autoscaling)
+                if ! kubectl get namespace keda &> /dev/null; then
+                    log_info "Installing KEDA (OME dependency for autoscaling)..."
+                    helm repo add kedacore https://kedacore.github.io/charts --force-update
+                    helm repo update
+                    helm install keda kedacore/keda \
+                        --namespace keda \
+                        --create-namespace \
+                        --wait --timeout=5m
+                    log_success "KEDA installed"
+                else
+                    log_info "KEDA already installed"
+                fi
+
                 # Install OME resources
                 if ! kubectl get deployment -n ome ome-controller-manager &> /dev/null; then
                     log_info "Installing OME resources..."

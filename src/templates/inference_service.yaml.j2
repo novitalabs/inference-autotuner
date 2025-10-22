@@ -15,18 +15,21 @@ metadata:
 spec:
   model:
     name: {{ model_name }}
-  runtime:
-    name: {{ runtime_name }}
-    runtimeParameters:
-      tp-size: "{{ tp_size }}"
-      mem-frac: "{{ mem_frac }}"{% if max_total_tokens %}
-      max-total-tokens: "{{ max_total_tokens }}"{% endif %}{% if schedule_policy %}
-      schedule-policy: "{{ schedule_policy }}"{% endif %}
   engine:
     minReplicas: 1
     maxReplicas: 1
-    resources:
-      limits:
-        nvidia.com/gpu: 1
-      requests:
-        nvidia.com/gpu: 1
+    containers:
+      - name: ome-container
+        args:
+          - --host=0.0.0.0
+          - --port=8080
+          - --model-path=/mnt/data/models/{{ model_name }}
+          - --tp-size={{ tp_size }}
+          - --mem-frac={{ mem_frac }}{% if max_total_tokens %}
+          - --max-total-tokens={{ max_total_tokens }}{% endif %}{% if schedule_policy %}
+          - --schedule-policy={{ schedule_policy }}{% endif %}
+        resources:
+          limits:
+            nvidia.com/gpu: {{ tp_size }}
+          requests:
+            nvidia.com/gpu: {{ tp_size }}

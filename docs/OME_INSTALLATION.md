@@ -116,7 +116,32 @@ kubectl delete validatingwebhookconfiguration cert-manager-webhook
 kubectl delete mutatingwebhookconfiguration cert-manager-webhook
 ```
 
-### Step 2: Install OME CRDs
+### Step 2: Install KEDA (Required Dependency)
+
+OME requires KEDA (Kubernetes Event-Driven Autoscaling) for InferenceService autoscaling:
+
+```bash
+# Add Helm repository
+helm repo add kedacore https://kedacore.github.io/charts
+helm repo update
+
+# Install KEDA
+helm install keda kedacore/keda \
+  --namespace keda \
+  --create-namespace \
+  --wait --timeout=5m
+```
+
+**Verify KEDA:**
+```bash
+kubectl get pods -n keda
+# Should show keda-operator and keda-metrics-apiserver pods running
+
+kubectl get crd | grep keda
+# Should show scaledobjects.keda.sh and related CRDs
+```
+
+### Step 3: Install OME CRDs
 
 ```bash
 # Install from OCI registry (recommended)
@@ -132,7 +157,7 @@ kubectl get crd | grep ome.io
 # Should show: inferenceservices, benchmarkjobs, clusterbasemodels, clusterservingruntimes, etc.
 ```
 
-### Step 3: Install OME Resources
+### Step 4: Install OME Resources
 
 ```bash
 # Install from local charts
