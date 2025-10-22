@@ -32,6 +32,7 @@ spec:
         - --port=8080
         - --model-path=/mnt/data/models/llama-3.2-1b-instruct
         - --tp-size=1
+        - --enable-metrics
       ports:
         - containerPort: 8080
           protocol: TCP
