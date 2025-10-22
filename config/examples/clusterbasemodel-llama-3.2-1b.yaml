@@ -1,0 +1,12 @@
+apiVersion: ome.io/v1beta1
+kind: ClusterBaseModel
+metadata:
+  name: llama-3-2-1b-instruct
+spec:
+  modelId: "meta-llama/Llama-3.2-1B-Instruct"
+  architecture: "LlamaForCausalLM"
+  parameters: 1000000000  # 1B parameters
+  source:
+    huggingface:
+      modelId: "meta-llama/Llama-3.2-1B-Instruct"
+      revision: "main"

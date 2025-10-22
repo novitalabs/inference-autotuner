@@ -1,0 +1,31 @@
+apiVersion: ome.io/v1beta1
+kind: ClusterServingRuntime
+metadata:
+  name: llama-3-2-1b-instruct-rt
+spec:
+  supportedModels:
+    - llama-3-2-1b-instruct
+  engine:
+    type: sglang
+    version: "v0.4.8.post1"
+  image: "docker.io/lmsysorg/sglang:v0.4.8.post1-cu126"
+  protocol: "openai"  # OpenAI-compatible API
+  resources:
+    limits:
+      nvidia.com/gpu: 1
+      memory: 16Gi
+    requests:
+      cpu: 2
+      memory: 8Gi
+  runner:
+    command: ["python3", "-m", "sglang.launch_server"]
+    args:
+      - "--model-path"
+      - "$(MODEL_PATH)"
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "8000"
+    env:
+      - name: CUDA_VISIBLE_DEVICES
+        value: "0"

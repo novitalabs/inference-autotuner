@@ -32,14 +32,18 @@ Automated parameter tuning for LLM inference engines using OME and genai-bench.
 
 ### Environment Requirements
 
-1. **Kubernetes cluster** (v1.28+) with OME installed
-   - Tested on Minikube v1.34.0
-   - Single-node or multi-node cluster
+**IMPORTANT: OME (Open Model Engine) is a required prerequisite.**
 
-2. **OME Operator** (Open Model Engine)
+1. **OME Operator** (Open Model Engine) - **REQUIRED**
    - Version: v0.1.3 or later
    - Installed in `ome` namespace
    - All CRDs must be present: `inferenceservices`, `benchmarkjobs`, `clusterbasemodels`, `clusterservingruntimes`
+   - **Installation Guide**: See [docs/OME_INSTALLATION.md](docs/OME_INSTALLATION.md) for detailed setup instructions
+
+2. **Kubernetes cluster** (v1.28+) with OME installed
+   - Tested on Minikube v1.34.0
+   - Single-node or multi-node cluster
+   - GPU support required for inference workloads
 
 3. **kubectl** configured to access the cluster
 
@@ -49,6 +53,7 @@ Automated parameter tuning for LLM inference engines using OME and genai-bench.
    - At least one `ClusterBaseModel` available
    - At least one `ClusterServingRuntime` configured
    - Example: `llama-3-2-1b-instruct` model with `llama-3-2-1b-instruct-rt` runtime
+   - Setup instructions in [docs/OME_INSTALLATION.md](docs/OME_INSTALLATION.md)
 
 ### Environment Verification
 
@@ -78,63 +83,58 @@ Expected output:
 
 ## Installation
 
-### 1. Clone Repository and Submodules
+### Quick Installation (Recommended)
+
+The installation script automatically installs all dependencies including OME:
 
 ```bash
+# Clone repository
 git clone <repository-url>
 cd inference-autotuner
 
-# Initialize submodules
-git submodule update --init --recursive
+# Run installation with OME
+./install.sh --install-ome
 ```
 
-### 2. Install Python Dependencies
+This will:
+- ✅ Install Python virtual environment and dependencies
+- ✅ Install genai-bench CLI
+- ✅ Install cert-manager (OME dependency)
+- ✅ Install OME operator with all CRDs
+- ✅ Create Kubernetes namespace and PVC
+- ✅ Verify all installations
+
+### Manual Installation
+
+If you prefer to install OME separately or already have it installed:
 
 ```bash
-pip install -r requirements.txt
+# 1. Install OME first (if not already installed)
+#    See docs/OME_INSTALLATION.md for detailed instructions
+
+# 2. Run autotuner installation
+./install.sh
 ```
 
-Required packages:
-- `kubernetes>=28.1.0` - K8s Python client
-- `pyyaml>=6.0` - YAML parsing
-- `jinja2>=3.1.0` - Template rendering
-
-### 3. Create Required Resources
-
-#### a) Create Namespace
+### Installation Options
 
 ```bash
-kubectl create namespace autotuner
+./install.sh --help              # Show all options
+./install.sh --install-ome       # Install with OME (recommended)
+./install.sh --skip-venv         # Skip Python virtual environment
+./install.sh --skip-k8s          # Skip Kubernetes resources
 ```
 
-#### b) Create PersistentVolumeClaim for Benchmark Results
+### Post-Installation
+
+After installation, create model and runtime resources:
 
 ```bash
-kubectl apply -f config/benchmark-pvc.yaml
-```
+# Apply example resources (requires model access)
+kubectl apply -f third_party/ome/config/models/meta/Llama-3.2-1B-Instruct.yaml
 
-This creates a 1Gi PVC named `benchmark-results-pvc` where benchmark results will be stored.
-
-### 4. Configure Task JSON
-
-Update `examples/simple_task.json` or `examples/tuning_task.json` with:
-- Correct model name (must match a `ClusterBaseModel`)
-- Correct runtime name (must match a `ClusterServingRuntime`)
-- Parameters appropriate for your hardware (e.g., `tp_size` limited by GPU count)
-
-Example:
-```json
-{
-  "model": {
-    "name": "llama-3-2-1b-instruct",  // Must exist as ClusterBaseModel
-    "namespace": "autotuner"
-  },
-  "base_runtime": "llama-3-2-1b-instruct-rt",  // Must exist as ClusterServingRuntime
-  "parameters": {
-    "tp_size": {"type": "choice", "values": [1]},  // Adjust based on GPU count
-    "mem_frac": {"type": "choice", "values": [0.8, 0.85, 0.9]}
-  }
-}
+# Or create your own ClusterBaseModel and ClusterServingRuntime
+# See docs/OME_INSTALLATION.md for examples
 ```
 
 ## Usage
