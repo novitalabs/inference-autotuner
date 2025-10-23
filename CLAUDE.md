@@ -81,6 +81,7 @@ Task JSON files define experiments. Key fields:
   "task_name": "unique-identifier",
   "model": {"name": "model-id", "namespace": "k8s-namespace-or-label"},
   "base_runtime": "sglang" or "vllm",
+  "runtime_image_tag": "v0.5.2-cu126",  // Optional: Docker image tag (Docker mode only)
   "parameters": {
     "tp-size": [1, 2],
     "mem-fraction-static": [0.7, 0.8, 0.9],
@@ -116,6 +117,11 @@ Task JSON files define experiments. Key fields:
 - The `--` prefix is added automatically if not present
 - All parameters are passed directly to the runtime engine
 - `additional_params` values must be correct types (float 0.0, not string "0.0")
+- **Docker mode only**: Use `runtime_image_tag` to specify Docker image version (e.g., "v0.5.2-cu126", "latest")
+  - If not specified, defaults to hardcoded version in DockerController
+  - Example: `"runtime_image_tag": "v0.5.3-cu126"` will use `lmsysorg/sglang:v0.5.3-cu126`
+  - Images are automatically pulled with progress logging if not cached locally
+  - First run with new image may take 5-10 minutes (SGLang images are ~5-10GB)
 
 ## Installation & Setup
 

@@ -105,6 +105,9 @@ class AutotunerOrchestrator:
         runtime_name = task["base_runtime"]
         timeout = task["optimization"]["timeout_per_iteration"]
 
+        # Optional: custom Docker image tag
+        image_tag = task.get("runtime_image_tag")
+
         print(f"\n{'='*80}")
         print(f"Experiment {experiment_id}")
         print(f"Parameters: {parameters}")
@@ -119,14 +122,27 @@ class AutotunerOrchestrator:
 
         # Step 1: Deploy InferenceService
         print(f"[Step 1/4] Deploying InferenceService...")
-        isvc_name = self.model_controller.deploy_inference_service(
-            task_name=task_name,
-            experiment_id=experiment_id,
-            namespace=namespace,
-            model_name=model_name,
-            runtime_name=runtime_name,
-            parameters=parameters
-        )
+
+        # Pass image_tag if deploying with DockerController
+        if hasattr(self.model_controller, 'client'):  # DockerController has 'client' attribute
+            isvc_name = self.model_controller.deploy_inference_service(
+                task_name=task_name,
+                experiment_id=experiment_id,
+                namespace=namespace,
+                model_name=model_name,
+                runtime_name=runtime_name,
+                parameters=parameters,
+                image_tag=image_tag
+            )
+        else:  # OMEController doesn't support image_tag yet
+            isvc_name = self.model_controller.deploy_inference_service(
+                task_name=task_name,
+                experiment_id=experiment_id,
+                namespace=namespace,
+                model_name=model_name,
+                runtime_name=runtime_name,
+                parameters=parameters
+            )
 
         if not isvc_name:
             print("Failed to deploy InferenceService")

@@ -54,7 +54,8 @@ class DockerController(BaseModelController):
         namespace: str,
         model_name: str,
         runtime_name: str,
-        parameters: Dict[str, Any]
+        parameters: Dict[str, Any],
+        image_tag: Optional[str] = None
     ) -> Optional[str]:
         """Deploy a model inference service using Docker.
 
@@ -65,6 +66,7 @@ class DockerController(BaseModelController):
             model_name: Model name (used to find model path)
             runtime_name: Runtime identifier (e.g., 'sglang', 'vllm')
             parameters: SGLang/runtime parameters (tp_size, mem_frac, etc.)
+            image_tag: Optional Docker image tag (e.g., 'v0.5.2-cu126')
 
         Returns:
             Container ID if successful, None otherwise
@@ -79,7 +81,7 @@ class DockerController(BaseModelController):
             print(f"[Docker] Container will attempt to use model path: {model_path}")
 
         # Determine runtime image and command based on runtime_name
-        runtime_config = self._get_runtime_config(runtime_name, parameters)
+        runtime_config = self._get_runtime_config(runtime_name, parameters, image_tag)
         if not runtime_config:
             print(f"[Docker] Unsupported runtime: {runtime_name}")
             return None
@@ -134,6 +136,9 @@ class DockerController(BaseModelController):
             if not host_port:
                 print("[Docker] No available ports in range 8000-8100")
                 return None
+
+            # Check if image exists locally, pull if not
+            self._ensure_image_available(runtime_config['image'])
 
             # Create and start container
             container = self.client.containers.run(
@@ -308,12 +313,13 @@ class DockerController(BaseModelController):
         host_port = self.containers[service_id]['host_port']
         return f"http://localhost:{host_port}"
 
-    def _get_runtime_config(self, runtime_name: str, parameters: Dict[str, Any]) -> Optional[Dict[str, str]]:
+    def _get_runtime_config(self, runtime_name: str, parameters: Dict[str, Any], image_tag: Optional[str] = None) -> Optional[Dict[str, str]]:
         """Get Docker image and command configuration for a runtime.
 
         Args:
             runtime_name: Runtime identifier
             parameters: Runtime parameters (unused, kept for compatibility)
+            image_tag: Optional Docker image tag to override default
 
         Returns:
             Dictionary with 'image' and 'command' keys, or None if unsupported
@@ -333,11 +339,97 @@ class DockerController(BaseModelController):
         }
 
         # Try exact match or prefix match
-        for key, config in runtime_configs.items():
+        config = None
+        for key, cfg in runtime_configs.items():
             if runtime_name.lower().startswith(key):
-                return config
+                config = cfg.copy()
+                break
 
-        return None
+        if not config:
+            return None
+
+        # Override image tag if provided
+        if image_tag:
+            # Extract base image name (before colon)
+            base_image = config['image'].split(':')[0]
+            config['image'] = f"{base_image}:{image_tag}"
+            print(f"[Docker] Using custom image tag: {config['image']}")
+
+        return config
+
+    def _ensure_image_available(self, image_name: str) -> bool:
+        """Ensure Docker image is available locally, pull if not.
+
+        Args:
+            image_name: Full image name with tag (e.g., 'lmsysorg/sglang:v0.5.2-cu126')
+
+        Returns:
+            True if image is available, False if pull failed
+        """
+        try:
+            # Check if image exists locally
+            self.client.images.get(image_name)
+            print(f"[Docker] Image '{image_name}' found in local cache")
+            return True
+        except docker.errors.ImageNotFound:
+            # Image not found locally, need to pull
+            print(f"[Docker] Image '{image_name}' not found locally")
+            print(f"[Docker] Pulling image (this may take several minutes)...")
+
+            try:
+                # Split image name and tag for pull API
+                if ':' in image_name:
+                    repository, tag = image_name.rsplit(':', 1)
+                else:
+                    repository = image_name
+                    tag = 'latest'
+
+                # Pull with progress tracking
+                last_status = {}
+                for line in self.client.api.pull(repository, tag=tag, stream=True, decode=True):
+                    # Each line is a dict with status, progressDetail, etc.
+                    if 'status' in line:
+                        status = line['status']
+                        layer_id = line.get('id', '')
+
+                        # Show progress for downloading/extracting layers
+                        if 'progressDetail' in line and line['progressDetail']:
+                            progress = line['progressDetail']
+                            current = progress.get('current', 0)
+                            total = progress.get('total', 0)
+
+                            if total > 0:
+                                percent = (current / total) * 100
+                                # Update status for this layer
+                                last_status[layer_id] = f"{status}: {percent:.1f}%"
+                            else:
+                                last_status[layer_id] = status
+                        else:
+                            # Status without progress (e.g., "Pull complete")
+                            if layer_id:
+                                last_status[layer_id] = status
+
+                        # Print summary of active layers periodically
+                        if layer_id and status in ['Downloading', 'Extracting']:
+                            # Count layers in each state
+                            downloading = sum(1 for s in last_status.values() if 'Downloading' in s)
+                            extracting = sum(1 for s in last_status.values() if 'Extracting' in s)
+                            complete = sum(1 for s in last_status.values() if 'complete' in s)
+
+                            # Show compact progress summary
+                            print(f"\r[Docker] Progress: {complete} complete, {downloading} downloading, {extracting} extracting", end='', flush=True)
+
+                # Final newline after progress
+                print()
+                print(f"[Docker] Successfully pulled '{image_name}'")
+                return True
+
+            except Exception as e:
+                print(f"\n[Docker] Error pulling image: {e}")
+                return False
+        except Exception as e:
+            print(f"[Docker] Error checking image: {e}")
+            return False
 
     def _select_gpus(self, num_gpus: int) -> Optional[list]:
         """Select GPU devices for the container.

@@ -2825,3 +2825,225 @@ Status: Implementation Complete, Testing Blocked
 
 ---
 
+## Mini-milestone: Custom Docker Image Tag Support
+
+> Append a field in docker task config to specify inference engine docker image tag, like `v0.5.2-cu126`
+
+<details>
+<summary>Reply</summary>
+
+* *Claude*:
+  Added support for specifying custom Docker image tags in task configuration files, enabling users to test different runtime versions without code modifications.
+
+  **Motivation:**
+  - Default image tags hardcoded in DockerController (e.g., `lmsysorg/sglang:v0.5.2-cu126`)
+  - Users need flexibility to test different SGLang/vLLM versions
+  - Version comparison experiments require easy image switching
+  - Avoiding code changes for different runtime versions
+
+  **Implementation Changes:**
+
+  **1. Enhanced DockerController** (`src/controllers/docker_controller.py`)
+
+  **Added `image_tag` parameter** (lines 50-73):
+  ```python
+  def deploy_inference_service(
+      self,
+      task_name: str,
+      experiment_id: int,
+      namespace: str,
+      model_name: str,
+      runtime_name: str,
+      parameters: Dict[str, Any],
+      image_tag: Optional[str] = None  # NEW parameter
+  ) -> Optional[str]:
+      """Deploy a model inference service using Docker.
+
+      Args:
+          ...
+          image_tag: Optional Docker image tag (e.g., 'v0.5.2-cu126')
+      """
+  ```
+
+  **Updated `_get_runtime_config()` method** (lines 313-355):
+  ```python
+  def _get_runtime_config(self, runtime_name: str, parameters: Dict[str, Any],
+                          image_tag: Optional[str] = None) -> Optional[Dict[str, str]]:
+      """Get Docker image and command configuration for a runtime.
+
+      Args:
+          runtime_name: Runtime identifier
+          parameters: Runtime parameters (unused, kept for compatibility)
+          image_tag: Optional Docker image tag to override default
+      """
+      # ... existing runtime_configs ...
+
+      # Try exact match or prefix match
+      config = None
+      for key, cfg in runtime_configs.items():
+          if runtime_name.lower().startswith(key):
+              config = cfg.copy()  # Important: copy to avoid modifying default
+              break
+
+      if not config:
+          return None
+
+      # Override image tag if provided
+      if image_tag:
+          # Extract base image name (before colon)
+          base_image = config['image'].split(':')[0]
+          config['image'] = f"{base_image}:{image_tag}"
+          print(f"[Docker] Using custom image tag: {config['image']}")
+
+      return config
+  ```
+
+  **Key Design Decisions:**
+  - Use `.copy()` to avoid modifying default config dictionary
+  - Extract base image name automatically (`lmsysorg/sglang` or `vllm/vllm-openai`)
+  - Log custom image usage for visibility
+  - Graceful fallback to defaults when tag not specified
+
+  **2. Updated Orchestrator** (`src/run_autotuner.py`)
+
+  **Task loading and parameter passing** (lines 102-145):
+  ```python
+  # Read optional runtime_image_tag from task config
+  image_tag = task.get("runtime_image_tag")
+
+  # Pass image_tag only to DockerController (not OMEController)
+  if hasattr(self.model_controller, 'client'):  # DockerController check
+      isvc_name = self.model_controller.deploy_inference_service(
+          task_name=task_name,
+          experiment_id=experiment_id,
+          namespace=namespace,
+          model_name=model_name,
+          runtime_name=runtime_name,
+          parameters=parameters,
+          image_tag=image_tag  # Pass custom tag
+      )
+  else:  # OMEController doesn't support image_tag yet
+      isvc_name = self.model_controller.deploy_inference_service(
+          task_name=task_name,
+          experiment_id=experiment_id,
+          namespace=namespace,
+          model_name=model_name,
+          runtime_name=runtime_name,
+          parameters=parameters
+      )
+  ```
+
+  **Controller Detection Logic:**
+  - DockerController has `client` attribute (Docker SDK client)
+  - OMEController has `k8s_client` attribute
+  - Simple `hasattr()` check distinguishes between them
+
+  **3. Updated Example Configuration** (`examples/docker_task_advanced.json`)
+
+  **Added new field** (line 10):
+  ```json
+  {
+    "task_name": "docker-advanced-tune",
+    "description": "Advanced Docker deployment with multiple SGLang parameters",
+    "deployment_mode": "docker",
+    "model": {
+      "name": "llama-3-2-1b-instruct",
+      "namespace": "autotuner"
+    },
+    "base_runtime": "sglang",
+    "runtime_image_tag": "v0.5.2-cu126",  // NEW: Optional custom image tag
+    "parameters": {
+      "tp-size": [1],
+      "mem-fraction-static": [0.7, 0.8, 0.9],
+      ...
+    }
+  }
+  ```
+
+  **4. Documentation Updates** (`CLAUDE.md`)
+
+  **Task Configuration section updated:**
+  ```json
+  {
+    "task_name": "unique-identifier",
+    "model": {"name": "model-id", "namespace": "k8s-namespace-or-label"},
+    "base_runtime": "sglang" or "vllm",
+    "runtime_image_tag": "v0.5.2-cu126",  // Optional: Docker image tag (Docker mode only)
+    "parameters": { ... }
+  }
+  ```
+
+  **Added Important Notes:**
+  - **Docker mode only**: Field only applies to standalone Docker deployments
+  - If not specified, defaults to hardcoded version in DockerController
+  - Example: `"runtime_image_tag": "v0.5.3-cu126"` → uses `lmsysorg/sglang:v0.5.3-cu126`
+  - Works for both SGLang and vLLM runtimes
+
+  **Testing:**
+  - ✅ Tested with custom tag: `v0.5.3-cu126` → correct image `lmsysorg/sglang:v0.5.3-cu126`
+  - ✅ Tested without tag: Falls back to default `lmsysorg/sglang:v0.5.2-cu126`
+  - ✅ Tested with vLLM: `v0.4.0` → correct image `vllm/vllm-openai:v0.4.0`
+  - ✅ Verified JSON syntax validity
+  - ✅ Confirmed logging output shows custom tag usage
+
+  **Files Modified:**
+  1. ✅ `src/controllers/docker_controller.py` - Core implementation with image tag override
+  2. ✅ `src/run_autotuner.py` - Task loading and conditional parameter passing
+  3. ✅ `examples/docker_task_advanced.json` - Example usage demonstration
+  4. ✅ `CLAUDE.md` - Documentation with schema and notes
+
+  **Key Features:**
+  - ✅ Optional field - backward compatible with existing configs
+  - ✅ Automatic base image extraction (works for any registry/image format)
+  - ✅ Docker mode only - doesn't affect OME/Kubernetes deployments
+  - ✅ Clear logging when custom tags are used
+  - ✅ Supports both SGLang and vLLM runtimes
+  - ✅ No code changes needed to test different versions
+
+  **Use Cases:**
+  1. **Version Testing**: Compare performance across SGLang versions
+     ```json
+     // Task 1: "runtime_image_tag": "v0.5.2-cu126"
+     // Task 2: "runtime_image_tag": "v0.5.3-cu126"
+     ```
+
+  2. **CUDA Version Selection**: Choose appropriate CUDA toolkit version
+     ```json
+     "runtime_image_tag": "v0.5.2-cu118"  // CUDA 11.8
+     "runtime_image_tag": "v0.5.2-cu126"  // CUDA 12.6
+     ```
+
+  3. **Development Builds**: Test custom or nightly builds
+     ```json
+     "runtime_image_tag": "latest"
+     "runtime_image_tag": "nightly"
+     ```
+
+  **Benefits:**
+  - 📈 Flexibility: Test any runtime version without code changes
+  - 📈 Experimentation: Easy version comparison experiments
+  - 📈 Compatibility: Works seamlessly with existing parameter tuning
+  - 📈 Debugging: Test specific versions to isolate issues
+  - 📈 Production: Pin to stable versions for reproducibility
+
+  **Example Workflow:**
+  ```bash
+  # Test SGLang v0.5.3-cu126
+  cat > my_task.json << 'EOF'
+  {
+    "task_name": "test-v053",
+    "base_runtime": "sglang",
+    "runtime_image_tag": "v0.5.3-cu126",
+    ...
+  }
+  EOF
+
+  python src/run_autotuner.py my_task.json --mode docker --direct
+  # Output: [Docker] Using custom image tag: lmsysorg/sglang:v0.5.3-cu126
+  ```
+
+
+</details>
+
+---
+
