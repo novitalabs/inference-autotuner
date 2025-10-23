@@ -53,6 +53,7 @@ class AutotunerOrchestrator:
             self.use_direct_benchmark = True
             self.benchmark_controller = DirectBenchmarkController(verbose=verbose)
             print("[Config] Benchmark mode: Direct CLI (automatic for Docker mode)")
+            print("[Config] Containers will be auto-removed after stop")
         elif self.deployment_mode == "ome":
             print("[Config] Deployment mode: OME (Kubernetes)")
             self.model_controller = OMEController(kubeconfig_path)

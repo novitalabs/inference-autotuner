@@ -26,6 +26,9 @@ class DockerController(BaseModelController):
 
         Args:
             model_base_path: Base path where models are stored on the host
+
+        Note:
+            Containers are automatically removed after they stop for automatic cleanup.
         """
         if docker is None:
             raise ImportError(
@@ -142,7 +145,7 @@ class DockerController(BaseModelController):
                     # Note: Don't set CUDA_VISIBLE_DEVICES as it conflicts with device_requests
                 },
                 shm_size='16g',  # Shared memory for multi-process inference
-                remove=False  # Keep container for log inspection
+                remove=True  # Auto-remove container after stop for automatic cleanup
             )
 
             # Store container reference

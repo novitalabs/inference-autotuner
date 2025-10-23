@@ -2630,3 +2630,65 @@ Status: Implementation Complete, Testing Blocked
 
 ---
 
+## Mini-milestone: Docker Container Auto-Delete as Default Behavior
+
+> Take `--delete` option when run the standalone docker container, let them removed after stop automatically.
+> Don't append argument option, make it the default behavior.
+
+<details>
+<summary>Reply</summary>
+
+* *Claude*:
+  Changed Docker mode to automatically remove containers after they stop by default (no CLI flag needed).
+
+  **Implementation Changes:**
+
+  **1. Updated `DockerController`** (`src/controllers/docker_controller.py`)
+  - Changed line 148 from `remove=False` to `remove=True`
+  - Updated docstring to note containers are auto-removed
+  - Comment: "Auto-remove container after stop for automatic cleanup"
+
+  **2. Updated `AutotunerOrchestrator`** (`src/run_autotuner.py`)
+  - Added status message: `[Config] Containers will be auto-removed after stop`
+  - Removed previous auto_delete parameter (no longer needed)
+
+  **3. Updated Documentation**
+  - **CLAUDE.md**: Added note after Docker Mode examples: "Docker containers are automatically removed after they stop for easy cleanup"
+  - **CLAUDE.md**: Added "Container Lifecycle" section explaining:
+    * Auto-removal is equivalent to `docker run --rm`
+    * Provides automatic cleanup during experimentation
+    * Logs not accessible after stop - use `--verbose` to capture during run
+    * Use `docker ps` to check running containers
+  - **prompts.md**: Updated this section
+
+  **How It Works:**
+  - Docker SDK's `containers.run()` accepts `remove` parameter
+  - When `remove=True`, Docker daemon automatically removes container after it stops
+  - This is equivalent to `docker run --rm`
+  - Provides automatic cleanup during automated experimentation
+
+  **Usage:**
+  ```bash
+  # Containers automatically removed after stop (default behavior)
+  python src/run_autotuner.py examples/docker_task.json --mode docker --direct
+
+  # Use verbose to capture logs during run (since they're not accessible after)
+  python src/run_autotuner.py examples/docker_task.json --mode docker --direct --verbose
+  ```
+
+  **Files Modified:**
+  1. ✅ `src/controllers/docker_controller.py` - Changed remove=False to remove=True (line 148)
+  2. ✅ `src/run_autotuner.py` - Added status message about auto-removal
+  3. ✅ `CLAUDE.md` - Updated documentation with Container Lifecycle section
+
+  **Benefits:**
+  - ✅ Automatic cleanup (no leftover containers)
+  - ✅ Simpler workflow (no manual cleanup needed)
+  - ✅ Better for automated testing
+  - ✅ Encourages use of --verbose for log capture
+
+
+</details>
+
+---
+

@@ -58,6 +58,8 @@ python src/run_autotuner.py examples/docker_task.json --mode docker --direct --v
 python src/run_autotuner.py examples/docker_task.json --mode docker --direct --model-path /data/models
 ```
 
+**Note:** Docker containers are automatically removed after they stop for easy cleanup.
+
 ### OME Mode (Production)
 ```bash
 # Using Kubernetes BenchmarkJob CRD
@@ -147,6 +149,11 @@ kubectl apply -f config/examples/
 - Do NOT set `CUDA_VISIBLE_DEVICES` env var (conflicts with device_requests)
 
 **Port Management**: Auto-allocates ports 8000-8100 to avoid conflicts between experiments
+
+**Container Lifecycle**: Containers are automatically removed after they stop (equivalent to `docker run --rm`)
+- Provides automatic cleanup during experimentation
+- Logs not accessible after stop - use `--verbose` flag to capture output during run
+- Check running containers: `docker ps`
 
 **Model Path**: Maps host path to `/model` inside container
 - Task JSON `model.name` → `/mnt/data/models/{name}` → mounted as `/model`
