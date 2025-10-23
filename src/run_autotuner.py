@@ -30,7 +30,8 @@ class AutotunerOrchestrator:
         deployment_mode: str = "ome",
         kubeconfig_path: str = None,
         use_direct_benchmark: bool = False,
-        docker_model_path: str = "/mnt/data/models"
+        docker_model_path: str = "/mnt/data/models",
+        verbose: bool = False
     ):
         """Initialize the orchestrator.
 
@@ -39,6 +40,7 @@ class AutotunerOrchestrator:
             kubeconfig_path: Path to kubeconfig file (for OME mode)
             use_direct_benchmark: If True, use direct genai-bench CLI instead of K8s BenchmarkJob
             docker_model_path: Base path for models in Docker mode
+            verbose: If True, stream genai-bench output in real-time
         """
         self.deployment_mode = deployment_mode.lower()
         self.use_direct_benchmark = use_direct_benchmark
@@ -49,13 +51,13 @@ class AutotunerOrchestrator:
             self.model_controller = DockerController(model_base_path=docker_model_path)
             # Docker mode always uses direct benchmark (no K8s)
             self.use_direct_benchmark = True
-            self.benchmark_controller = DirectBenchmarkController()
+            self.benchmark_controller = DirectBenchmarkController(verbose=verbose)
             print("[Config] Benchmark mode: Direct CLI (automatic for Docker mode)")
         elif self.deployment_mode == "ome":
             print("[Config] Deployment mode: OME (Kubernetes)")
             self.model_controller = OMEController(kubeconfig_path)
             if use_direct_benchmark:
-                self.benchmark_controller = DirectBenchmarkController()
+                self.benchmark_controller = DirectBenchmarkController(verbose=verbose)
                 print("[Config] Benchmark mode: Direct genai-bench CLI")
             else:
                 self.benchmark_controller = BenchmarkController(kubeconfig_path)
@@ -332,6 +334,8 @@ Examples:
                         help='Use direct genai-bench CLI instead of K8s BenchmarkJob (OME mode only)')
     parser.add_argument('--model-path', type=str, default='/mnt/data/models',
                         help='Base path for models on host (Docker mode only)')
+    parser.add_argument('--verbose', '-v', action='store_true',
+                        help='Stream genai-bench output in real-time (useful for debugging)')
 
     args = parser.parse_args()
 
@@ -344,7 +348,8 @@ Examples:
         deployment_mode=args.mode,
         kubeconfig_path=args.kubeconfig,
         use_direct_benchmark=args.direct,
-        docker_model_path=args.model_path
+        docker_model_path=args.model_path,
+        verbose=args.verbose
     )
     summary = orchestrator.run_task(args.task_file)
 

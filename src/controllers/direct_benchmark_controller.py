@@ -16,16 +16,18 @@ from typing import Dict, Any, Optional
 class DirectBenchmarkController:
     """Controller for running genai-bench directly via CLI."""
 
-    def __init__(self, genai_bench_path: str = "env/bin/genai-bench"):
+    def __init__(self, genai_bench_path: str = "env/bin/genai-bench", verbose: bool = False):
         """Initialize the direct benchmark controller.
 
         Args:
             genai_bench_path: Path to genai-bench executable
+            verbose: If True, stream genai-bench output in real-time
         """
         self.genai_bench_path = Path(genai_bench_path)
         if not self.genai_bench_path.exists():
             raise FileNotFoundError(f"genai-bench not found at {genai_bench_path}")
 
+        self.verbose = verbose
         # Results directory
         self.results_dir = Path("benchmark_results")
         self.results_dir.mkdir(exist_ok=True)
@@ -226,21 +228,53 @@ class DirectBenchmarkController:
         # Run benchmark
         try:
             start_time = time.time()
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                check=False  # Don't raise exception on non-zero exit
-            )
+
+            if self.verbose:
+                # Stream output in real-time
+                print(f"[Benchmark] Starting genai-bench (streaming output)...")
+                process = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1
+                )
+
+                stdout_lines = []
+                for line in process.stdout:
+                    print(f"[genai-bench] {line.rstrip()}")
+                    stdout_lines.append(line)
+
+                process.wait(timeout=timeout)
+                result_returncode = process.returncode
+                result_stdout = ''.join(stdout_lines)
+                result_stderr = ""
+            else:
+                # Capture output
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout,
+                    check=False  # Don't raise exception on non-zero exit
+                )
+                result_returncode = result.returncode
+                result_stdout = result.stdout
+                result_stderr = result.stderr
+
             elapsed_time = time.time() - start_time
 
             print(f"[Benchmark] Completed in {elapsed_time:.1f}s")
-            print(f"[Benchmark] Exit code: {result.returncode}")
+            print(f"[Benchmark] Exit code: {result_returncode}")
 
-            if result.returncode != 0:
-                print(f"[Benchmark] STDERR:\n{result.stderr}")
-                print(f"[Benchmark] STDOUT:\n{result.stdout}")
+            # Show genai-bench output for debugging (only if not in verbose mode)
+            if not self.verbose:
+                if result_stdout:
+                    print(f"[Benchmark] STDOUT:\n{result_stdout}")
+                if result_stderr:
+                    print(f"[Benchmark] STDERR:\n{result_stderr}")
+
+            if result_returncode != 0:
                 return None
 
             # Parse results from output directory

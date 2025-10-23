@@ -2422,3 +2422,211 @@ Status: Implementation Complete, Testing Blocked
 
 ---
 
+> Is there any way to show the genai-bench logs with following mode?
+
+<details>
+<summary>Reply</summary>
+
+* *Claude*:
+  Implemented multiple ways to view genai-bench logs during autotuner execution!
+
+  **Three Methods Implemented:**
+
+  1. **Default Mode** (Post-Completion) - Already working
+    - Shows stdout/stderr after benchmark completes
+    - Clean output, easier to read
+
+  2. **Verbose Mode** (NEW - Real-Time Streaming)
+    - Use `--verbose` or `-v` flag to stream output in real-time
+    - Shows progress during long benchmarks
+    - Prefixes output with `[genai-bench]`
+
+  3. **Manual Inspection** - View logs from benchmark output directory
+
+  **Implementation Details:**
+
+  Added `verbose` parameter throughout the stack:
+  - `DirectBenchmarkController.__init__(verbose=bool)`
+  - `AutotunerOrchestrator.__init__(verbose=bool)`
+  - CLI argument: `--verbose` / `-v`
+
+  **Streaming Logic:**
+  ```python
+  if self.verbose:
+      # Stream output in real-time with Popen
+      process = subprocess.Popen(cmd, stdout=PIPE, stderr=STDOUT, bufsize=1)
+      for line in process.stdout:
+          print(f"[genai-bench] {line.rstrip()}")
+  else:
+      # Capture and show after completion
+      result = subprocess.run(cmd, capture_output=True)
+      print(result.stdout)
+  ```
+
+  **Usage Examples:**
+
+  ```bash
+  # Default mode - see output after completion
+  python src/run_autotuner.py examples/docker_task.json --mode docker --direct
+
+  # Verbose mode - stream output in real-time
+  python src/run_autotuner.py examples/docker_task.json --mode docker --direct --verbose
+
+  # Save logs to file
+  python src/run_autotuner.py examples/docker_task.json --mode docker --direct --verbose 2>&1 | tee autotuner.log
+  ```
+
+  **Mini-Milestone Accomplished:**
+
+  ✅ **Genai-bench log viewing fully implemented!**
+
+  **Files Modified:**
+  1. `src/controllers/direct_benchmark_controller.py`:
+    - Added `verbose` parameter to `__init__`
+    - Implemented streaming vs capture logic
+    - Show output even on success (not just errors)
+
+  2. `src/run_autotuner.py`:
+    - Added `verbose` parameter to `AutotunerOrchestrator.__init__`
+    - Pass verbose flag to benchmark controllers
+    - Added CLI argument: `--verbose` / `-v`
+
+  3. `docs/GENAI_BENCH_LOGS.md` (NEW):
+    - Complete documentation with examples
+    - Usage patterns for different scenarios
+    - Troubleshooting guide
+
+  **Benefits:**
+  - **Default mode**: Clean output, good for post-mortem analysis
+  - **Verbose mode**: See connection issues immediately, monitor progress
+  - **Backward compatible**: Existing commands work unchanged
+
+  **Test Output:**
+  Successfully tested verbose mode - shows real-time output including:
+  - Network retry attempts (HuggingFace tokenizer download)
+  - Configuration dump with all parameters
+  - Progress information as benchmarks run
+
+  **Status:**
+  - ✅ Three viewing methods available
+  - ✅ CLI flag implemented
+  - ✅ Documentation complete
+  - ✅ Tested and working
+
+</details>
+
+---
+
+> Please analyze this codebase and create a CLAUDE.md file
+
+<details>
+<summary>Reply</summary>
+
+* *Claude*:
+  Created comprehensive CLAUDE.md for future Claude instances!
+
+  **File Structure:**
+
+  1. **Project Overview**
+    - Dual deployment modes (OME/Docker)
+    - Purpose: Automated LLM inference parameter tuning
+
+  2. **Architecture**
+    - Core components (Orchestrator, Controllers)
+    - Strategy pattern for deployment modes
+    - Complete data flow diagram
+
+  3. **Running the Autotuner**
+    - Docker mode examples (development)
+    - OME mode examples (production)
+    - All CLI flag combinations
+
+  4. **Task Configuration**
+    - JSON schema with examples
+    - Critical notes (numeric types for additional_params)
+    - Common pitfalls
+
+  5. **Installation & Setup**
+    - Separate paths for Docker vs OME modes
+    - Verification commands
+
+  6. **Critical Implementation Details**
+    - Docker GPU access specifics
+    - Command formatting requirements
+    - Port management strategy
+    - OME template syntax
+    - Benchmark execution modes
+
+  7. **Common Issues**
+    - Mode-specific troubleshooting
+    - Root cause explanations
+    - Solutions for each issue
+
+  8. **Development Workflow**
+    - Practical iteration tips
+    - Testing strategies
+    - Monitoring commands
+
+  9. **Project Structure**
+    - High-level organization
+    - Key file purposes
+
+  10. **Documentation References**
+      - Links to detailed docs
+
+  11. **Meta-Instructions**
+      - Project-specific constraints
+      - From prompts.md
+
+  **Key Design Decisions:**
+
+  Focused on:
+  - Big picture architecture requiring multiple files to understand
+  - Non-obvious implementation details (GPU access, command lists)
+  - Commonly used commands with real examples
+  - Critical gotchas discovered during development
+
+  Avoided:
+  - Generic development practices
+  - Obvious instructions
+  - File-by-file exhaustive listings
+  - Made-up information
+
+  **Critical Details Included:**
+
+  1. **Docker GPU Access**: Must use command list, not string; avoid CUDA_VISIBLE_DEVICES conflict
+  2. **Port Management**: Auto-allocates 8000-8100
+  3. **Model Path Mapping**: Host → container path mapping
+  4. **Benchmark Modes**: Two execution strategies (BenchmarkJob vs Direct CLI)
+  5. **DirectBenchmarkController**: Dual-mode operation (Docker direct URL vs OME port-forward)
+  6. **Task JSON Types**: additional_params must use correct types (float 0.0, not "0.0")
+
+  **Mini-Milestone Accomplished:**
+
+  ✅ **CLAUDE.md created for future Claude instances!**
+
+  **File Created:**
+  - `CLAUDE.md` - Comprehensive guide for future Claude Code instances
+
+  **Content Highlights:**
+  - Architecture patterns and relationships between components
+  - Complete command reference with all modes
+  - Task configuration schema with gotchas
+  - Installation procedures for both modes
+  - Critical implementation details from development experience
+  - Common issues with solutions
+  - Development workflow best practices
+  - Meta-instructions from prompts.md
+
+  **Status:**
+  - ✅ CLAUDE.md created and comprehensive
+  - ✅ Covers big-picture architecture
+  - ✅ Includes non-obvious implementation details
+  - ✅ Provides commonly used commands
+  - ✅ Documents critical gotchas
+  - ✅ Ready for future Claude instances
+
+</details>
+
+---
+
