@@ -85,22 +85,41 @@ class DockerController(BaseModelController):
             return None
 
         # Extract parameters
-        tp_size = parameters.get("tp_size", 1)
-        mem_frac = parameters.get("mem_frac", 0.8)
+        # Build command with arbitrary parameters
+        command_str = runtime_config['command'].format(model_path=f"/model")
+
+        # Add all parameters as command-line arguments
+        for param_name, param_value in parameters.items():
+            # Convert parameter name to CLI format (add -- prefix if not present)
+            if not param_name.startswith('--'):
+                cli_param = f"--{param_name}"
+            else:
+                cli_param = param_name
+            command_str += f" {cli_param} {param_value}"
+
+        command_list = command_str.split()
+
+        # Determine GPU allocation
+        # Look for tp-size or tp_size parameter for GPU count (default to 1)
+        num_gpus = parameters.get("tp-size", parameters.get("tp_size", 1))
+        if isinstance(num_gpus, (int, float)):
+            num_gpus = int(num_gpus)
+        else:
+            num_gpus = 1
 
         # Build container configuration
         try:
             # Determine GPU devices
-            gpu_devices = self._select_gpus(tp_size)
+            gpu_devices = self._select_gpus(num_gpus)
             if not gpu_devices:
-                print(f"[Docker] Failed to allocate {tp_size} GPU(s)")
+                print(f"[Docker] Failed to allocate {num_gpus} GPU(s)")
                 return None
 
             print(f"[Docker] Deploying container '{container_name}'")
             print(f"[Docker] Image: {runtime_config['image']}")
             print(f"[Docker] Model: {model_path}")
             print(f"[Docker] GPUs: {gpu_devices}")
-            print(f"[Docker] Parameters: tp_size={tp_size}, mem_frac={mem_frac}")
+            print(f"[Docker] Parameters: {parameters}")
 
             # Remove existing container if present
             try:
@@ -115,14 +134,6 @@ class DockerController(BaseModelController):
             if not host_port:
                 print("[Docker] No available ports in range 8000-8100")
                 return None
-
-            # Build command as list (shell=False style)
-            command_str = runtime_config['command'].format(
-                model_path=f"/model",
-                tp_size=tp_size,
-                mem_frac=mem_frac
-            )
-            command_list = command_str.split()
 
             # Create and start container
             container = self.client.containers.run(
@@ -302,20 +313,22 @@ class DockerController(BaseModelController):
 
         Args:
             runtime_name: Runtime identifier
-            parameters: Runtime parameters
+            parameters: Runtime parameters (unused, kept for compatibility)
 
         Returns:
             Dictionary with 'image' and 'command' keys, or None if unsupported
         """
-        # Map runtime names to Docker images and commands
+        # Map runtime names to Docker images and base commands
+        # Base command only includes essential fixed parameters
+        # Dynamic parameters are added by the caller
         runtime_configs = {
             'sglang': {
                 'image': 'lmsysorg/sglang:v0.5.2-cu126',
-                'command': 'python3 -m sglang.launch_server --model-path {model_path} --host 0.0.0.0 --port 8080 --tp-size {tp_size} --mem-fraction-static {mem_frac}'
+                'command': 'python3 -m sglang.launch_server --model-path {model_path} --host 0.0.0.0 --port 8080'
             },
             'vllm': {
                 'image': 'vllm/vllm-openai:latest',
-                'command': 'python3 -m vllm.entrypoints.openai.api_server --model {model_path} --host 0.0.0.0 --port 8080 --tensor-parallel-size {tp_size} --gpu-memory-utilization {mem_frac}'
+                'command': 'python3 -m vllm.entrypoints.openai.api_server --model {model_path} --host 0.0.0.0 --port 8080'
             }
         }
 

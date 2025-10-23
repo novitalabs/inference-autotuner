@@ -80,10 +80,11 @@ Task JSON files define experiments. Key fields:
 {
   "task_name": "unique-identifier",
   "model": {"name": "model-id", "namespace": "k8s-namespace-or-label"},
-  "base_runtime": "sglang" or "llama-3-2-1b-instruct-rt",
+  "base_runtime": "sglang" or "vllm",
   "parameters": {
-    "tp_size": {"type": "choice", "values": [1, 2]},
-    "mem_frac": {"type": "choice", "values": [0.7, 0.8, 0.9]}
+    "tp-size": [1, 2],
+    "mem-fraction-static": [0.7, 0.8, 0.9],
+    "schedule-policy": ["lpm", "fcfs"]
   },
   "optimization": {
     "strategy": "grid_search",
@@ -97,12 +98,24 @@ Task JSON files define experiments. Key fields:
     "model_tokenizer": "HuggingFace/model-id",
     "traffic_scenarios": ["D(100,100)"],
     "num_concurrency": [1, 4],
-    "additional_params": {"temperature": 0.0}  // Note: must be numeric, not string
+    "additional_params": {"temperature": 0.0}
   }
 }
 ```
 
-**Important**: `additional_params` values must be correct types (float 0.0, not string "0.0")
+**Parameters Format**:
+- **Simple format** (recommended): `"param-name": [value1, value2, ...]`
+  - Use actual runtime parameter names (e.g., `tp-size`, `mem-fraction-static`)
+  - Supports arbitrary engine-specific parameters
+  - Values as direct array
+- **Legacy format** (backward compatible): `"param_name": {"type": "choice", "values": [...]}`
+  - Structured with explicit type specification
+
+**Important Notes**:
+- Parameter names should use the exact CLI flag format (e.g., `tp-size` not `tp_size`)
+- The `--` prefix is added automatically if not present
+- All parameters are passed directly to the runtime engine
+- `additional_params` values must be correct types (float 0.0, not string "0.0")
 
 ## Installation & Setup
 

@@ -1,6 +1,6 @@
 {
-  "task_name": "docker-simple-tune",
-  "description": "Simple Docker deployment test with 2 parameter combinations",
+  "task_name": "docker-advanced-tune",
+  "description": "Advanced Docker deployment with multiple SGLang parameters",
   "deployment_mode": "docker",
   "model": {
     "name": "llama-3-2-1b-instruct",
@@ -9,12 +9,14 @@
   "base_runtime": "sglang",
   "parameters": {
     "tp-size": [1],
-    "mem-fraction-static": [0.7, 0.8]
+    "mem-fraction-static": [0.7, 0.8, 0.9],
+    "schedule-policy": ["lpm", "fcfs"],
+    "chunked-prefill-size": [4096, 8192]
   },
   "optimization": {
     "strategy": "grid_search",
     "objective": "minimize_latency",
-    "max_iterations": 2,
+    "max_iterations": 12,
     "timeout_per_iteration": 600
   },
   "benchmark": {

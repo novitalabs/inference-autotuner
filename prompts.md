@@ -2692,3 +2692,136 @@ Status: Implementation Complete, Testing Blocked
 
 ---
 
+## Mini-milestone: Parameter Refactoring - Arbitrary Runtime Parameters Support
+
+> Refactor `parameters` field in docker task config file, use the parameter original name to allow arbitrary parameters of runtime engine.
+
+<details>
+<summary>Reply</summary>
+
+* *Claude*:
+  Refactored the parameter configuration system to support arbitrary runtime engine parameters using native parameter names (e.g., `tp-size`, `mem-fraction-static`, `schedule-policy`).
+
+  **Motivation:**
+  - Previous implementation hardcoded specific parameters (`tp_size`, `mem_frac`)
+  - Limited flexibility for exploring different runtime configurations
+  - Required code changes to add new parameters
+  - Didn't match actual SGLang/vLLM CLI parameter names
+
+  **Implementation Changes:**
+
+  **1. Updated Parameter Grid Generation** (`src/utils/optimizer.py`)
+  - Added support for dual parameter formats:
+    * **Simple format** (new, recommended): `{"param-name": [value1, value2]}`
+    * **Legacy format** (backward compatible): `{"param_name": {"type": "choice", "values": [...]}}`
+  - Lines 9-57: Enhanced `generate_parameter_grid()` to detect and handle both formats
+  - Maintains backward compatibility with existing task configs
+
+  **2. Refactored Docker Controller** (`src/controllers/docker_controller.py`)
+  - **Dynamic Command Building** (lines 87-98):
+    ```python
+    # Build command with arbitrary parameters
+    command_str = runtime_config['command'].format(model_path=f"/model")
+
+    # Add all parameters as command-line arguments
+    for param_name, param_value in parameters.items():
+        # Convert parameter name to CLI format (add -- prefix if not present)
+        if not param_name.startswith('--'):
+            cli_param = f"--{param_name}"
+        else:
+            cli_param = param_name
+        command_str += f" {cli_param} {param_value}"
+    ```
+  - Removed hardcoded parameter handling
+  - Auto-adds `--` prefix if not present
+  - Supports any engine-specific parameter
+
+  - **Smart GPU Allocation** (lines 102-108):
+    ```python
+    # Look for tp-size or tp_size parameter for GPU count (default to 1)
+    num_gpus = parameters.get("tp-size", parameters.get("tp_size", 1))
+    ```
+  - Checks both hyphenated and underscore variants
+
+  - **Simplified Runtime Configs** (lines 324-328):
+    ```python
+    'sglang': {
+        'image': 'lmsysorg/sglang:v0.5.2-cu126',
+        'command': 'python3 -m sglang.launch_server --model-path {model_path} --host 0.0.0.0 --port 8080'
+    }
+    ```
+  - Only essential fixed parameters in base command
+  - Dynamic parameters added by command builder
+
+  **3. Updated Example Configs**
+
+  **Simple Task** (`examples/docker_task.json`):
+  ```json
+  "parameters": {
+    "tp-size": [1],
+    "mem-fraction-static": [0.7, 0.8]
+  }
+  ```
+
+  **Advanced Task** (`examples/docker_task_advanced.json` - NEW):
+  ```json
+  "parameters": {
+    "tp-size": [1],
+    "mem-fraction-static": [0.7, 0.8, 0.9],
+    "schedule-policy": ["lpm", "fcfs"],
+    "chunked-prefill-size": [4096, 8192]
+  }
+  ```
+  - Demonstrates multiple arbitrary parameters
+  - 12 total experiments (1 × 3 × 2 × 2)
+
+  **4. Documentation Updates**
+  - **CLAUDE.md**: Updated Task Configuration section with both formats
+  - Added "Parameters Format" section explaining:
+    * Simple format (recommended)
+    * Legacy format (backward compatible)
+    * Parameter naming conventions
+    * Auto-prefix behavior
+
+  **Key Features:**
+  - ✅ Use native runtime parameter names (e.g., `tp-size`, not `tp_size`)
+  - ✅ Support arbitrary engine-specific parameters
+  - ✅ Backward compatibility with legacy format
+  - ✅ Auto-add `--` prefix if not present
+  - ✅ Clean separation: task config → CLI args
+  - ✅ Works with both SGLang and vLLM runtimes
+
+  **Testing:**
+  - ✅ Tested simple format with 2 parameters
+  - ✅ Tested advanced format with 4 parameters
+  - ✅ Verified command building produces correct CLI args
+  - ✅ Confirmed backward compatibility with legacy format
+
+  **Files Modified:**
+  1. ✅ `src/utils/optimizer.py` - Dual format support in parameter grid generation
+  2. ✅ `src/controllers/docker_controller.py` - Dynamic command building from arbitrary parameters
+  3. ✅ `examples/docker_task.json` - Updated to simple format
+  4. ✅ `examples/docker_task_advanced.json` - Created with multiple parameters
+  5. ✅ `CLAUDE.md` - Updated documentation
+
+  **Benefits:**
+  - 📈 Flexibility: Add new parameters without code changes
+  - 📈 Clarity: Parameter names match runtime documentation
+  - 📈 Extensibility: Works with any runtime engine
+  - 📈 Simplicity: Cleaner task configuration format
+  - 📈 Compatibility: Legacy format still works
+
+  **Example Parameter Exploration:**
+  Now users can easily tune any SGLang parameter:
+  - Scheduling: `schedule-policy: ["lpm", "fcfs", "sjf"]`
+  - Memory: `mem-fraction-static: [0.7, 0.8, 0.9]`
+  - Chunking: `chunked-prefill-size: [4096, 8192, 16384]`
+  - Parallelism: `tp-size: [1, 2, 4]`
+  - Context: `context-length: [2048, 4096, 8192]`
+  - And any other SGLang/vLLM parameters!
+
+
+</details>
+
+---
+
