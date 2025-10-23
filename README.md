@@ -2,11 +2,60 @@
 
 Automated parameters tuning for LLM inference engines.
 
+**NEW: Dual Deployment Mode Support**
+- **OME Mode**: Kubernetes-based deployment with OME (Open Model Engine)
+- **Docker Mode**: Standalone Docker containers (no Kubernetes required)
+
+## Deployment Modes
+
+### Mode 1: OME (Kubernetes)
+
+Full-featured Kubernetes deployment using OME operator.
+
+**Use cases:**
+- Production deployments
+- Multi-node clusters
+- Advanced orchestration needs
+
+**Requirements:**
+- Kubernetes v1.28+
+- OME operator installed
+- kubectl configured
+
+**Quick start:**
+```bash
+./install.sh --install-ome
+python src/run_autotuner.py examples/simple_task.json --mode ome
+```
+
+### Mode 2: Docker (Standalone)
+
+Lightweight standalone deployment using Docker containers.
+
+**Use cases:**
+- Development and testing
+- Single-node deployments
+- CI/CD pipelines
+- Quick prototyping
+
+**Requirements:**
+- Docker with GPU support
+- Model files downloaded locally
+- No Kubernetes needed
+
+**Quick start:**
+```bash
+pip install docker
+python src/run_autotuner.py examples/docker_task.json --mode docker
+```
+
+**See [docs/DOCKER_MODE.md](docs/DOCKER_MODE.md) for complete Docker mode documentation.**
+
 ## Prerequisites
 
-### Environment Requirements
+### For OME Mode
 
-**IMPORTANT: OME (Open Model Engine) is a required prerequisite.**
+**IMPORTANT: OME (Open Model Engine) is a required prerequisite for OME mode.**
 
 1. **OME Operator** (Open Model Engine) - **REQUIRED**
    - Version: v0.1.3 or later
@@ -29,10 +78,34 @@ Automated parameters tuning for LLM inference engines.
    - Example: `llama-3-2-1b-instruct` model with `llama-3-2-1b-instruct-rt` runtime
    - Setup instructions in [docs/OME_INSTALLATION.md](docs/OME_INSTALLATION.md)
 
+### For Docker Mode
+
+1. **Docker** with GPU support
+   - Docker 20.10+ with NVIDIA Container Toolkit
+   - Test: `docker run --rm --gpus all nvidia/cuda:12.1.0-base-ubuntu22.04 nvidia-smi`
+
+2. **Python 3.8+** with Docker SDK
+   ```bash
+   pip install docker requests
+   ```
+
+3. **Model files** downloaded locally
+   ```bash
+   mkdir -p /mnt/data/models
+   huggingface-cli download meta-llama/Llama-3.2-1B-Instruct \
+     --local-dir /mnt/data/models/llama-3-2-1b-instruct
+   ```
+
+4. **genai-bench** for benchmarking
+   ```bash
+   pip install genai-bench
+   ```
+
+**See [docs/DOCKER_MODE.md](docs/DOCKER_MODE.md) for complete setup guide.**
+
 ### Environment Verification
 
-Run these commands to verify your environment:
-
+**For OME Mode:**
 ```bash
 # Check Kubernetes connection
 kubectl cluster-info
@@ -47,6 +120,21 @@ kubectl get clusterservingruntimes
 
 # Verify resources
 kubectl describe node | grep -A 5 "Allocated resources"
+```
+
+**For Docker Mode:**
+```bash
+# Check Docker
+docker --version
+docker ps
+
+# Check GPU access
+nvidia-smi
+docker run --rm --gpus all nvidia/cuda:12.1.0-base-ubuntu22.04 nvidia-smi
+
+# Check Python dependencies
+python -c "import docker; print('Docker SDK:', docker.__version__)"
+python -c "import genai_bench; print('genai-bench installed')"
 ```
 
 Expected output:
@@ -113,11 +201,40 @@ kubectl apply -f third_party/ome/config/models/meta/Llama-3.2-1B-Instruct.yaml
 
 ## Usage
 
+### Command Line Interface
+
+```bash
+# Show help
+python src/run_autotuner.py --help
+
+# OME mode (default) with K8s BenchmarkJob
+python src/run_autotuner.py examples/simple_task.json
+
+# OME mode with direct genai-bench CLI
+python src/run_autotuner.py examples/simple_task.json --direct
+
+# Docker mode (standalone)
+python src/run_autotuner.py examples/docker_task.json --mode docker
+
+# Docker mode with custom model path
+python src/run_autotuner.py examples/docker_task.json --mode docker --model-path /data/models
+```
+
+### Mode Selection
+
+| CLI Argument | Description | Default |
+|--------------|-------------|---------|
+| `--mode ome` | Use Kubernetes + OME | Yes |
+| `--mode docker` | Use standalone Docker | No |
+| `--direct` | Use direct genai-bench CLI (OME mode only) | No |
+| `--kubeconfig PATH` | Path to kubeconfig (OME mode) | Auto-detect |
+| `--model-path PATH` | Base path for models (Docker mode) | `/mnt/data/models` |
+
 ### Benchmark Execution Modes
 
 The autotuner supports two benchmark execution modes:
 
-1. **Kubernetes BenchmarkJob Mode** (Default):
+1. **Kubernetes BenchmarkJob Mode** (OME mode only):
    - Uses OME's BenchmarkJob CRD
    - Runs genai-bench in Kubernetes pods
    - Requires working genai-bench Docker image

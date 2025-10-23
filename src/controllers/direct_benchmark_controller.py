@@ -138,18 +138,20 @@ class DirectBenchmarkController:
         namespace: str,
         benchmark_config: Dict[str, Any],
         timeout: int = 1800,
-        local_port: int = 8080
+        local_port: int = 8080,
+        endpoint_url: Optional[str] = None
     ) -> Optional[Dict[str, Any]]:
         """Run benchmark against an inference endpoint with automatic port forwarding.
 
         Args:
             task_name: Autotuning task name
             experiment_id: Unique experiment identifier
-            service_name: K8s service name
-            namespace: K8s namespace
+            service_name: K8s service name (or Docker container name)
+            namespace: K8s namespace (ignored in Docker mode)
             benchmark_config: Benchmark configuration from input JSON
             timeout: Maximum execution time in seconds
-            local_port: Local port for port forwarding
+            local_port: Local port for port forwarding (ignored if endpoint_url is provided)
+            endpoint_url: Optional direct endpoint URL (skips port-forward setup for Docker mode)
 
         Returns:
             Dict containing benchmark metrics, or None if failed
@@ -157,11 +159,18 @@ class DirectBenchmarkController:
         benchmark_name = f"{task_name}-exp{experiment_id}"
         output_dir = self.results_dir / benchmark_name
 
-        # Setup port forward (SGLang uses port 8000)
-        endpoint_url = self.setup_port_forward(service_name, namespace, 8000, local_port)
-        if not endpoint_url:
-            print(f"[Benchmark] Failed to setup port forward")
-            return None
+        # Setup endpoint URL
+        if endpoint_url:
+            # Direct URL provided (Docker mode)
+            print(f"[Benchmark] Using direct endpoint: {endpoint_url}")
+            need_cleanup = False
+        else:
+            # Setup port forward (Kubernetes mode)
+            endpoint_url = self.setup_port_forward(service_name, namespace, 8000, local_port)
+            if not endpoint_url:
+                print(f"[Benchmark] Failed to setup port forward")
+                return None
+            need_cleanup = True
 
         print(f"[Benchmark] Running genai-bench for experiment {experiment_id}")
         print(f"[Benchmark] Endpoint: {endpoint_url}")
@@ -173,6 +182,7 @@ class DirectBenchmarkController:
             "benchmark",
             "--api-backend", "openai",
             "--api-base", endpoint_url,
+            "--api-key", "dummy",  # Required but not used for local servers
             "--task", benchmark_config.get("task", "text-to-text"),
             "--experiment-base-dir", str(output_dir.parent),
             "--experiment-folder-name", output_dir.name,
@@ -204,10 +214,12 @@ class DirectBenchmarkController:
             "--max-requests-per-run", str(max_requests)
         ])
 
-        # Add additional request params
+        # Add additional request params (needs to be JSON string)
         additional_params = benchmark_config.get("additional_params", {})
-        for key, value in additional_params.items():
-            cmd.extend(["--additional-request-params", f"{key}={value}"])
+        if additional_params:
+            import json
+            params_json = json.dumps(additional_params)
+            cmd.extend(["--additional-request-params", params_json])
 
         print(f"[Benchmark] Command: {' '.join(cmd)}")
 
@@ -248,8 +260,9 @@ class DirectBenchmarkController:
             print(f"[Benchmark] Error running genai-bench: {e}")
             return None
         finally:
-            # Always cleanup port forward
-            self.cleanup_port_forward()
+            # Only cleanup port forward if we set it up
+            if need_cleanup:
+                self.cleanup_port_forward()
 
     def _parse_results(self, output_dir: Path) -> Optional[Dict[str, Any]]:
         """Parse benchmark results from output directory.

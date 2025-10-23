@@ -1,0 +1,161 @@
+{
+  "task_name": "docker-simple-tune",
+  "total_experiments": 2,
+  "successful_experiments": 2,
+  "elapsed_time": 602.988071680069,
+  "best_result": {
+    "experiment_id": 1,
+    "parameters": {
+      "tp_size": 1,
+      "mem_frac": 0.7
+    },
+    "status": "success",
+    "metrics": {
+      "raw_results": {
+        "cmd": "env/bin/genai-bench --num-concurrency 1 --num-concurrency 4 --batch-size 1 --api-backend openai --api-base http://localhost:8000 --api-key dummy --task text-to-text --experiment-base-dir benchmark_results --experiment-folder-name docker-simple-tune-exp1 --api-model-name llama-3-2-1b-instruct --model-tokenizer meta-llama/Llama-3.2-1B-Instruct --traffic-scenario D(100,100) --max-time-per-run 10 --max-requests-per-run 50 --additional-request-params {'temperature': 0.0} --gcp-location us-central1 --azure-api-version 2024-02-01 --profile DEFAULT --config-file ~/.oci/config --auth user_principal --metrics-time-unit s --model Llama-3.2-1B-Instruct --iteration-type num_concurrency --master-port 5557 --storage-provider oci",
+        "benchmark_version": "0.0.2",
+        "api_backend": "openai",
+        "auth_config": {
+          "auth_type": "api_key",
+          "has_api_key": true
+        },
+        "api_model_name": "llama-3-2-1b-instruct",
+        "server_model_tokenizer": "meta-llama/Llama-3.2-1B-Instruct",
+        "model": "Llama-3.2-1B-Instruct",
+        "task": "text-to-text",
+        "num_concurrency": [
+          1,
+          4
+        ],
+        "batch_size": [
+          1
+        ],
+        "iteration_type": "num_concurrency",
+        "traffic_scenario": [
+          "D(100,100)"
+        ],
+        "additional_request_params": {
+          "temperature": 0.0
+        },
+        "server_engine": null,
+        "server_version": null,
+        "server_gpu_type": null,
+        "server_gpu_count": null,
+        "max_time_per_run_s": 600,
+        "max_requests_per_run": 50,
+        "experiment_folder_name": "/root/work/inference-autotuner/benchmark_results/docker-simple-tune-exp1",
+        "metrics_time_unit": "s",
+        "dataset_path": "None",
+        "character_token_ratio": 4.0602006688963215
+      },
+      "result_file": "benchmark_results/docker-simple-tune-exp1/experiment_metadata.json",
+      "elapsed_time": 236.63960695266724,
+      "benchmark_name": "docker-simple-tune-exp1"
+    },
+    "objective_score": Infinity
+  },
+  "all_results": [
+    {
+      "experiment_id": 1,
+      "parameters": {
+        "tp_size": 1,
+        "mem_frac": 0.7
+      },
+      "status": "success",
+      "metrics": {
+        "raw_results": {
+          "cmd": "env/bin/genai-bench --num-concurrency 1 --num-concurrency 4 --batch-size 1 --api-backend openai --api-base http://localhost:8000 --api-key dummy --task text-to-text --experiment-base-dir benchmark_results --experiment-folder-name docker-simple-tune-exp1 --api-model-name llama-3-2-1b-instruct --model-tokenizer meta-llama/Llama-3.2-1B-Instruct --traffic-scenario D(100,100) --max-time-per-run 10 --max-requests-per-run 50 --additional-request-params {'temperature': 0.0} --gcp-location us-central1 --azure-api-version 2024-02-01 --profile DEFAULT --config-file ~/.oci/config --auth user_principal --metrics-time-unit s --model Llama-3.2-1B-Instruct --iteration-type num_concurrency --master-port 5557 --storage-provider oci",
+          "benchmark_version": "0.0.2",
+          "api_backend": "openai",
+          "auth_config": {
+            "auth_type": "api_key",
+            "has_api_key": true
+          },
+          "api_model_name": "llama-3-2-1b-instruct",
+          "server_model_tokenizer": "meta-llama/Llama-3.2-1B-Instruct",
+          "model": "Llama-3.2-1B-Instruct",
+          "task": "text-to-text",
+          "num_concurrency": [
+            1,
+            4
+          ],
+          "batch_size": [
+            1
+          ],
+          "iteration_type": "num_concurrency",
+          "traffic_scenario": [
+            "D(100,100)"
+          ],
+          "additional_request_params": {
+            "temperature": 0.0
+          },
+          "server_engine": null,
+          "server_version": null,
+          "server_gpu_type": null,
+          "server_gpu_count": null,
+          "max_time_per_run_s": 600,
+          "max_requests_per_run": 50,
+          "experiment_folder_name": "/root/work/inference-autotuner/benchmark_results/docker-simple-tune-exp1",
+          "metrics_time_unit": "s",
+          "dataset_path": "None",
+          "character_token_ratio": 4.0602006688963215
+        },
+        "result_file": "benchmark_results/docker-simple-tune-exp1/experiment_metadata.json",
+        "elapsed_time": 236.63960695266724,
+        "benchmark_name": "docker-simple-tune-exp1"
+      },
+      "objective_score": Infinity
+    },
+    {
+      "experiment_id": 2,
+      "parameters": {
+        "tp_size": 1,
+        "mem_frac": 0.8
+      },
+      "status": "success",
+      "metrics": {
+        "raw_results": {
+          "cmd": "env/bin/genai-bench --num-concurrency 1 --num-concurrency 4 --batch-size 1 --api-backend openai --api-base http://localhost:8000 --api-key dummy --task text-to-text --experiment-base-dir benchmark_results --experiment-folder-name docker-simple-tune-exp2 --api-model-name llama-3-2-1b-instruct --model-tokenizer meta-llama/Llama-3.2-1B-Instruct --traffic-scenario D(100,100) --max-time-per-run 10 --max-requests-per-run 50 --additional-request-params {'temperature': 0.0} --gcp-location us-central1 --azure-api-version 2024-02-01 --profile DEFAULT --config-file ~/.oci/config --auth user_principal --metrics-time-unit s --model Llama-3.2-1B-Instruct --iteration-type num_concurrency --master-port 5557 --storage-provider oci",
+          "benchmark_version": "0.0.2",
+          "api_backend": "openai",
+          "auth_config": {
+            "auth_type": "api_key",
+            "has_api_key": true
+          },
+          "api_model_name": "llama-3-2-1b-instruct",
+          "server_model_tokenizer": "meta-llama/Llama-3.2-1B-Instruct",
+          "model": "Llama-3.2-1B-Instruct",
+          "task": "text-to-text",
+          "num_concurrency": [
+            1,
+            4
+          ],
+          "batch_size": [
+            1
+          ],
+          "iteration_type": "num_concurrency",
+          "traffic_scenario": [
+            "D(100,100)"
+          ],
+          "additional_request_params": {
+            "temperature": 0.0
+          },
+          "server_engine": null,
+          "server_version": null,
+          "server_gpu_type": null,
+          "server_gpu_count": null,
+          "max_time_per_run_s": 600,
+          "max_requests_per_run": 50,
+          "experiment_folder_name": "/root/work/inference-autotuner/benchmark_results/docker-simple-tune-exp2",
+          "metrics_time_unit": "s",
+          "dataset_path": "None",
+          "character_token_ratio": 4.0602006688963215
+        },
+        "result_file": "benchmark_results/docker-simple-tune-exp2/experiment_metadata.json",
+        "elapsed_time": 236.38367128372192,
+        "benchmark_name": "docker-simple-tune-exp2"
+      },
+      "objective_score": Infinity
+    }
+  ]
+}

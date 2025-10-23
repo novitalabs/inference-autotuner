@@ -16,6 +16,7 @@ from typing import Dict, Any, List
 sys.path.insert(0, str(Path(__file__).parent))
 
 from controllers.ome_controller import OMEController
+from controllers.docker_controller import DockerController
 from controllers.benchmark_controller import BenchmarkController
 from controllers.direct_benchmark_controller import DirectBenchmarkController
 from utils.optimizer import generate_parameter_grid, calculate_objective_score
@@ -24,22 +25,43 @@ from utils.optimizer import generate_parameter_grid, calculate_objective_score
 class AutotunerOrchestrator:
     """Main orchestrator for the autotuning process."""
 
-    def __init__(self, kubeconfig_path: str = None, use_direct_benchmark: bool = False):
+    def __init__(
+        self,
+        deployment_mode: str = "ome",
+        kubeconfig_path: str = None,
+        use_direct_benchmark: bool = False,
+        docker_model_path: str = "/mnt/data/models"
+    ):
         """Initialize the orchestrator.
 
         Args:
-            kubeconfig_path: Path to kubeconfig file
+            deployment_mode: Deployment mode - 'ome' (Kubernetes) or 'docker' (standalone)
+            kubeconfig_path: Path to kubeconfig file (for OME mode)
             use_direct_benchmark: If True, use direct genai-bench CLI instead of K8s BenchmarkJob
+            docker_model_path: Base path for models in Docker mode
         """
-        self.ome_controller = OMEController(kubeconfig_path)
+        self.deployment_mode = deployment_mode.lower()
         self.use_direct_benchmark = use_direct_benchmark
 
-        if use_direct_benchmark:
+        # Initialize model deployment controller based on mode
+        if self.deployment_mode == "docker":
+            print("[Config] Deployment mode: Standalone Docker")
+            self.model_controller = DockerController(model_base_path=docker_model_path)
+            # Docker mode always uses direct benchmark (no K8s)
+            self.use_direct_benchmark = True
             self.benchmark_controller = DirectBenchmarkController()
-            print("[Config] Using direct genai-bench CLI execution")
+            print("[Config] Benchmark mode: Direct CLI (automatic for Docker mode)")
+        elif self.deployment_mode == "ome":
+            print("[Config] Deployment mode: OME (Kubernetes)")
+            self.model_controller = OMEController(kubeconfig_path)
+            if use_direct_benchmark:
+                self.benchmark_controller = DirectBenchmarkController()
+                print("[Config] Benchmark mode: Direct genai-bench CLI")
+            else:
+                self.benchmark_controller = BenchmarkController(kubeconfig_path)
+                print("[Config] Benchmark mode: Kubernetes BenchmarkJob CRD")
         else:
-            self.benchmark_controller = BenchmarkController(kubeconfig_path)
-            print("[Config] Using Kubernetes BenchmarkJob CRD")
+            raise ValueError(f"Unknown deployment mode: {deployment_mode}. Use 'ome' or 'docker'")
 
         self.results = []
 
@@ -94,7 +116,7 @@ class AutotunerOrchestrator:
 
         # Step 1: Deploy InferenceService
         print(f"[Step 1/4] Deploying InferenceService...")
-        isvc_name = self.ome_controller.deploy_inference_service(
+        isvc_name = self.model_controller.deploy_inference_service(
             task_name=task_name,
             experiment_id=experiment_id,
             namespace=namespace,
@@ -109,7 +131,7 @@ class AutotunerOrchestrator:
 
         # Step 2: Wait for InferenceService to be ready
         print(f"\n[Step 2/4] Waiting for InferenceService to be ready...")
-        if not self.ome_controller.wait_for_ready(isvc_name, namespace, timeout=timeout):
+        if not self.model_controller.wait_for_ready(isvc_name, namespace, timeout=timeout):
             print("InferenceService did not become ready in time")
             self.cleanup_experiment(isvc_name, None, namespace)
             return experiment_result
@@ -118,14 +140,25 @@ class AutotunerOrchestrator:
         print(f"\n[Step 3/4] Running benchmark...")
 
         if self.use_direct_benchmark:
-            # Direct CLI execution with automatic port forwarding
+            # Get endpoint URL (differs between Docker and OME modes)
+            endpoint_url = None
+            if self.deployment_mode == "docker":
+                # Docker mode: Get direct URL from controller
+                endpoint_url = self.model_controller.get_service_url(isvc_name, namespace)
+                if not endpoint_url:
+                    print("Failed to get service URL from Docker controller")
+                    self.cleanup_experiment(isvc_name, None, namespace, experiment_id)
+                    return experiment_result
+
+            # Direct CLI execution with automatic port forwarding (OME) or direct URL (Docker)
             metrics = self.benchmark_controller.run_benchmark(
                 task_name=task_name,
                 experiment_id=experiment_id,
                 service_name=isvc_name,
                 namespace=namespace,
                 benchmark_config=task["benchmark"],
-                timeout=timeout
+                timeout=timeout,
+                endpoint_url=endpoint_url
             )
             benchmark_name = None  # No K8s resource to track
 
@@ -207,7 +240,7 @@ class AutotunerOrchestrator:
             self.benchmark_controller.delete_benchmark_job(benchmark_name, namespace)
 
         if isvc_name:
-            self.ome_controller.delete_inference_service(isvc_name, namespace)
+            self.model_controller.delete_inference_service(isvc_name, namespace)
 
     def run_task(self, task_file: Path) -> Dict[str, Any]:
         """Run a complete autotuning task.
@@ -269,28 +302,51 @@ class AutotunerOrchestrator:
 
 def main():
     """Main entry point."""
-    if len(sys.argv) < 2:
-        print("Usage: python run_autotuner.py <task_json_file> [kubeconfig_path] [--direct]")
-        print("  --direct: Use direct genai-bench CLI instead of K8s BenchmarkJob")
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description='Inference Autotuner - Find optimal parameters for LLM inference',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # OME (Kubernetes) mode with K8s BenchmarkJob
+  python run_autotuner.py examples/simple_task.json
+
+  # OME mode with direct genai-bench CLI
+  python run_autotuner.py examples/simple_task.json --direct
+
+  # Standalone Docker mode (automatically uses direct benchmark)
+  python run_autotuner.py examples/simple_task.json --mode docker
+
+  # Docker mode with custom model path
+  python run_autotuner.py examples/simple_task.json --mode docker --model-path /data/models
+        """
+    )
+
+    parser.add_argument('task_file', type=Path, help='Path to task JSON configuration file')
+    parser.add_argument('--mode', choices=['ome', 'docker'], default='ome',
+                        help='Deployment mode: ome (Kubernetes) or docker (standalone)')
+    parser.add_argument('--kubeconfig', type=str, default=None,
+                        help='Path to kubeconfig file (for OME mode)')
+    parser.add_argument('--direct', action='store_true',
+                        help='Use direct genai-bench CLI instead of K8s BenchmarkJob (OME mode only)')
+    parser.add_argument('--model-path', type=str, default='/mnt/data/models',
+                        help='Base path for models on host (Docker mode only)')
+
+    args = parser.parse_args()
+
+    if not args.task_file.exists():
+        print(f"Error: Task file not found: {args.task_file}")
         sys.exit(1)
-
-    task_file = Path(sys.argv[1])
-    if not task_file.exists():
-        print(f"Error: Task file not found: {task_file}")
-        sys.exit(1)
-
-    kubeconfig_path = None
-    use_direct_benchmark = False
-
-    for arg in sys.argv[2:]:
-        if arg == "--direct":
-            use_direct_benchmark = True
-        else:
-            kubeconfig_path = arg
 
     # Run autotuning
-    orchestrator = AutotunerOrchestrator(kubeconfig_path, use_direct_benchmark)
-    summary = orchestrator.run_task(task_file)
+    orchestrator = AutotunerOrchestrator(
+        deployment_mode=args.mode,
+        kubeconfig_path=args.kubeconfig,
+        use_direct_benchmark=args.direct,
+        docker_model_path=args.model_path
+    )
+    summary = orchestrator.run_task(args.task_file)
 
     # Save results
     results_file = Path("results") / f"{summary['task_name']}_results.json"

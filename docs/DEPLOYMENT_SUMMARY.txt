@@ -1,0 +1,482 @@
+================================================================================
+INFERENCE-AUTOTUNER: DEPLOYMENT ARCHITECTURE COMPREHENSIVE ANALYSIS
+================================================================================
+
+PROJECT PURPOSE
+===============
+Automated LLM inference engine parameter tuning via Kubernetes orchestration.
+Deploys InferenceServices with different configurations, benchmarks them with
+genai-bench, and identifies optimal parameters for latency/throughput.
+
+DEPLOYMENT MODEL
+================
+Type:           Kubernetes-native (OME framework)
+Approach:       Template-based YAML generation + Jinja2
+Execution:      Sequential experiments (no parallelization)
+Automation:     Manual CLI trigger or scheduled external job
+Entry Point:    Python orchestrator script (run_autotuner.py)
+
+CORE ARCHITECTURE COMPONENTS
+=============================
+
+1. ORCHESTRATOR (Main Control Flow)
+   File:       src/run_autotuner.py (305 lines)
+   Class:      AutotunerOrchestrator
+   Role:       Coordinates entire experiment workflow
+   Methods:    run_task(), run_experiment(), cleanup_experiment()
+   
+   Flow:
+   1. Load JSON task config
+   2. Generate parameter grid (Cartesian product)
+   3. For each parameter set:
+      a. Deploy InferenceService with parameters
+      b. Wait for service ready
+      c. Run benchmark (direct CLI or K8s BenchmarkJob)
+      d. Collect results & score
+      e. Cleanup resources
+   4. Find best result
+   5. Save results JSON
+
+2. KUBERNETES CONTROLLERS
+   
+   a) OMEController (src/controllers/ome_controller.py - 232 lines)
+      Manages InferenceService lifecycle
+      - deploy_inference_service()  → Create CRD
+      - wait_for_ready()            → Poll status
+      - delete_inference_service()  → Cleanup
+      - get_service_url()           → Retrieve endpoint
+      
+      API:
+      CRD Group:    ome.io
+      Version:      v1beta1
+      Resource:     inferenceservices
+      Namespace:    autotuner
+   
+   b) BenchmarkController (src/controllers/benchmark_controller.py - 229 lines)
+      [K8s BenchmarkJob mode ONLY]
+      - create_benchmark_job()      → Create CRD
+      - wait_for_completion()       → Poll status
+      - get_benchmark_results()     → Read results from PVC
+      - delete_benchmark_job()      → Cleanup
+      
+      API:
+      CRD Group:    ome.io
+      Version:      v1beta1
+      Resource:     benchmarkjobs
+      Namespace:    autotuner
+   
+   c) DirectBenchmarkController (src/controllers/direct_benchmark_controller.py - 335 lines)
+      [Direct CLI mode ONLY]
+      - setup_port_forward()        → kubectl port-forward subprocess
+      - run_benchmark()             → Execute genai-bench CLI
+      - _parse_results()            → Parse JSON output
+      - cleanup_port_forward()      → Cleanup subprocess
+      - cleanup_results()           → Remove local files
+
+3. TEMPLATE SYSTEM (Jinja2)
+   
+   a) InferenceService Template (src/templates/inference_service.yaml.j2)
+      Variables:
+      - namespace, isvc_name, task_name, experiment_id
+      - model_name, runtime_name
+      - tp_size (tensor parallelism), mem_frac (memory fraction)
+      - max_total_tokens (optional), schedule_policy (optional)
+      
+      Output: Kubernetes manifest with:
+      - Namespace declaration
+      - InferenceService CRD
+      - SGLang container args
+      - GPU resource specification
+   
+   b) BenchmarkJob Template (src/templates/benchmark_job.yaml.j2)
+      Variables:
+      - benchmark_name, namespace, task_name, experiment_id
+      - isvc_name, task_type
+      - model_tokenizer, traffic_scenarios, num_concurrency
+      - max_time_per_iteration, max_requests_per_iteration
+      - additional_params
+      
+      Output: Kubernetes manifest with:
+      - BenchmarkJob CRD
+      - genai-bench pod override
+      - Endpoint configuration (direct URL or InferenceService reference)
+      - Output storage (PVC)
+
+TWO BENCHMARK EXECUTION MODES
+==============================
+
+MODE 1: KUBERNETES BENCHMARKJOB (Default)
+------------------------------------------
+Command:    python src/run_autotuner.py examples/simple_task.json
+Execution:  Benchmarks run in Kubernetes pods
+Storage:    Results persisted to PersistentVolumeClaim
+Dependencies: genai-bench Docker image (kllambda/genai-bench:v251014)
+Prerequisites:
+  - BenchmarkJob CRD installed
+  - PVC named "benchmark-results-pvc" in "autotuner" namespace
+  - Working genai-bench Docker image accessible to cluster
+
+Flow:
+  1. Deploy InferenceService
+  2. Wait for ready (poll .status.conditions[0].status for "True")
+  3. Create BenchmarkJob → genai-bench pod starts
+  4. Wait for job completion (poll .status.state for "Complete")
+  5. Read results from .status.results or PVC
+  6. Delete BenchmarkJob & InferenceService
+
+STATUS POLLING:
+  Field:        .status.state
+  States:       "Complete", "Failed", or polling continues
+  Interval:     15 seconds
+  Timeout:      1800 seconds (30 minutes)
+
+MODE 2: DIRECT CLI (Recommended - NEW)
+---------------------------------------
+Command:    python src/run_autotuner.py examples/simple_task.json --direct
+Execution:  Benchmarks run locally with local genai-bench
+Storage:    Results saved to local benchmark_results/ directory
+Dependencies: genai-bench CLI (pip install in venv)
+Prerequisites:
+  - genai-bench CLI installed in virtual environment
+  - kubectl available and configured
+  - kubectl port-forward capability
+
+Flow:
+  1. Deploy InferenceService
+  2. Wait for ready
+  3. Start kubectl port-forward: pod/svc port 8000 → localhost 8080
+  4. Run genai-bench CLI: genai-bench benchmark --api-base http://localhost:8080
+  5. Parse JSON results from local output directory
+  6. Kill port-forward subprocess
+  7. Delete InferenceService
+
+PORT FORWARDING:
+  Command:      kubectl port-forward [pod|svc]/name 8080:8000 -n namespace
+  Pod Finding:  Label selector serving.kserve.io/inferenceservice={service_name}
+  Fallback:     If no pod found, use service name directly
+  Local URL:    http://localhost:8080
+  Remote Port:  8000 (SGLang server port)
+  Local Port:   8080
+
+KEY CONFIGURATION FILES
+=======================
+
+1. Task Configuration (User-Provided)
+   File:    examples/simple_task.json
+   Format:  JSON
+   
+   Structure:
+   {
+     "task_name": "simple-tune",
+     "model": {"name": "llama-3-2-1b-instruct", "namespace": "autotuner"},
+     "base_runtime": "llama-3-2-1b-instruct-rt",
+     "parameters": {
+       "tp_size": {"type": "choice", "values": [1, 2]},
+       "mem_frac": {"type": "choice", "values": [0.8, 0.9]},
+       "max_total_tokens": {"type": "choice", "values": [4096, 8192]},
+       "schedule_policy": {"type": "choice", "values": ["lpm", "fcfs"]}
+     },
+     "optimization": {
+       "strategy": "grid_search",
+       "objective": "minimize_latency",
+       "max_iterations": 4,
+       "timeout_per_iteration": 600
+     },
+     "benchmark": {
+       "task": "text-to-text",
+       "model_name": "llama-3-2-1b-instruct",
+       "model_tokenizer": "meta-llama/Llama-3.2-1B-Instruct",
+       "traffic_scenarios": ["D(100,100)"],
+       "num_concurrency": [1, 4],
+       "max_time_per_iteration": 10,
+       "max_requests_per_iteration": 50,
+       "additional_params": {"temperature": "0.0"}
+     }
+   }
+   
+   Constraints:
+   - model.name must match existing ClusterBaseModel
+   - base_runtime must match existing ClusterServingRuntime
+   - parameters only support "choice" type
+   - optimization.strategy only supports "grid_search"
+   - optimization.objective: "minimize_latency" or "maximize_throughput"
+
+2. Kubernetes Resources
+   
+   a) ClusterBaseModel Example
+      File: config/examples/clusterbasemodel-llama-3.2-1b.yaml
+      Defines: Model metadata, storage location, capabilities
+      Storage: HuggingFace Hub or local path
+      Path: /mnt/data/models/{model_name}
+   
+   b) ClusterServingRuntime Example
+      File: config/examples/clusterservingruntime-sglang.yaml
+      Defines: Runtime image, command, args, resource limits
+      Image: docker.io/lmsysorg/sglang:v0.5.2-cu126
+      Port: 8080
+      GPU: Configurable via resource limits
+   
+   c) PersistentVolumeClaim
+      File: config/benchmark-pvc.yaml
+      Name: benchmark-results-pvc
+      Namespace: autotuner
+      Size: 1Gi
+      AccessMode: ReadWriteOnce
+      Purpose: Store BenchmarkJob results
+
+3. Installation Script
+   File:    install.sh (460 lines)
+   Purpose: Environment setup and OME installation
+   
+   Steps:
+   1. Verify prerequisites (Python, pip, kubectl, git)
+   2. Initialize git submodules (OME, genai-bench)
+   3. Create Python virtual environment (venv)
+   4. Install Python dependencies (requirements.txt)
+   5. Install genai-bench from third_party/genai-bench
+   6. Create directories (results, benchmark_results)
+   7. Create K8s namespace and PVC
+   8. Install OME (if --install-ome flag provided):
+      - Install cert-manager
+      - Install KEDA
+      - Install OME CRDs
+      - Install OME resources
+   9. Verify OME installation and CRDs
+   
+   Usage:
+   ./install.sh                 # Skip OME
+   ./install.sh --install-ome   # Include OME
+   ./install.sh --skip-venv     # Skip virtual env
+   ./install.sh --skip-k8s      # Skip K8s setup
+
+INFRASTRUCTURE DEPENDENCIES
+============================
+
+Required:
+  - Kubernetes cluster v1.28+ with GPU support
+  - OME (Open Model Engine) pre-installed in "ome" namespace
+  - OME CRDs: InferenceService, BenchmarkJob, ClusterBaseModel, ClusterServingRuntime
+  - kubectl configured and accessible
+  - Python 3.8+
+
+Optional Dependencies for OME:
+  - cert-manager (for webhooks)
+  - KEDA (for autoscaling)
+  - PVC storage backend
+
+Python Libraries:
+  - kubernetes>=28.1.0 (Kubernetes API client)
+  - pyyaml>=6.0 (YAML parsing)
+  - jinja2>=3.1.0 (Template rendering)
+  - genai-bench (from submodule, installed in editable mode)
+
+DEPLOYMENT WORKFLOW
+===================
+
+START USER INVOCATION:
+  $ source env/bin/activate
+  $ python src/run_autotuner.py examples/simple_task.json --direct
+
+  ├─ Parse arguments
+  │  └─ task_file = "examples/simple_task.json"
+  │  └─ kubeconfig_path = None (use default)
+  │  └─ use_direct_benchmark = True (--direct flag)
+  │
+  ├─ Create AutotunerOrchestrator
+  │  ├─ Initialize OMEController (Kubernetes API)
+  │  └─ Initialize DirectBenchmarkController
+  │
+  └─ orchestrator.run_task(task_file)
+     │
+     ├─ Load task JSON
+     │  └─ Parse task_name, model, runtime, parameters, optimization, benchmark
+     │
+     ├─ Generate parameter grid
+     │  └─ Cartesian product of all parameter combinations
+     │  └─ Example: 2×2×2×2 = 16 combinations
+     │
+     └─ For each parameter combination (i=1 to 16):
+        │
+        ├─ run_experiment(task, i, parameters)
+        │  │
+        │  ├─ [Step 1] Deploy InferenceService
+        │  │  ├─ Render template: inference_service.yaml.j2
+        │  │  │  └─ Variables: namespace, isvc_name, model_name, params...
+        │  │  ├─ Create Kubernetes namespace
+        │  │  └─ POST InferenceService CRD (ome.io/v1beta1)
+        │  │
+        │  ├─ [Step 2] Wait for Ready
+        │  │  ├─ Poll .status.conditions[].type == "Ready"
+        │  │  ├─ Check .status.conditions[].status == "True"
+        │  │  ├─ Poll interval: 10s
+        │  │  └─ Timeout: 600s (task-configurable)
+        │  │
+        │  ├─ [Step 3] Run Benchmark
+        │  │  │
+        │  │  └─ IF --direct mode:
+        │  │     ├─ setup_port_forward()
+        │  │     │  ├─ Find pod: kubectl get pods -l serving.kserve.io/inferenceservice=...
+        │  │     │  ├─ Start subprocess: kubectl port-forward
+        │  │     │  ├─ Wait 5s for port-forward to establish
+        │  │     │  └─ Return endpoint: http://localhost:8080
+        │  │     │
+        │  │     └─ run_benchmark()
+        │  │        ├─ Build command: genai-bench benchmark \
+        │  │        │     --api-backend openai \
+        │  │        │     --api-base http://localhost:8080 \
+        │  │        │     --task text-to-text \
+        │  │        │     --traffic-scenario D(100,100) \
+        │  │        │     --num-concurrency 1 \
+        │  │        │     ...
+        │  │        ├─ Execute with subprocess.run()
+        │  │        ├─ Capture output
+        │  │        ├─ Parse JSON from benchmark_results/{name}/*_results.json
+        │  │        └─ Finally: cleanup_port_forward()
+        │  │
+        │  ├─ [Step 4] Process Results
+        │  │  ├─ Extract metrics from genai-bench output
+        │  │  ├─ Calculate objective_score()
+        │  │  │  ├─ minimize_latency: return avg_e2e_latency
+        │  │  │  └─ maximize_throughput: return -throughput (negate)
+        │  │  └─ Store in experiment_result dict
+        │  │
+        │  └─ Cleanup
+        │     └─ Delete InferenceService (OMEController.delete_inference_service)
+        │
+        └─ Append result to self.results
+     
+     ├─ Find Best Result
+     │  ├─ Filter successful experiments
+     │  ├─ Sort by objective_score
+     │  └─ Select experiment with minimum score
+     │
+     └─ Save Results
+        └─ Write to: results/{task_name}_results.json
+           {
+             "task_name": "simple-tune",
+             "total_experiments": 16,
+             "successful_experiments": 14,
+             "elapsed_time": 3600.5,
+             "best_result": {
+               "experiment_id": 7,
+               "parameters": {"tp_size": 2, "mem_frac": 0.9, ...},
+               "status": "success",
+               "metrics": {...},
+               "objective_score": 45.2
+             },
+             "all_results": [...]
+           }
+
+HARDCODED CONFIGURATION VALUES
+===============================
+
+Kubernetes:
+  - CRD Group:           ome.io
+  - CRD Version:         v1beta1
+  - Autotuner Namespace: autotuner
+  - OME Namespace:       ome
+  - PVC Name:            benchmark-results-pvc
+  - PVC Size:            1Gi
+
+Networking:
+  - InferenceService Port:  8080
+  - SGLang Server Port:     8000
+  - Port-Forward Local:     8080
+  - Port-Forward Remote:    8000
+
+Polling & Timeouts:
+  - InferenceService Poll:   10 seconds
+  - Benchmark Poll:          15 seconds
+  - Default ISVC Timeout:    600 seconds (10 min)
+  - Default Benchmark Timeout: 1800 seconds (30 min)
+
+Model & Runtime:
+  - Model Path:     /mnt/data/models/{model_name}
+  - SGLang Image:   docker.io/lmsysorg/sglang:v0.5.2-cu126
+  - Genai-bench Image: kllambda/genai-bench:v251014
+
+KEY FILES SUMMARY
+=================
+
+Core Logic (670 lines):
+  src/run_autotuner.py                  305 lines  Orchestrator
+  src/controllers/ome_controller.py     232 lines  InferenceService CRUD
+  src/controllers/benchmark_controller.py 229 lines BenchmarkJob (K8s mode)
+  src/controllers/direct_benchmark_controller.py 335 lines Benchmark (CLI mode)
+  src/utils/optimizer.py                 67 lines  Parameter grid & scoring
+
+Templates (75 lines):
+  src/templates/inference_service.yaml.j2 36 lines
+  src/templates/benchmark_job.yaml.j2     41 lines
+
+Configuration (100 lines):
+  examples/simple_task.json              37 lines
+  examples/tuning_task.json              47 lines
+  config/benchmark-pvc.yaml              12 lines
+  config/examples/clusterbasemodel-llama-3.2-1b.yaml
+  config/examples/clusterservingruntime-sglang.yaml
+
+Installation & Docs:
+  install.sh                           460 lines
+  README.md                            705 lines
+  DEPLOYMENT_ARCHITECTURE.md           799 lines (NEW)
+  DEPLOYMENT_QUICK_REFERENCE.md        ~200 lines (NEW)
+  requirements.txt                       4 lines
+
+NO DEPLOYMENT AUTOMATION
+========================
+- No automatic scheduling/cron
+- No webhook or event-driven execution
+- No REST API for job submission
+- No containerized orchestrator
+- No Kubernetes Operator
+- Deployment is: Pure Python CLI script (manual or externally scheduled)
+
+EXTENSION OPPORTUNITIES FOR PRODUCTION
+=======================================
+
+1. REST API & Scheduling:
+   - FastAPI wrapper around orchestrator
+   - Accept task definitions via POST /tasks
+   - Support GET /tasks/{id}/status, /tasks/{id}/results
+   - Implement job queue (Celery, etc.)
+
+2. Kubernetes Integration:
+   - Package as container image
+   - Deploy as CronJob for recurring tuning
+   - Implement K8s Operator pattern
+   - Add RBAC and security policies
+
+3. Optimization Algorithms:
+   - Bayesian optimization (Optuna, Ax)
+   - Parallel experiment execution
+   - Early stopping strategies
+   - Multi-objective optimization
+
+4. Persistence & Analytics:
+   - PostgreSQL for experiment history
+   - InfluxDB for time-series metrics
+   - S3/GCS for result artifacts
+   - Historical analysis dashboards
+
+5. Monitoring & Observability:
+   - Prometheus metrics export
+   - Real-time WebSocket status API
+   - Grafana dashboards
+   - Structured logging
+
+CONCLUSION
+==========
+The inference-autotuner is a functional prototype that orchestrates Kubernetes
+resources (via OME CRDs) to run parameter tuning experiments. It demonstrates
+a clean separation between orchestration logic (Python), infrastructure
+management (Kubernetes), and deployment configuration (JSON + Jinja2).
+
+The system is highly extensible and can be evolved into a production-grade
+optimization platform by adding scheduling, persistence, advanced algorithms,
+and a comprehensive UI.
+
+Full documentation available in:
+  /root/work/inference-autotuner/DEPLOYMENT_ARCHITECTURE.md
+  /root/work/inference-autotuner/DEPLOYMENT_QUICK_REFERENCE.md
+================================================================================

@@ -12,8 +12,10 @@ from jinja2 import Template
 from kubernetes import client, config
 from kubernetes.client.rest import ApiException
 
+from .base_controller import BaseModelController
 
-class OMEController:
+
+class OMEController(BaseModelController):
     """Controller for managing OME InferenceService deployments."""
 
     def __init__(self, kubeconfig_path: Optional[str] = None):
