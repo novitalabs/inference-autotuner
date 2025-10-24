@@ -307,54 +307,100 @@ class DirectBenchmarkController:
 		Returns:
 		    Dict containing parsed metrics, or None if unavailable
 		"""
-		# Look for JSON results file in the experiment directory
-		# genai-bench creates files like: <scenario>_<concurrency>_results.json
-		result_files = list(output_dir.glob("**/*.json"))
+		# Look for JSON results files in the experiment directory
+		# genai-bench creates files like:
+		# - experiment_metadata.json (metadata)
+		# - D100_100_text-to-text_num_concurrency_1_time_9s.json (actual results per concurrency)
+		result_files = list(output_dir.glob("D*.json"))  # Only get result files, not metadata
 		if not result_files:
-			print(f"[Benchmark] No JSON result files found in {output_dir}")
+			print(f"[Benchmark] No result JSON files found in {output_dir}")
 			print(f"[Benchmark] Directory contents:")
 			if output_dir.exists():
 				for item in output_dir.rglob("*"):
 					print(f"  {item}")
 			return None
 
-		# Read the first result file
-		result_file = result_files[0]
-		print(f"[Benchmark] Parsing results from {result_file}")
+		print(f"[Benchmark] Found {len(result_files)} result file(s)")
 
 		try:
-			with open(result_file, "r") as f:
-				data = json.load(f)
+			# Parse all result files and aggregate metrics
+			all_metrics = []
+			for result_file in result_files:
+				print(f"[Benchmark] Parsing {result_file.name}")
+				with open(result_file, "r") as f:
+					data = json.load(f)
 
-			# Extract key metrics
-			metrics = {"raw_results": data, "result_file": str(result_file)}
+				# genai-bench result structure: {"aggregated_metrics": {...}}
+				if "aggregated_metrics" in data:
+					all_metrics.append(data["aggregated_metrics"])
+				else:
+					print(f"[Benchmark] Warning: No aggregated_metrics in {result_file.name}")
 
-			# Try to extract summary metrics if available
-			if isinstance(data, dict):
-				# Common metric fields from genai-bench
-				# Look for nested structure like: data['results'][0]['metrics']
-				if "results" in data and len(data["results"]) > 0:
-					first_result = data["results"][0]
-					if "metrics" in first_result:
-						metrics.update(first_result["metrics"])
+			if not all_metrics:
+				print(f"[Benchmark] No valid metrics found in result files")
+				return None
 
-				# Also check top-level keys
-				for key in [
-					"latency_ms",
-					"throughput",
-					"tpot_ms",
-					"e2e_latency_ms",
-					"total_requests",
-					"successful_requests",
-					"failed_requests",
-					"mean_ttft_ms",
-					"mean_tpot_ms",
-					"mean_e2e_latency_ms",
-				]:
-					if key in data:
-						metrics[key] = data[key]
+			# Aggregate metrics across all concurrency levels
+			# Use the best (lowest latency or highest throughput) from all runs
+			aggregated = {
+				"num_result_files": len(all_metrics),
+				"concurrency_levels": [m.get("num_concurrency") for m in all_metrics],
+				"raw_results": all_metrics,  # Keep all raw results for reference
+			}
 
-			return metrics
+			# Extract key performance metrics
+			# Average across all concurrency levels
+			if all_metrics:
+				# E2E Latency stats (mean across all concurrencies)
+				e2e_latencies = [m["stats"]["e2e_latency"]["mean"] for m in all_metrics if "stats" in m]
+				if e2e_latencies:
+					aggregated["mean_e2e_latency"] = sum(e2e_latencies) / len(e2e_latencies)
+					aggregated["min_e2e_latency"] = min(e2e_latencies)
+					aggregated["max_e2e_latency"] = max(e2e_latencies)
+
+				# P50, P90, P99 latencies (average across concurrencies)
+				p50_latencies = [m["stats"]["e2e_latency"]["p50"] for m in all_metrics if "stats" in m]
+				p90_latencies = [m["stats"]["e2e_latency"]["p90"] for m in all_metrics if "stats" in m]
+				p99_latencies = [m["stats"]["e2e_latency"]["p99"] for m in all_metrics if "stats" in m]
+				if p50_latencies:
+					aggregated["p50_e2e_latency"] = sum(p50_latencies) / len(p50_latencies)
+				if p90_latencies:
+					aggregated["p90_e2e_latency"] = sum(p90_latencies) / len(p90_latencies)
+				if p99_latencies:
+					aggregated["p99_e2e_latency"] = sum(p99_latencies) / len(p99_latencies)
+
+				# TTFT (Time to First Token) stats
+				ttft_means = [m["stats"]["ttft"]["mean"] for m in all_metrics if "stats" in m]
+				if ttft_means:
+					aggregated["mean_ttft"] = sum(ttft_means) / len(ttft_means)
+
+				# TPOT (Time Per Output Token) stats
+				tpot_means = [m["stats"]["tpot"]["mean"] for m in all_metrics if "stats" in m]
+				if tpot_means:
+					aggregated["mean_tpot"] = sum(tpot_means) / len(tpot_means)
+
+				# Throughput (tokens/s) - use max throughput achieved
+				output_throughputs = [m.get("mean_output_throughput_tokens_per_s", 0) for m in all_metrics]
+				if output_throughputs:
+					aggregated["mean_output_throughput"] = sum(output_throughputs) / len(output_throughputs)
+					aggregated["max_output_throughput"] = max(output_throughputs)
+
+				total_throughputs = [m.get("mean_total_tokens_throughput_tokens_per_s", 0) for m in all_metrics]
+				if total_throughputs:
+					aggregated["mean_total_throughput"] = sum(total_throughputs) / len(total_throughputs)
+					aggregated["max_total_throughput"] = max(total_throughputs)
+
+				# Request stats
+				total_requests = sum(m.get("num_requests", 0) for m in all_metrics)
+				total_completed = sum(m.get("num_completed_requests", 0) for m in all_metrics)
+				total_errors = sum(m.get("num_error_requests", 0) for m in all_metrics)
+				aggregated["total_requests"] = total_requests
+				aggregated["total_completed_requests"] = total_completed
+				aggregated["total_error_requests"] = total_errors
+				if total_requests > 0:
+					aggregated["success_rate"] = total_completed / total_requests
+
+			return aggregated
 
 		except Exception as e:
 			print(f"[Benchmark] Error parsing results: {e}")

@@ -61,24 +61,69 @@ def calculate_objective_score(results: Dict[str, Any], objective: str = "minimiz
 	"""Calculate objective score from benchmark results.
 
 	Args:
-	    results: Benchmark results dictionary
-	    objective: Optimization objective
+	    results: Benchmark results dictionary from DirectBenchmarkController._parse_results()
+	    objective: Optimization objective - 'minimize_latency' or 'maximize_throughput'
 
 	Returns:
-	    Objective score (lower is better for minimization)
+	    Objective score (lower is better for minimization, higher for maximization)
 	"""
-	# This is a placeholder - actual implementation depends on
-	# the structure of results returned by BenchmarkJob
+	if not results:
+		print("[Optimizer] No results provided, returning worst score")
+		return float("inf") if "minimize" in objective else float("-inf")
 
-	print(f"{results=}")
+	# Extract metrics based on objective
+	try:
+		if objective == "minimize_latency":
+			# Use mean E2E latency as primary metric (in seconds)
+			# Fallback to P50 if mean not available
+			latency = results.get("mean_e2e_latency", results.get("p50_e2e_latency"))
+			if latency is None:
+				print(f"[Optimizer] Warning: No latency metrics found in results")
+				print(f"[Optimizer] Available keys: {list(results.keys())}")
+				return float("inf")
 
-	if objective == "minimize_latency":
-		# Extract average latency (example)
-		# Actual field names depend on genai-bench output format
-		latency = results.get("results", {}).get("avg_e2e_latency", float("inf"))
-		return latency
-	elif objective == "maximize_throughput":
-		throughput = results.get("results", {}).get("throughput", 0)
-		return -throughput  # Negate for minimization
-	else:
-		raise ValueError(f"Unsupported objective: {objective}")
+			print(f"[Optimizer] Latency score: {latency:.4f}s (lower is better)")
+			return latency
+
+		elif objective == "maximize_throughput":
+			# Use mean total throughput (tokens/s) as primary metric
+			# Fallback to output throughput or max throughput
+			throughput = results.get(
+				"mean_total_throughput", results.get("mean_output_throughput", results.get("max_total_throughput"))
+			)
+			if throughput is None or throughput == 0:
+				print(f"[Optimizer] Warning: No throughput metrics found in results")
+				print(f"[Optimizer] Available keys: {list(results.keys())}")
+				return float("-inf")
+
+			# Negate for minimization (optimizer looks for minimum score)
+			score = -throughput
+			print(f"[Optimizer] Throughput score: {throughput:.2f} tokens/s (score: {score:.2f}, lower is better)")
+			return score
+
+		elif objective == "minimize_ttft":
+			# Time to First Token optimization
+			ttft = results.get("mean_ttft")
+			if ttft is None:
+				print(f"[Optimizer] Warning: No TTFT metrics found in results")
+				return float("inf")
+
+			print(f"[Optimizer] TTFT score: {ttft:.4f}s (lower is better)")
+			return ttft
+
+		elif objective == "minimize_tpot":
+			# Time Per Output Token optimization
+			tpot = results.get("mean_tpot")
+			if tpot is None:
+				print(f"[Optimizer] Warning: No TPOT metrics found in results")
+				return float("inf")
+
+			print(f"[Optimizer] TPOT score: {tpot:.4f}s (lower is better)")
+			return tpot
+
+		else:
+			raise ValueError(f"Unsupported objective: {objective}")
+
+	except Exception as e:
+		print(f"[Optimizer] Error calculating objective score: {e}")
+		return float("inf") if "minimize" in objective else float("-inf")

@@ -3211,3 +3211,103 @@ Status: Implementation Complete, Testing Blocked
 
 ---
 
+
+## Mini-milestone: Benchmark Results Parsing and Objective Score Calculation
+
+> Complete function `calculate_objective_score` according to the results value
+
+<details>
+<summary>Reply</summary>
+
+* *Claude*:
+  **Problem Analysis:**
+  - `calculate_objective_score()` was placeholder returning `Infinity` scores
+  - `_parse_results()` was reading wrong files and incorrect structure
+  - Needed to understand genai-bench actual output format
+
+  **Investigation:**
+  - Examined actual benchmark output directory structure
+  - Found genai-bench creates multiple JSON files:
+    * `D100_100_text-to-text_num_concurrency_1_time_9s.json` (result files)
+    * `D100_100_text-to-text_num_concurrency_4_time_3s.json`
+    * `experiment_metadata.json` (metadata, not results)
+  - Analyzed JSON structure: `{"aggregated_metrics": {...}}`
+  - Identified available metrics: e2e_latency, ttft, tpot, throughput stats
+
+  **Implementation Changes:**
+
+  **1. Enhanced DirectBenchmarkController._parse_results():**
+  - **File Filtering**: Changed from `glob("**/*.json")` to `glob("D*.json")`
+    * Only reads actual result files, excludes metadata
+  - **Multiple Concurrency Handling**: Parses all result files (one per concurrency level)
+  - **Proper Structure Navigation**: Extracts from `data["aggregated_metrics"]`
+  - **Comprehensive Aggregation**: Averages metrics across all concurrency levels
+  
+  **Metrics Extracted:**
+  - **Latency**: mean/min/max/p50/p90/p99 E2E latency (seconds)
+  - **Throughput**: mean/max output and total throughput (tokens/s)
+  - **Token-level**: mean TTFT, mean TPOT
+  - **Request stats**: total/completed/error requests, success rate
+
+  **2. Completed calculate_objective_score():**
+  
+  **Supported Objectives:**
+  1. `minimize_latency` (default):
+     - Uses `mean_e2e_latency` (seconds)
+     - Fallback to `p50_e2e_latency`
+     - Lower is better
+  
+  2. `maximize_throughput`:
+     - Uses `mean_total_throughput` (tokens/s)
+     - Falls back to output or max throughput
+     - Score negated for minimization: `-throughput`
+     - Lower (more negative) = higher throughput = better
+  
+  3. `minimize_ttft` (NEW):
+     - Optimizes Time to First Token
+     - Lower is better
+  
+  4. `minimize_tpot` (NEW):
+     - Optimizes Time Per Output Token
+     - Lower is better
+
+  **Features:**
+  - Clear logging of calculated scores
+  - Graceful fallback for missing metrics
+  - Error handling with appropriate defaults
+  - Informative warnings
+
+  **Testing:**
+  ```
+  Concurrency levels: [4, 1]
+  Mean E2E Latency: 0.1892s
+  Mean Total Throughput: 2304.82 tokens/s
+
+  Objective Scores:
+    minimize_latency: 0.1892
+    maximize_throughput: -2304.82 (negated)
+  ```
+
+  **Files Modified:**
+  1. ✅ `src/controllers/direct_benchmark_controller.py` - Enhanced `_parse_results()` (100+ lines)
+  2. ✅ `src/utils/optimizer.py` - Completed `calculate_objective_score()` with 4 objectives
+
+  **Benefits:**
+  - ✅ No more `Infinity` scores - proper metric extraction
+  - ✅ Supports 4 optimization objectives
+  - ✅ Handles multiple concurrency levels correctly
+  - ✅ Comprehensive metric aggregation
+  - ✅ Clear logging for debugging
+  - ✅ Graceful error handling
+
+  **Key Learnings:**
+  1. genai-bench creates separate result files per concurrency level
+  2. Result files follow pattern `D<input>_<output>_<task>_num_concurrency_<N>_time_<T>s.json`
+  3. Metrics are nested under `aggregated_metrics` key
+  4. Need to aggregate across multiple concurrency runs for fair comparison
+  5. Throughput maximization requires score negation (optimizer minimizes)
+
+</details>
+
+---
+
