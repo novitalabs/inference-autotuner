@@ -3047,3 +3047,167 @@ Status: Implementation Complete, Testing Blocked
 
 ---
 
+
+## Mini-milestone: Documentation Reorganization
+
+> Separate Troubleshooting chapter from README into a standalone document, and leave a link for README.
+
+<details>
+<summary>Reply</summary>
+
+* *Claude*:
+  **Documentation Refactoring:**
+  
+  **1. Created Standalone Troubleshooting Guide** (`docs/TROUBLESHOOTING.md`)
+  - Comprehensive guide with 13 common issues and solutions
+  - Sections:
+    * InferenceService deployment issues
+    * GPU resource problems
+    * Docker and Kubernetes configuration
+    * Model download and transfer
+    * Benchmark execution errors
+    * Monitoring and performance tips
+  - 400+ lines of detailed troubleshooting content
+  
+  **2. Updated README.md**
+  - Replaced verbose Troubleshooting section (420+ lines) with concise summary
+  - Added link to `docs/TROUBLESHOOTING.md`
+  - Quick reference list of common issue categories
+  - 50% reduction in README length while preserving all information
+  
+  **Files Modified:**
+  1. ✅ `docs/TROUBLESHOOTING.md` - Created comprehensive standalone guide
+  2. ✅ `README.md` - Replaced detailed troubleshooting with link and summary
+  
+  **Benefits:**
+  - 📉 README more readable and maintainable
+  - 📈 Troubleshooting information easier to find and reference
+  - 📈 Follows project convention of placing detailed docs in `./docs/`
+
+</details>
+
+---
+
+## Mini-milestone: CLI Default Behavior Improvement
+
+> When use `--mode docker`, --direct should be default
+
+<details>
+<summary>Reply</summary>
+
+* *Claude*:
+  **CLI Usability Enhancement:**
+  
+  **Implementation:**
+  - Modified `src/run_autotuner.py` argument parsing
+  - Added automatic flag setting: `if args.mode == 'docker': args.direct = True`
+  - Updated help text: `--direct` now says "default for docker mode"
+  - Updated usage examples to remove redundant `--direct` flag
+  
+  **Behavior:**
+  - **Before**: `python src/run_autotuner.py examples/docker_task.json --mode docker --direct`
+  - **After**: `python src/run_autotuner.py examples/docker_task.json --mode docker`
+  
+  **Rationale:**
+  - Docker mode always uses DirectBenchmarkController (no K8s BenchmarkJob CRD)
+  - Requiring explicit `--direct` flag was redundant
+  - Simplifies command-line usage for most common case
+  
+  **Files Modified:**
+  1. ✅ `src/run_autotuner.py` - Added automatic flag logic, updated help text
+  
+  **Benefits:**
+  - 📉 Simpler command-line interface
+  - 📈 Clearer default behavior
+  - 📈 Better user experience
+
+</details>
+
+---
+
+## Mini-milestone: Code Formatting - Black Formatter Integration
+
+> Import python black formatter in project
+
+<details>
+<summary>Reply</summary>
+
+* *Claude*:
+  **Initial Black Setup:**
+  
+  **1. Added Dependencies**
+  - Added `black>=24.0.0` to `requirements.txt`
+  - Installed Black 25.9.0
+  
+  **2. Created Configuration** (`pyproject.toml`)
+  - Line length: 100 characters
+  - Target Python: 3.8, 3.9, 3.10, 3.11
+  - Excluded: env, venv, third_party, build artifacts
+  
+  **3. Formatted Codebase**
+  - Reformatted 7 Python files:
+    * `src/run_autotuner.py`
+    * `src/controllers/*.py` (5 files)
+    * `src/utils/optimizer.py`
+  
+  **4. Documentation** (`docs/DEVELOPMENT.md`)
+  - Installation instructions
+  - Usage commands
+  - IDE integration (VS Code, PyCharm)
+  - Pre-commit hook example
+  
+  **Files Modified:**
+  1. ✅ `requirements.txt` - Added black dependency
+  2. ✅ `pyproject.toml` - Created formatter configuration
+  3. ✅ `docs/DEVELOPMENT.md` - Created development guide
+  4. ✅ All Python source files - Reformatted
+
+</details>
+
+> Can we configure black to use 2 empty lines for intervals between top-level functions?
+
+<details>
+<summary>Reply</summary>
+
+* *Claude*:
+  **Blank Lines Configuration Analysis:**
+  
+  **Finding:**
+  - Black ALREADY enforces 2 blank lines between top-level definitions by default
+  - This is part of PEP 8 that Black implements
+  - NOT configurable - it's opinionated design
+  
+  **Verification:**
+  - Checked existing code: Confirmed 2 blank lines between classes and functions
+  - Example from `run_autotuner.py`:
+    ```python
+    from utils.optimizer import ...
+                              # ← blank line 1
+                              # ← blank line 2
+    class AutotunerOrchestrator:  # ← top-level class
+        ...
+    
+    
+    def main():                   # ← top-level function
+    ```
+  
+  **Documentation Updates:**
+  - Updated `pyproject.toml` with comment: "Blank lines: 2 between top-level definitions (default, per PEP 8, not configurable)"
+  - Updated `docs/DEVELOPMENT.md` Code Style Guidelines section:
+    * Added blank lines subsection
+    * 2 blank lines between top-level definitions
+    * 1 blank line between methods inside a class
+    * Note that Black enforces automatically
+  
+  **Files Modified:**
+  1. ✅ `pyproject.toml` - Added explanatory comment
+  2. ✅ `docs/DEVELOPMENT.md` - Documented blank line rules
+  
+  **Status:**
+  - ✅ Feature already working as expected
+  - ✅ Documented for future reference
+
+</details>
+
+---
+
