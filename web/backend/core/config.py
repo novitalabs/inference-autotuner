@@ -2,12 +2,22 @@
 Application configuration settings.
 """
 
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field
 from functools import lru_cache
+from pathlib import Path
+import os
+
+
+def get_default_database_url() -> str:
+	"""Get default database URL in user's home directory."""
+	return f"sqlite+aiosqlite:///{Path.home()}/.local/share/inference-autotuner/autotuner.db"
 
 
 class Settings(BaseSettings):
 	"""Application settings."""
+
+	model_config = SettingsConfigDict(env_file=".env", case_sensitive=False)
 
 	# Application
 	app_name: str = "LLM Inference Autotuner API"
@@ -15,7 +25,9 @@ class Settings(BaseSettings):
 	debug: bool = True
 
 	# Database
-	database_url: str = "sqlite+aiosqlite:///./data/autotuner.db"
+	# Store database in user's home directory by default
+	# Use environment variable DATABASE_URL to override
+	database_url: str = Field(default_factory=get_default_database_url)
 
 	# Redis (for ARQ)
 	redis_host: str = "localhost"
@@ -28,10 +40,6 @@ class Settings(BaseSettings):
 	# Autotuner
 	docker_model_path: str = "/mnt/data/models"
 	deployment_mode: str = "docker"
-
-	class Config:
-		env_file = ".env"
-		case_sensitive = False
 
 
 @lru_cache()

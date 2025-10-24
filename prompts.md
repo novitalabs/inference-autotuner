@@ -3736,3 +3736,111 @@ Task JSON → Orchestrator → Parameter Grid → For each config:
 
 ---
 
+## Mini-milestone: Backend Server Testing & Database Migration to Home Directory
+
+> Install env for web/backend and test to run the server, reuse the `env` folder, don't create new venv.
+
+<details>
+<summary>Reply</summary>
+
+* *Claude*:
+  **Environment Setup & Testing:**
+  
+  **1. Corrected Virtual Environment Usage:**
+  - Removed incorrectly created `web/backend/venv` directory
+  - Installed dependencies in existing shared `env` folder at `/root/work/inference-autotuner/env`
+  - Verified packages: fastapi 0.120.0, uvicorn 0.38.0, sqlalchemy 2.0.44, aiosqlite 0.21.0, pydantic 2.12.3, arq 0.26.3, redis 5.3.1
+  
+  **2. Redis & Server Startup:**
+  - Redis container already running (autotuner-redis on port 6379)
+  - Started FastAPI server successfully on port 8000
+  - Database initialized with tasks and experiments tables
+  - All SQL indexes created properly
+  
+  **3. API Endpoints Testing:**
+  - ✅ `GET /health` - Quick health check
+  - ✅ `GET /api/system/health` - Detailed health (DB: ok, Redis: ok)
+  - ✅ `GET /api/system/info` - System information
+  - ✅ `POST /api/tasks/` - Created task successfully (ID: 1, "docker-simple-tune")
+  - ✅ `GET /api/tasks/` - List tasks
+  - ✅ `GET /api/tasks/1` - Get task by ID
+  - ✅ API documentation available at `/docs` (Swagger UI)
+  - ✅ OpenAPI spec at `/openapi.json` (14 endpoints)
+  
+  **Database Migration to Home Directory:**
+  
+  **4. User Feedback: Move Database to Home Directory**
+  - User suggested: "Shouldn't we move this db to user home directory for better?"
+  - **Rationale**: Separate data from code, prevent accidental commits, survive reinstalls, follow best practices
+  
+  **5. Implementation Challenges & Solutions:**
+  
+  **Challenge #1: Configuration Not Updating**
+  - Initial attempt: Changed `database_url` field to use f-string with `Path.home()`
+  - Issue: F-strings evaluate at class definition time, not instance creation time
+  - Result: Old path still being used
+  
+  **Challenge #2: Python Bytecode Caching**
+  - Cleared `__pycache__` directories
+  - Still getting old value due to import-time evaluation
+  
+  **Challenge #3: Environment Variable Override**
+  - Root cause discovered: `.env` file had hardcoded `DATABASE_URL=sqlite+aiosqlite:///./data/autotuner.db`
+  - Pydantic Settings reads `.env` file and overrides defaults
+  
+  **Final Solution:**
+  - Updated `core/config.py` to use `Field(default_factory=get_default_database_url)`
+    * `default_factory` provides lazy evaluation (called at instance creation)
+    * `get_default_database_url()` function returns path at runtime
+  - Updated `.env` file to comment out `DATABASE_URL` line
+  - Converted from old `class Config` to Pydantic v2 `model_config = SettingsConfigDict(...)`
+  - Removed old `web/backend/data/` directory
+  
+  **6. Database Migration Success:**
+  ```python
+  # New configuration in core/config.py
+  def get_default_database_url() -> str:
+      return f"sqlite+aiosqlite:///{Path.home()}/.local/share/inference-autotuner/autotuner.db"
+  
+  class Settings(BaseSettings):
+      model_config = SettingsConfigDict(env_file=".env", case_sensitive=False)
+      database_url: str = Field(default_factory=get_default_database_url)
+  ```
+  
+  **7. Final Verification:**
+  - ✅ Database location: `~/.local/share/inference-autotuner/autotuner.db`
+  - ✅ Data migrated successfully (existing task preserved)
+  - ✅ Server connects to home directory database
+  - ✅ API responds correctly with historical data
+  - ✅ Follows XDG Base Directory specification
+  
+  **Benefits Achieved:**
+  1. **Data Persistence**: User data independent of codebase
+  2. **No Accidental Commits**: User data separated from repository
+  3. **Survives Reinstallation**: Delete/reinstall code, keep data
+  4. **Multi-User Support**: Each user gets own database in their home
+  5. **Easy Backup**: Just backup `~/.local/share/inference-autotuner/`
+  6. **Standard Practice**: Follows Linux filesystem hierarchy conventions
+  
+  **Files Modified:**
+  1. ✅ `web/backend/core/config.py` - Added `get_default_database_url()`, used `Field(default_factory=...)`, migrated to Pydantic v2 `model_config`
+  2. ✅ `web/backend/.env` - Commented out `DATABASE_URL` to use default
+  3. ✅ Removed `web/backend/data/` directory
+  
+  **Current Status:**
+  - Database: `~/.local/share/inference-autotuner/autotuner.db` (36KB)
+  - API: Running on `http://localhost:8000`
+  - Health: All systems operational
+  - Data: 1 task preserved from initial testing
+  
+  **Key Technical Lessons:**
+  1. Pydantic Settings environment variable precedence: `.env` file > default values
+  2. Field default values evaluate at class definition time (use `default_factory` for runtime evaluation)
+  3. Pydantic v2 uses `model_config = SettingsConfigDict(...)` instead of `class Config`
+  4. Python bytecode caching can hide configuration changes during development
+  5. XDG Base Directory: `~/.local/share/` for user-specific data files
+
+</details>
+
+---
+
