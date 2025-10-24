@@ -271,5 +271,6 @@ docs/                        # Detailed documentation
 **Important constraints to remember**:
 1. Kubernetes Dashboard runs on port 8443 - avoid conflicts
 1. Update `prompts.md` when mini-milestones are accomplished
-1. Place new `.md` documents in `./docs/`
+1. Place new .md documents in `./docs/`
+1. Look up `docs/TROUBLESHOOTING.md` for reference when encountering issues, and maintain it when resolved a new issue
 1. Following further instuctions in `CLAUDE.local.md` if present
