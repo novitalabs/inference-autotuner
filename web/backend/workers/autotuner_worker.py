@@ -5,8 +5,10 @@ ARQ worker configuration and task functions.
 import sys
 from pathlib import Path
 
-# Add parent directories to path to import from src
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+# Add project root to path to import from src
+# workers/autotuner_worker.py -> backend -> web -> project_root
+project_root = Path(__file__).parent.parent.parent.parent
+sys.path.insert(0, str(project_root))
 
 from arq import create_pool
 from arq.connections import RedisSettings
@@ -17,7 +19,7 @@ from typing import Dict, Any
 
 from core.config import get_settings
 from db.models import Task, Experiment, TaskStatus, ExperimentStatus
-from src.run_autotuner import AutotunerOrchestrator
+from src.orchestrator import AutotunerOrchestrator
 from src.utils.optimizer import generate_parameter_grid, calculate_objective_score
 
 settings = get_settings()
