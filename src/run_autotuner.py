@@ -334,11 +334,11 @@ Examples:
   # OME mode with direct genai-bench CLI
   python run_autotuner.py examples/simple_task.json --direct
 
-  # Standalone Docker mode (automatically uses direct benchmark)
+  # Standalone Docker mode (--direct is automatic)
   python run_autotuner.py examples/simple_task.json --mode docker
 
-  # Docker mode with custom model path
-  python run_autotuner.py examples/simple_task.json --mode docker --model-path /data/models
+  # Docker mode with custom model path and verbose output
+  python run_autotuner.py examples/docker_task.json --mode docker --model-path /data/models --verbose
         """
     )
 
@@ -348,13 +348,17 @@ Examples:
     parser.add_argument('--kubeconfig', type=str, default=None,
                         help='Path to kubeconfig file (for OME mode)')
     parser.add_argument('--direct', action='store_true',
-                        help='Use direct genai-bench CLI instead of K8s BenchmarkJob (OME mode only)')
+                        help='Use direct genai-bench CLI instead of K8s BenchmarkJob (default for docker mode)')
     parser.add_argument('--model-path', type=str, default='/mnt/data/models',
                         help='Base path for models on host (Docker mode only)')
     parser.add_argument('--verbose', '-v', action='store_true',
                         help='Stream genai-bench output in real-time (useful for debugging)')
 
     args = parser.parse_args()
+
+    # Docker mode always uses direct benchmark
+    if args.mode == 'docker':
+        args.direct = True
 
     if not args.task_file.exists():
         print(f"Error: Task file not found: {args.task_file}")
