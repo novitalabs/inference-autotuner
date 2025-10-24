@@ -1,0 +1,36 @@
+# black-with-tabs formatter configuration
+
+[tool.black]
+# Line length
+line-length = 120
+
+# Python versions
+target-version = ['py38', 'py39', 'py310', 'py311']
+
+# Use tabs for indentation
+use-tabs = true
+
+# Keep original string quotes
+skip-string-normalization = true
+
+# Blank lines: 2 between top-level definitions (default, per PEP 8, not configurable)
+
+# File patterns
+include = '\.pyi?$'
+
+# Exclusions
+extend-exclude = '''
+/(
+  # Exclude virtual environment
+  | env
+  | venv
+  | .venv
+  # Exclude third-party code
+  | third_party
+  # Exclude build artifacts
+  | build
+  | dist
+  | \.git
+  | __pycache__
+)/
+'''
