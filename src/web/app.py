@@ -6,9 +6,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
-from core.config import get_settings
-from db.session import init_db
-from api import tasks, experiments, system
+from web.config import get_settings
+from web.db.session import init_db
+from web.routes import tasks, experiments, system
 
 
 @asynccontextmanager

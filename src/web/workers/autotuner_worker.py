@@ -5,8 +5,8 @@ ARQ worker configuration and task functions.
 import sys
 from pathlib import Path
 
-# Add project root to path to import from src
-# workers/autotuner_worker.py -> backend -> web -> project_root
+# Add project root to path for imports
+# workers/autotuner_worker.py -> web -> src -> project_root
 project_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(project_root))
 
@@ -17,8 +17,8 @@ from sqlalchemy import select, update
 from datetime import datetime
 from typing import Dict, Any
 
-from core.config import get_settings
-from db.models import Task, Experiment, TaskStatus, ExperimentStatus
+from src.web.config import get_settings
+from src.web.db.models import Task, Experiment, TaskStatus, ExperimentStatus
 from src.orchestrator import AutotunerOrchestrator
 from src.utils.optimizer import generate_parameter_grid, calculate_objective_score
 

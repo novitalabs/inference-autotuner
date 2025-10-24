@@ -7,9 +7,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import List
 
-from db.session import get_db
-from db.models import Experiment
-from schemas import ExperimentResponse
+from web.db.session import get_db
+from web.db.models import Experiment
+from web.schemas import ExperimentResponse
 
 router = APIRouter()
 

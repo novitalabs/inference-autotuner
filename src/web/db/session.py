@@ -3,8 +3,8 @@ Database session management.
 """
 
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
-from core.config import get_settings
-from db.models import Base
+from web.config import get_settings
+from web.db.models import Base
 
 settings = get_settings()
 

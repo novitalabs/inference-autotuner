@@ -4,7 +4,7 @@ ARQ client for enqueuing jobs.
 
 from arq import create_pool
 from arq.connections import RedisSettings, ArqRedis
-from core.config import get_settings
+from web.config import get_settings
 
 settings = get_settings()
 
