@@ -2,9 +2,11 @@
 
 Automated parameters tuning for LLM inference engines.
 
-**NEW: Dual Deployment Mode Support**
-- **OME Mode**: Kubernetes-based deployment with OME (Open Model Engine)
-- **Docker Mode**: Standalone Docker containers (no Kubernetes required)
+**Features:**
+- **Dual Deployment Modes**: OME (Kubernetes) or Docker (Standalone)
+- **Web API**: FastAPI-based REST API for task management
+- **Background Processing**: ARQ task queue with Redis
+- **Database**: SQLite for task and experiment tracking
 
 ## Deployment Modes
 
@@ -51,6 +53,85 @@ python src/run_autotuner.py examples/docker_task.json --mode docker
 
 **See [docs/DOCKER_MODE.md](docs/DOCKER_MODE.md) for complete Docker mode documentation.**
 
+## Web API
+
+The autotuner includes a FastAPI-based web service for managing tuning tasks:
+
+**Features:**
+- Create and manage tuning tasks via REST API
+- Track experiment progress and results
+- Background job processing with ARQ and Redis
+- OpenAPI/Swagger documentation at `/docs`
+
+**Starting the API server:**
+```bash
+# From anywhere in the project
+cd /root/work/inference-autotuner/src
+python web/server.py
+
+# Or using the virtual environment
+/root/work/inference-autotuner/env/bin/python src/web/server.py
+```
+
+The server will start on `http://0.0.0.0:8000` with:
+- API endpoints at `/api/*`
+- Interactive docs at `/docs`
+- Health check at `/health`
+
+**Key Endpoints:**
+- `POST /api/tasks/` - Create new tuning task
+- `GET /api/tasks/` - List all tasks
+- `GET /api/tasks/{id}` - Get task details
+- `POST /api/tasks/{id}/start` - Start task execution
+- `GET /api/experiments/task/{id}` - Get experiments for task
+
+**Database Storage:**
+Task and experiment data is stored in SQLite at:
+```
+~/.local/share/inference-autotuner/autotuner.db
+```
+
+This location follows XDG Base Directory standards and persists independently of the codebase.
+
+## Project Structure
+
+```
+inference-autotuner/
+├── src/                      # Main source code
+│   ├── controllers/          # Deployment controllers
+│   │   ├── ome_controller.py
+│   │   ├── docker_controller.py
+│   │   ├── benchmark_controller.py
+│   │   └── direct_benchmark_controller.py
+│   ├── utils/               # Utilities
+│   │   └── optimizer.py     # Parameter grid generation
+│   ├── templates/           # Kubernetes YAML templates
+│   ├── web/                 # Web API (FastAPI)
+│   │   ├── app.py          # FastAPI application
+│   │   ├── server.py       # Development server
+│   │   ├── config.py       # Settings configuration
+│   │   ├── routes/         # API endpoints
+│   │   ├── db/             # Database models & session
+│   │   ├── schemas/        # Pydantic schemas
+│   │   └── workers/        # ARQ background workers
+│   ├── orchestrator.py     # Main orchestration logic
+│   └── run_autotuner.py    # CLI entry point
+├── examples/               # Task configuration examples
+│   ├── simple_task.json    # OME mode example
+│   └── docker_task.json    # Docker mode example
+├── config/                 # Kubernetes resources
+├── docs/                   # Documentation
+├── requirements.txt        # Python dependencies
+└── README.md
+```
+
+**Key Components:**
+- **CLI Interface**: `src/run_autotuner.py` - Command-line tool for running experiments
+- **Web API**: `src/web/` - REST API for task management
+- **Orchestrator**: `src/orchestrator.py` - Core experiment coordination logic
+- **Controllers**: `src/controllers/` - Deployment-specific implementations
+- **Database**: `~/.local/share/inference-autotuner/autotuner.db` - SQLite storage
+
 ## Prerequisites
 
 ### For OME Mode
@@ -84,9 +165,9 @@ python src/run_autotuner.py examples/docker_task.json --mode docker
    - Docker 20.10+ with NVIDIA Container Toolkit
    - Test: `docker run --rm --gpus all nvidia/cuda:12.1.0-base-ubuntu22.04 nvidia-smi`
 
-2. **Python 3.8+** with Docker SDK
+2. **Python 3.8+** with dependencies
    ```bash
-   pip install docker requests
+   pip install -r requirements.txt
    ```
 
 3. **Model files** downloaded locally
@@ -99,6 +180,11 @@ python src/run_autotuner.py examples/docker_task.json --mode docker
 4. **genai-bench** for benchmarking
    ```bash
    pip install genai-bench
+   ```
+
+5. **Redis** (optional, for Web API background jobs)
+   ```bash
+   docker run -d -p 6379:6379 redis:alpine
    ```
 
 **See [docs/DOCKER_MODE.md](docs/DOCKER_MODE.md) for complete setup guide.**
@@ -385,12 +471,30 @@ Currently supported:
 
 ## Limitations (Prototype)
 
-- No database persistence (results saved to JSON files)
-- No web frontend (uses JSON input files)
+- ~~No database persistence~~ ✅ SQLite database implemented
+- ~~No web frontend~~ ✅ REST API implemented (frontend TODO)
 - Grid search only (no Bayesian optimization)
 - Sequential execution (no parallel experiments)
 - Basic error handling
 - Simplified metric extraction
+
+## Current Implementation Status
+
+**Completed:**
+- ✅ Database persistence (SQLite with SQLAlchemy)
+- ✅ REST API (FastAPI with OpenAPI docs)
+- ✅ Background job processing (ARQ with Redis)
+- ✅ Dual deployment modes (OME + Docker)
+- ✅ User data separation (~/.local/share/)
+- ✅ Code reorganization (unified src/ structure)
+
+**TODO:**
+- Web frontend (React/Vue.js)
+- Bayesian optimization
+- Parallel experiment execution
+- Advanced error handling
+- Real-time progress tracking via WebSocket
+- Result visualization and comparison
 
 ## Troubleshooting
 
@@ -407,10 +511,24 @@ Quick reference:
 ## Next Steps
 
 For production implementation:
-1. Add database backend (PostgreSQL + InfluxDB)
-2. Implement web UI (React + WebSocket)
-3. Add Bayesian optimization
-4. Enable parallel experiment execution
-5. Improve error handling and retry logic
-6. Add comprehensive logging
-7. Implement metric aggregation and visualization
+1. ~~Add database backend~~ ✅ **Completed** - SQLite with SQLAlchemy ORM
+2. ~~Implement REST API~~ ✅ **Completed** - FastAPI with OpenAPI
+3. Add web UI (React/Vue.js + WebSocket for real-time updates)
+4. Add Bayesian optimization (switch from grid search)
+5. Enable parallel experiment execution (multi-threaded/async)
+6. Improve error handling and retry logic
+7. Add comprehensive logging and monitoring
+8. Implement metric aggregation and visualization
+9. Add user authentication and multi-tenancy
+10. Migrate to PostgreSQL for production scale
+
+## Documentation
+
+- [DOCKER_MODE.md](docs/DOCKER_MODE.md) - Docker deployment guide
+- [OME_INSTALLATION.md](docs/OME_INSTALLATION.md) - Kubernetes/OME setup
+- [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) - Common issues and solutions
+- [GENAI_BENCH_LOGS.md](docs/GENAI_BENCH_LOGS.md) - Viewing benchmark logs
+
+## Contributing
+
+See [CLAUDE.md](CLAUDE.md) for development guidelines and project architecture.

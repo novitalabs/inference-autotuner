@@ -4,7 +4,12 @@
 # LLM Inference Autotuner - Environment Installation Script
 #
 # This script installs all prerequisites for the inference-autotuner project.
-# It sets up Python dependencies, genai-bench, and required Kubernetes resources.
+# It sets up:
+#   - Python dependencies
+#   - genai-bench CLI
+#   - Kubernetes resources (optional)
+#   - Web API dependencies (FastAPI, SQLAlchemy, ARQ)
+#   - Database directory (~/.local/share/inference-autotuner/)
 #
 # Usage:
 #   ./install.sh [OPTIONS]
@@ -242,10 +247,57 @@ log_info "Creating required directories..."
 mkdir -p "$SCRIPT_DIR/results"
 mkdir -p "$SCRIPT_DIR/benchmark_results"
 
+# Create database directory (XDG Base Directory standard)
+DB_DIR="$HOME/.local/share/inference-autotuner"
+mkdir -p "$DB_DIR"
+log_success "Database directory created at: $DB_DIR"
+
 log_success "Directories created"
 
 ##############################################################################
-# 8. Setup Kubernetes Resources (Optional)
+# 8. Setup Web API Dependencies (Optional)
+##############################################################################
+
+log_info "Checking Web API dependencies..."
+
+# Check if Redis is needed (for background workers)
+log_info "Web API requires Redis for background job processing"
+if command -v redis-cli &> /dev/null; then
+    if redis-cli ping &> /dev/null; then
+        log_success "Redis is running and accessible"
+    else
+        log_warning "Redis is installed but not running"
+        log_info "Start Redis with: redis-server"
+        log_info "Or using Docker: docker run -d -p 6379:6379 redis:alpine"
+    fi
+else
+    log_warning "Redis is not installed (optional for Web API)"
+    log_info "To enable background job processing:"
+    log_info "  - Install Redis: apt-get install redis-server (Ubuntu/Debian)"
+    log_info "  - Or use Docker: docker run -d -p 6379:6379 redis:alpine"
+fi
+
+# Verify web API dependencies
+WEB_PACKAGES=("fastapi" "uvicorn" "sqlalchemy" "aiosqlite" "arq")
+MISSING_WEB_PACKAGES=0
+for package in "${WEB_PACKAGES[@]}"; do
+    if python3 -c "import $package" 2>/dev/null; then
+        log_success "Web API package '$package' is available"
+    else
+        log_warning "Web API package '$package' is not available"
+        MISSING_WEB_PACKAGES=$((MISSING_WEB_PACKAGES + 1))
+    fi
+done
+
+if [ "$MISSING_WEB_PACKAGES" -eq 0 ]; then
+    log_success "All Web API dependencies are installed"
+else
+    log_warning "$MISSING_WEB_PACKAGES Web API package(s) missing"
+    log_info "Reinstall with: pip install -r requirements.txt"
+fi
+
+##############################################################################
+# 9. Setup Kubernetes Resources (Optional)
 ##############################################################################
 
 if [ "$SKIP_K8S" = false ]; then
@@ -420,7 +472,7 @@ else
 fi
 
 ##############################################################################
-# 9. Summary
+# 10. Summary
 ##############################################################################
 
 echo ""
@@ -433,18 +485,31 @@ echo ""
 echo "1. Activate the virtual environment (if not already activated):"
 echo "   source $VENV_PATH/bin/activate"
 echo ""
-echo "2. Configure your task JSON file:"
+echo "2a. Start the Web API (optional):"
+echo "    cd src"
+echo "    python web/server.py"
+echo "    # Access API at http://localhost:8000/docs"
+echo ""
+echo "2b. Start Redis for background jobs (if using Web API):"
+echo "    redis-server"
+echo "    # Or with Docker: docker run -d -p 6379:6379 redis:alpine"
+echo ""
+echo "3. Configure your task JSON file:"
 echo "   vi examples/simple_task.json"
 echo ""
-echo "3. Run the autotuner:"
-echo "   # Direct CLI mode (recommended)"
-echo "   python src/run_autotuner.py examples/simple_task.json --direct"
+echo "4. Run the autotuner:"
+echo "   # OME mode - Direct CLI mode (recommended)"
+echo "   python src/run_autotuner.py examples/simple_task.json --mode ome --direct"
 echo ""
-echo "   # Kubernetes BenchmarkJob mode"
-echo "   python src/run_autotuner.py examples/simple_task.json"
+echo "   # Docker mode - Standalone (no Kubernetes)"
+echo "   python src/run_autotuner.py examples/docker_task.json --mode docker --direct"
 echo ""
-echo "4. View results:"
+echo "   # OME mode - Kubernetes BenchmarkJob mode"
+echo "   python src/run_autotuner.py examples/simple_task.json --mode ome"
+echo ""
+echo "5. View results:"
 echo "   cat results/<task_name>_results.json"
+echo "   # Or query via API: curl http://localhost:8000/api/tasks/"
 echo ""
 
 if [ "$SKIP_K8S" = false ] && command -v kubectl &> /dev/null && kubectl cluster-info &> /dev/null; then
@@ -455,5 +520,7 @@ if [ "$SKIP_K8S" = false ] && command -v kubectl &> /dev/null && kubectl cluster
     echo ""
 fi
 
+echo "Database location: $DB_DIR/autotuner.db"
+echo ""
 echo "For more information, see README.md"
 echo ""
