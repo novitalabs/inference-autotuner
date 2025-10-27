@@ -571,7 +571,7 @@ kubectl delete namespace cert-manager
 
 For detailed troubleshooting, see:
 - [README.md - Troubleshooting Section](../README.md#troubleshooting)
-- [prompts.md](../prompts.md) - Complete development history and solutions
+- [agentlog.md](../agentlog.md) - Complete development history and solutions
 
 For issues not covered in this documentation:
 1. Check OME controller logs: `kubectl logs -n ome deployment/ome-controller-manager`

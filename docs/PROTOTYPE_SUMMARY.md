@@ -115,5 +115,5 @@ README.md                                (180 lines)
 ## Documentation
 
 - `README.md`: User guide with examples
-- `prompts.md`: Complete design and implementation journal
+- `agentlog.md`: Complete design and implementation journal
 - Code comments: Docstrings for all classes and methods

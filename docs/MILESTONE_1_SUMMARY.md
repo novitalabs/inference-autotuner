@@ -126,7 +126,7 @@
 - ✅ `docs/TROUBLESHOOTING.md` - Issue resolution
 - ✅ `docs/DEVELOPMENT.md` - Code standards
 - ✅ `docs/WEB_INTEGRATION_READINESS.md` - Web development guide
-- ✅ `prompts.md` - Development history (3,454 lines)
+- ✅ `agentlog.md` - Development history (3,454 lines)
 
 ### Configuration
 - ✅ `pyproject.toml` - Formatter config

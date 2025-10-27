@@ -264,13 +264,13 @@ docs/                        # Detailed documentation
 - `docs/DOCKER_MODE.md`: Docker deployment guide
 - `docs/OME_INSTALLATION.md`: Kubernetes/OME setup
 - `docs/GENAI_BENCH_LOGS.md`: Viewing benchmark logs
-- `prompts.md`: Development history and troubleshooting notes
+- `agentlog.md`: Development history and troubleshooting notes
 
 ## Meta-Instructions
 
 **Important constraints to remember**:
 1. Kubernetes Dashboard runs on port 8443 - avoid conflicts
-1. Update `prompts.md` when mini-milestones are accomplished
+1. Update `agentlog.md` when mini-milestones are accomplished
 1. Place new .md documents in `./docs/`
 1. Look up `docs/TROUBLESHOOTING.md` for reference when encountering issues, and maintain it when resolved a new issue
 1. Following further instuctions in `CLAUDE.local.md` if present
