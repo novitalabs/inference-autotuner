@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "@/services/api";
 import type { Task } from "@/types/api";
 import LogViewer from "@/components/LogViewer";
+import TaskResults from "@/components/TaskResults";
 import { navigateTo } from "@/components/Layout";
 
 export default function Tasks() {
@@ -11,6 +12,7 @@ export default function Tasks() {
 	const [showCreateForm, setShowCreateForm] = useState(false);
 	const [statusFilter, setStatusFilter] = useState<string>("all");
 	const [logViewerTask, setLogViewerTask] = useState<Task | null>(null);
+	const [resultsTask, setResultsTask] = useState<Task | null>(null);
 
 	// Fetch tasks
 	const {
@@ -277,6 +279,14 @@ export default function Tasks() {
 												>
 													Logs
 												</button>
+												{task.status === 'completed' && task.successful_experiments > 0 && (
+													<button
+														onClick={() => setResultsTask(task)}
+														className="text-emerald-600 hover:text-emerald-900"
+													>
+														Results
+													</button>
+												)}
 												{canStartTask(task) && (
 													<button
 														onClick={() =>
@@ -320,6 +330,14 @@ export default function Tasks() {
 					taskId={logViewerTask.id}
 					taskName={logViewerTask.task_name}
 					onClose={() => setLogViewerTask(null)}
+				/>
+			)}
+
+			{/* Task Results Modal */}
+			{resultsTask && (
+				<TaskResults
+					task={resultsTask}
+					onClose={() => setResultsTask(null)}
 				/>
 			)}
 
