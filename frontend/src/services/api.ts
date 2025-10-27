@@ -1,4 +1,5 @@
-import axios, { AxiosInstance } from "axios";
+import axios, { AxiosInstance, AxiosError } from "axios";
+import toast from "react-hot-toast";
 import type { Task, TaskCreate, Experiment, HealthResponse, SystemInfoResponse } from "@/types/api";
 
 class ApiClient {
@@ -11,6 +12,45 @@ class ApiClient {
 				"Content-Type": "application/json"
 			}
 		});
+
+		// Response interceptor to handle errors
+		this.client.interceptors.response.use(
+			(response) => response,
+			(error: AxiosError) => {
+				// Handle HTTP errors (4xx, 5xx)
+				if (error.response) {
+					const status = error.response.status;
+					const data = error.response.data as any;
+
+					// Extract error message
+					const message =
+						data?.detail || data?.message || error.message || "An error occurred";
+
+					// Show error toast based on status code
+					if (status >= 400 && status < 500) {
+						// Client errors (4xx)
+						toast.error(`${status}: ${message}`, {
+							duration: 4000,
+							position: "bottom-right"
+						});
+					} else if (status >= 500) {
+						// Server errors (5xx)
+						toast.error(`Server Error: ${message}`, {
+							duration: 5000,
+							position: "bottom-right"
+						});
+					}
+				} else if (error.request) {
+					// Network error (no response received)
+					toast.error("Network error: Unable to reach the server", {
+						duration: 4000,
+						position: "bottom-right"
+					});
+				}
+
+				return Promise.reject(error);
+			}
+		);
 	}
 
 	// Health & System
