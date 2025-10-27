@@ -1,0 +1,33 @@
+# Systemd service file for Inference Autotuner Web Server
+# Install: sudo cp scripts/autotuner-web.service /etc/systemd/system/
+# Enable: sudo systemctl enable autotuner-web
+# Start: sudo systemctl start autotuner-web
+# Status: sudo systemctl status autotuner-web
+# Logs: sudo journalctl -u autotuner-web -f
+
+[Unit]
+Description=Inference Autotuner Web Server
+After=network.target redis.service
+Wants=redis.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/work/inference-autotuner
+Environment="PYTHONPATH=/root/work/inference-autotuner/src"
+ExecStart=/root/work/inference-autotuner/env/bin/python src/web/server.py
+
+# Restart policy
+Restart=always
+RestartSec=10
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+
+# Resource limits (optional)
+# LimitNOFILE=65536
+# MemoryLimit=2G
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,33 @@
+# Systemd service file for Inference Autotuner ARQ Worker
+# Install: sudo cp scripts/autotuner-worker.service /etc/systemd/system/
+# Enable: sudo systemctl enable autotuner-worker
+# Start: sudo systemctl start autotuner-worker
+# Status: sudo systemctl status autotuner-worker
+# Logs: sudo journalctl -u autotuner-worker -f
+
+[Unit]
+Description=Inference Autotuner ARQ Worker
+After=network.target redis.service
+Wants=redis.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/work/inference-autotuner
+Environment="PYTHONPATH=/root/work/inference-autotuner/src"
+ExecStart=/root/work/inference-autotuner/env/bin/arq web.workers.autotuner_worker.WorkerSettings --verbose
+
+# Restart policy
+Restart=always
+RestartSec=10
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+
+# Resource limits (optional)
+# LimitNOFILE=65536
+# MemoryLimit=2G
+
+[Install]
+WantedBy=multi-user.target
