@@ -3,6 +3,7 @@ ARQ worker configuration and task functions.
 """
 
 import sys
+import logging
 from pathlib import Path
 
 # Add project root to path for imports
@@ -16,6 +17,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, Asyn
 from sqlalchemy import select, update
 from datetime import datetime
 from typing import Dict, Any
+import io
 
 from src.web.config import get_settings
 from src.web.db.models import Task, Experiment, TaskStatus, ExperimentStatus
@@ -29,6 +31,65 @@ engine = create_async_engine(settings.database_url, echo=False)
 AsyncSessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 
+class StreamToLogger:
+	"""File-like stream object that redirects writes to a logger instance."""
+
+	def __init__(self, logger, log_level=logging.INFO):
+		self.logger = logger
+		self.log_level = log_level
+		self.linebuf = ""
+
+	def write(self, buf):
+		for line in buf.rstrip().splitlines():
+			self.logger.log(self.log_level, line.rstrip())
+
+	def flush(self):
+		pass
+
+
+def setup_task_logging(task_id: int):
+	"""Setup logging for a specific task.
+
+	Args:
+	    task_id: Task ID
+
+	Returns:
+	    Logger instance configured for this task
+	"""
+	# Create log directory
+	log_dir = Path.home() / ".local/share/inference-autotuner/logs"
+	log_dir.mkdir(parents=True, exist_ok=True)
+	log_file = log_dir / f"task_{task_id}.log"
+
+	# Create logger for this task
+	logger = logging.getLogger(f"task_{task_id}")
+	logger.setLevel(logging.DEBUG)
+	logger.handlers.clear()  # Remove any existing handlers
+
+	# Create file handler
+	file_handler = logging.FileHandler(log_file, mode="a")
+	file_handler.setLevel(logging.DEBUG)
+
+	# Create console handler (still print to stdout for worker monitoring)
+	console_handler = logging.StreamHandler(sys.stdout)
+	console_handler.setLevel(logging.INFO)
+
+	# Create formatter
+	formatter = logging.Formatter("[%(asctime)s] [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
+	file_handler.setFormatter(formatter)
+	console_handler.setFormatter(formatter)
+
+	# Add handlers to logger
+	logger.addHandler(file_handler)
+	logger.addHandler(console_handler)
+
+	# Redirect stdout and stderr to logger
+	sys.stdout = StreamToLogger(logger, logging.INFO)
+	sys.stderr = StreamToLogger(logger, logging.ERROR)
+
+	return logger
+
+
 async def run_autotuning_task(ctx: Dict[str, Any], task_id: int) -> Dict[str, Any]:
 	"""Run autotuning task in background.
 
@@ -39,16 +100,21 @@ async def run_autotuning_task(ctx: Dict[str, Any], task_id: int) -> Dict[str, An
 	Returns:
 	    Task summary dict
 	"""
+	# Setup logging for this task
+	logger = setup_task_logging(task_id)
+
 	async with AsyncSessionLocal() as db:
 		# Get task from database
 		result = await db.execute(select(Task).where(Task.id == task_id))
 		task = result.scalar_one_or_none()
 
 		if not task:
-			return {"error": f"Task {task_id} not found"}
+			error_msg = f"Task {task_id} not found"
+			logger.error(error_msg)
+			return {"error": error_msg}
 
 		try:
-			print(f"[ARQ Worker] Starting task: {task.task_name}")
+			logger.info(f"[ARQ Worker] Starting task: {task.task_name}")
 
 			# Update task status
 			task.status = TaskStatus.RUNNING
@@ -73,7 +139,7 @@ async def run_autotuning_task(ctx: Dict[str, Any], task_id: int) -> Dict[str, An
 			task.total_experiments = total_experiments
 			await db.commit()
 
-			print(f"[ARQ Worker] Generated {total_experiments} parameter combinations")
+			logger.info(f"[ARQ Worker] Generated {total_experiments} parameter combinations")
 
 			# Create orchestrator
 			orchestrator = AutotunerOrchestrator(
@@ -88,7 +154,7 @@ async def run_autotuning_task(ctx: Dict[str, Any], task_id: int) -> Dict[str, An
 			best_experiment_id = None
 
 			for idx, params in enumerate(param_grid, 1):
-				print(f"[ARQ Worker] Running experiment {idx}/{total_experiments}")
+				logger.info(f"[ARQ Worker] Running experiment {idx}/{total_experiments} with params: {params}")
 
 				# Create experiment record
 				db_experiment = Experiment(
@@ -106,9 +172,15 @@ async def run_autotuning_task(ctx: Dict[str, Any], task_id: int) -> Dict[str, An
 				db_experiment.started_at = datetime.utcnow()
 				await db.commit()
 
+				logger.info(f"[Experiment {idx}] Status: DEPLOYING")
+
 				# Run experiment using orchestrator
 				try:
 					result = orchestrator.run_experiment(task_config, idx, params)
+
+					logger.info(f"[Experiment {idx}] Status: {result['status'].upper()}")
+					if result.get("metrics"):
+						logger.info(f"[Experiment {idx}] Metrics: {result['metrics']}")
 
 					# Update experiment with results
 					db_experiment.status = (
@@ -121,6 +193,7 @@ async def run_autotuning_task(ctx: Dict[str, Any], task_id: int) -> Dict[str, An
 					if db_experiment.started_at:
 						elapsed = (db_experiment.completed_at - db_experiment.started_at).total_seconds()
 						db_experiment.elapsed_time = elapsed
+						logger.info(f"[Experiment {idx}] Completed in {elapsed:.2f}s")
 
 					# Check if this is the best experiment
 					if result["status"] == "success" and result.get("objective_score") is not None:
@@ -128,11 +201,12 @@ async def run_autotuning_task(ctx: Dict[str, Any], task_id: int) -> Dict[str, An
 						if result["objective_score"] < best_score:
 							best_score = result["objective_score"]
 							best_experiment_id = db_experiment.id
+							logger.info(f"[Experiment {idx}] New best score: {best_score:.4f}")
 
 					await db.commit()
 
 				except Exception as e:
-					print(f"[ARQ Worker] Experiment {idx} failed: {e}")
+					logger.error(f"[Experiment {idx}] Failed: {e}", exc_info=True)
 					db_experiment.status = ExperimentStatus.FAILED
 					db_experiment.error_message = str(e)
 					await db.commit()
@@ -145,18 +219,27 @@ async def run_autotuning_task(ctx: Dict[str, Any], task_id: int) -> Dict[str, An
 			if task.started_at:
 				elapsed = (task.completed_at - task.started_at).total_seconds()
 				task.elapsed_time = elapsed
+				logger.info(f"[ARQ Worker] Task completed in {elapsed:.2f}s - Best experiment: {best_experiment_id}")
 
 			await db.commit()
 
-			print(f"[ARQ Worker] Task completed: {task.task_name}")
+			logger.info(
+				f"[ARQ Worker] Task finished: {task.task_name} - {task.successful_experiments}/{total_experiments} successful"
+			)
 			return {"task_id": task_id, "task_name": task.task_name, "status": "completed"}
 
 		except Exception as e:
-			print(f"[ARQ Worker] Task failed: {e}")
+			logger.error(f"[ARQ Worker] Task failed: {e}", exc_info=True)
 			task.status = TaskStatus.FAILED
 			task.completed_at = datetime.utcnow()
 			await db.commit()
 			return {"task_id": task_id, "error": str(e)}
+		finally:
+			# Restore stdout and stderr
+			sys.stdout = sys.__stdout__
+			sys.stderr = sys.__stderr__
+			# Remove handlers to prevent memory leaks
+			logger.handlers.clear()
 
 
 # ARQ worker settings
