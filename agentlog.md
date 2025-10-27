@@ -2,7 +2,7 @@
 ## Meta Instructions
 
 > Meta-instructions are something to remember, no need to response.
-> * Meta-instruction: Keep updating `prompts.md` document according to our chat history, update it once some mini-milestone accomplished.
+> * Meta-instruction: Keep updating `agentlog.md` document according to our chat history, update it once some mini-milestone accomplished.
 > * Meta-instruction: Kubernetes Dashboard is a critical service, avoid harming it and avoid 8443 port confliction in development environment.
 > * Place all new created .md documents in `./docs/`.
 
@@ -18,7 +18,7 @@
 > The current target is prototyping this project. Tell the architecture design firstly.
 
 <details>
-<summary>Reply</summary>
+<summary>Architecture design with multi-tier system using OME, genai-bench, and web frontend</summary>
 
 * *Claude*:
   Plan an LLM inference engine parameters autotuning project.
@@ -259,7 +259,7 @@
 > Why can't you access github.com? Is a proxy server helpful?
 
 <details>
-<summary>Reply</summary>
+<summary>Claude Code WebFetch restrictions explained; alternatives via MCP servers or local clones</summary>
 
 * *Claude*:
   - Claude Code has built-in restrictions on WebFetch tool for certain domains including github.com
@@ -278,7 +278,7 @@
 > Try the deepwiki instead of github, e.g. https://deepwiki.com/sgl-project/ome
 
 <details>
-<summary>Reply</summary>
+<summary>Deepwiki.com also blocked; recommended cloning repos locally for access</summary>
 
 * *Claude*:
   - Attempted to fetch from deepwiki.com but it's also blocked by WebFetch tool
@@ -294,7 +294,7 @@
 > Okay, setup git submodules for ome & genai-bench
 
 <details>
-<summary>Reply</summary>
+<summary>Added OME and genai-bench as git submodules in third_party/</summary>
 
 * *Claude*:
   - Initialized git repository (was already initialized)
@@ -319,7 +319,7 @@
 > You have read ome basic usage, so what do you think better, to set a group parameters in a benchmark task, to create a new k8s config file or use some temporary environment variables for the user's input?
 
 <details>
-<summary>Reply</summary>
+<summary>Analyzed OME architecture; recommended K8s config files with InferenceService runner override</summary>
 
 * *Claude*:
   **Analysis of OME Architecture:**
@@ -366,7 +366,7 @@
 > Good, that's important. Now begin prototyping this project, only includes OME & genai-bench deployment, let's define a input json file to simulate web UI input, and ignore storage.
 
 <details>
-<summary>Reply</summary>
+<summary>Implemented prototype with OMEController, BenchmarkController, parameter grid, and orchestrator</summary>
 
 * *Claude*:
   **Implemented Prototype Components:**
@@ -459,7 +459,7 @@
 > You have written a lot of code, now run some commands to check k8s and ome installation in this system environment to ensure next test can work.
 
 <details>
-<summary>Reply</summary>
+<summary>Verified K8s cluster, OME installation, and updated configs to match environment</summary>
 
 * *Claude*:
   **Environment Check Results:**
@@ -511,7 +511,7 @@
 > There is a fresh build of genai-bench docker image available: `kllambda/genai-bench:v251014`, adjust your benchmark config file.
 
 <details>
-<summary>Reply</summary>
+<summary>Updated benchmark template to use kllambda/genai-bench:v251014 image</summary>
 
 * *Claude*:
   - ✅ Updated `src/templates/benchmark_job.yaml.j2`
@@ -528,7 +528,7 @@
 > Try to test your simple_task.
 
 <details>
-<summary>Reply</summary>
+<summary>Fixed 5 template bugs: labels format, container name, env vars, outputLocation, storage URI</summary>
 
 * *Claude*:
   **Testing Process & Issues Found:**
@@ -596,7 +596,7 @@
 > Summary environment installation and issues fix in README.
 
 <details>
-<summary>Reply</summary>
+<summary>Updated README with environment requirements, installation, and troubleshooting guide</summary>
 
 * *Claude*:
   **README Updated with Comprehensive Documentation:**
@@ -656,7 +656,7 @@
 > Summary our recent prompt dialog and append them into prompts.md
 
 <details>
-<summary>Reply</summary>
+<summary>Fixed CUDA OOM by reducing mem_frac values and adding tokenizer template conditional</summary>
 
 * *Claude*:
   **Bug #7: CUDA Out of Memory**
@@ -728,7 +728,7 @@
 > Scale all deployments to zero and discern which cuda devices are occupied beside k8s system
 
 <details>
-<summary>Reply</summary>
+<summary>Scaled deployments to zero and identified GPU usage across 8 H20 GPUs</summary>
 
 * *Claude*:
   **Environment Cleanup Actions:**
@@ -778,7 +778,7 @@
 > I have overwrite mem_frac value to 0.8. Use the gpu7 as default, rerun simple_task, and show the benchmark results.
 
 <details>
-<summary>Reply</summary>
+<summary>Fixed InferenceService template to use ClusterServingRuntime properly via runtimeParameters</summary>
 
 * *Claude*:
   **Configuration Changes:**
@@ -913,7 +913,7 @@
 > Show last benchmark results.
 
 <details>
-<summary>Reply</summary>
+<summary>Fixed BenchmarkJob status detection to check status.state instead of status.conditions</summary>
 
 * *Claude*:
   - Read results file: `results/simple-tune_results.json`
@@ -927,7 +927,7 @@
 > Modify timeout to 1200s
 
 <details>
-<summary>Reply</summary>
+<summary>Updated timeout_per_iteration from 600s to 1200s in simple_task.json</summary>
 
 * *Claude*:
   - Updated `examples/simple_task.json` line 23: `timeout_per_iteration` from 600 to 1200
@@ -938,7 +938,7 @@
 > Run simple_task again, and show the benchmark results.
 
 <details>
-<summary>Reply</summary>
+<summary>Bug #13 fix verified; BenchmarkJob still failing due to image issues</summary>
 
 * *Claude*:
   - Started test execution
@@ -974,7 +974,7 @@
 > Run again, and show the benchmark results.
 
 <details>
-<summary>Reply</summary>
+<summary>Added model_tokenizer field to provide valid HuggingFace model ID</summary>
 
 * *Claude*:
   - ✅ Bug #13 fix working: Script detected failure immediately (within 15 seconds)
@@ -987,7 +987,7 @@
 > I reverted the benchmark image to kllambda/genai-bench:v251014 again, try again.
 
 <details>
-<summary>Reply</summary>
+<summary>Reverted to kllambda/genai-bench:v251014; test failed with backoff limit</summary>
 
 * *Claude*:
   - Removed `model_tokenizer` field from `examples/simple_task.json` to use `inferenceService` endpoint (no API key required)
@@ -1001,7 +1001,7 @@
 > Check detail log of benchmark pod.
 
 <details>
-<summary>Reply</summary>
+<summary>Found genai-bench v251014 crashes on startup within 4 seconds; image fundamentally broken</summary>
 
 * *Claude*:
   **Detailed Investigation Results:**
@@ -1088,7 +1088,7 @@
 > Try to refactor the benchmark controller by a outside genai-bench, use `env/bin/python3` to run genai-bench benchmark scripts.
 
 <details>
-<summary>Reply</summary>
+<summary>Direct Benchmark Refactoring</summary>
 
 * *Claude*:
   **Motivation**: Bypass genai-bench v251014 Docker image crash-on-startup issue (Bug #13 investigation)
@@ -1153,7 +1153,7 @@
 > Run a port forward for inference service before run direct benchmark script.
 
 <details>
-<summary>Reply</summary>
+<summary>Integrated port forwarding with automatic service discovery</summary>
 
 * *Claude*:
   **Port Forwarding Integration:**
@@ -1173,7 +1173,7 @@
 > Update direct_benchmark_controller usage into README.
 
 <details>
-<summary>Reply</summary>
+<summary>Documented dual benchmark execution modes in README</summary>
 
 * *Claude*:
   **Documentation Updates:**
@@ -1198,7 +1198,7 @@
 > Test simple_task with the new direct benchmark.
 
 <details>
-<summary>Reply</summary>
+<summary>Tested direct benchmark; encountered InferenceService pod discovery issues</summary>
 
 * *Claude*:
   **Testing & Issues Found:**
@@ -1284,7 +1284,7 @@ Status: Implementation Complete, Testing Blocked
 > Set up prerequisite environment for this project, and summary your commands into a `install.sh` bash script for environment installation in future.
 
 <details>
-<summary>Reply</summary>
+<summary>Created comprehensive install.sh with automated setup and verification</summary>
 
 * *Claude*:
   **Implementation: Comprehensive Installation Script**
@@ -1432,7 +1432,7 @@ Status: Implementation Complete, Testing Blocked
 > Is ome install a prerequisite in environment?
 
 <details>
-<summary>Reply</summary>
+<summary>OME as Hard Prerequisite</summary>
 
 * *Claude*:
   **Analysis: OME Installation Status**
@@ -1469,7 +1469,7 @@ Status: Implementation Complete, Testing Blocked
 > 1 & 2
 
 <details>
-<summary>Reply</summary>
+<summary>Made OME a hard requirement in install.sh with error on missing installation</summary>
 
 * *Claude*:
   **Implementation: OME as Hard Requirement**
@@ -1640,7 +1640,7 @@ Status: Implementation Complete, Testing Blocked
 > According to your recent practice, rectify `install.sh` about ome installation, and simplify the *Installation* chapter in `README.md`. Also rectify docs/OME_INSTALLATION.md.
 
 <details>
-<summary>Reply</summary>
+<summary>Updated install.sh and docs based on actual OME installation experience</summary>
 
 * *Claude*:
   **Implementation: Documentation Updates Based on Real Installation Experience**
@@ -1812,7 +1812,7 @@ Status: Implementation Complete, Testing Blocked
 > Try run the simple_task with --direct
 
 <details>
-<summary>Reply</summary>
+<summary>First Autotuner Test Run - InferenceService Deployment Success</summary>
 
 * *Claude*:
   **Test Execution Journey - Multiple Issues Resolved:**
@@ -1922,7 +1922,7 @@ Status: Implementation Complete, Testing Blocked
 > Append metrics on sglang runtime, and fix `Insufficient nvidia.com/gpu` problem.
 
 <details>
-<summary>Reply</summary>
+<summary>GPU Configuration Investigation and SGLang Metrics Documentation</summary>
 
 * *Claude*:
   **GPU Configuration Investigation:**
@@ -2042,7 +2042,7 @@ Status: Implementation Complete, Testing Blocked
 > Deploy the model in simple_task, don't run benchmark, forward model api service to host port 8000.
 
 <details>
-  <summary>Reply</summary>
+  <summary>Direct Docker Deployment - Bypassing Kubernetes GPU Limitations</summary>
 
 * *Claude*:
 
@@ -2063,7 +2063,7 @@ Status: Implementation Complete, Testing Blocked
 > Check network connectivity and proxy settings
 
 <details>
-<summary>Reply</summary>
+<summary>Configured Docker proxy settings in Minikube for network connectivity</summary>
 
 * *Claude*:
   **Network Configuration:**
@@ -2078,7 +2078,7 @@ Status: Implementation Complete, Testing Blocked
 > I appended a Secret of hf token for ome, try again.
 
 <details>
-<summary>Reply</summary>
+<summary>Downloaded Llama 3.2 1B model using HuggingFace token and transferred to Minikube</summary>
 
 * *Claude*:
   **Model Download with Authentication:**
@@ -2116,7 +2116,7 @@ Status: Implementation Complete, Testing Blocked
 > Deploy a sglang runtime with GPU, according to the config of config/examples/clusterservingruntime-sglang.yaml
 
 <details>
-<summary>Reply</summary>
+<summary>Downloaded Llama model with HF token; attempted Minikube transfer and SGLang deployment</summary>
 
 * *Claude*:
   **GPU Deployment Attempt:**
@@ -2135,7 +2135,7 @@ Status: Implementation Complete, Testing Blocked
 > Try minikube start --driver=docker --container-runtime=docker --gpus=all --force
 
 <details>
-<summary>Reply</summary>
+<summary>Investigated Minikube GPU access; found architectural limitation with Docker driver</summary>
 
 * *Claude*:
   **Minikube GPU Access Investigation:**
@@ -2291,7 +2291,7 @@ Status: Implementation Complete, Testing Blocked
 > Complete requirements.txt for standalone docker mode
 
 <details>
-<summary>Reply</summary>
+<summary>Added docker and requests packages to requirements.txt for Docker mode support</summary>
 
 * *Claude*:
   - Analyzed Python source files to identify all imported dependencies
@@ -2334,7 +2334,7 @@ Status: Implementation Complete, Testing Blocked
 > Try run `python src/run_autotuner.py examples/docker_task.json --mode docker --direct`, and fix issues.
 
 <details>
-<summary>Reply</summary>
+<summary>Fixed Docker mode end-to-end: GPU device allocation, API parameters, type errors</summary>
 
 * *Claude*:
   Successfully ran and fixed all issues with the Docker mode autotuner!
@@ -2426,7 +2426,7 @@ Status: Implementation Complete, Testing Blocked
 > Is there any way to show the genai-bench logs with following mode?
 
 <details>
-<summary>Reply</summary>
+<summary>Implemented --verbose flag for real-time genai-bench log streaming during execution</summary>
 
 * *Claude*:
   Implemented multiple ways to view genai-bench logs during autotuner execution!
@@ -2521,7 +2521,7 @@ Status: Implementation Complete, Testing Blocked
 > Please analyze this codebase and create a CLAUDE.md file
 
 <details>
-<summary>Reply</summary>
+<summary>Created comprehensive CLAUDE.md documentation covering architecture and development guidelines</summary>
 
 * *Claude*:
   Created comprehensive CLAUDE.md for future Claude instances!
@@ -2637,7 +2637,7 @@ Status: Implementation Complete, Testing Blocked
 > Don't append argument option, make it the default behavior.
 
 <details>
-<summary>Reply</summary>
+<summary>Made Docker container auto-removal the default behavior without CLI flag</summary>
 
 * *Claude*:
   Changed Docker mode to automatically remove containers after they stop by default (no CLI flag needed).
@@ -2698,7 +2698,7 @@ Status: Implementation Complete, Testing Blocked
 > Refactor `parameters` field in docker task config file, use the parameter original name to allow arbitrary parameters of runtime engine.
 
 <details>
-<summary>Reply</summary>
+<summary>Refactored parameter system to support arbitrary runtime flags with native names</summary>
 
 * *Claude*:
   Refactored the parameter configuration system to support arbitrary runtime engine parameters using native parameter names (e.g., `tp-size`, `mem-fraction-static`, `schedule-policy`).
@@ -2831,7 +2831,7 @@ Status: Implementation Complete, Testing Blocked
 > Append a field in docker task config to specify inference engine docker image tag, like `v0.5.2-cu126`
 
 <details>
-<summary>Reply</summary>
+<summary>Custom Docker Image Tag Support</summary>
 
 * *Claude*:
   Added support for specifying custom Docker image tags in task configuration files, enabling users to test different runtime versions without code modifications.
@@ -3055,7 +3055,7 @@ Status: Implementation Complete, Testing Blocked
 > Separate Troubleshooting chapter from README into a standalone document, and leave a link for README.
 
 <details>
-<summary>Reply</summary>
+<summary>Documentation Reorganization</summary>
 
 * *Claude*:
   **Documentation Refactoring:**
@@ -3095,7 +3095,7 @@ Status: Implementation Complete, Testing Blocked
 > When use `--mode docker`, --direct should be default
 
 <details>
-<summary>Reply</summary>
+<summary>CLI Default Behavior Improvement</summary>
 
 * *Claude*:
   **CLI Usability Enhancement:**
@@ -3132,7 +3132,7 @@ Status: Implementation Complete, Testing Blocked
 > Import python black formatter in project
 
 <details>
-<summary>Reply</summary>
+<summary>Code Formatting - Black Formatter Integration</summary>
 
 * *Claude*:
   **Initial Black Setup:**
@@ -3169,7 +3169,7 @@ Status: Implementation Complete, Testing Blocked
 > Can we configure black to use 2 empty lines for intervals between top-level functions?
 
 <details>
-<summary>Reply</summary>
+<summary>Verified Black already enforces PEP 8 standard of 2 blank lines; documented in style guide</summary>
 
 * *Claude*:
   **Blank Lines Configuration Analysis:**
@@ -3219,7 +3219,7 @@ Status: Implementation Complete, Testing Blocked
 > Complete function `calculate_objective_score` according to the results value
 
 <details>
-<summary>Reply</summary>
+<summary>Benchmark Results Parsing and Objective Score Calculation</summary>
 
 * *Claude*:
   **Problem Analysis:**
@@ -3463,7 +3463,7 @@ Task JSON → Orchestrator → Parameter Grid → For each config:
 > Investigate the best practice on web application technical stack, fit for our project.
 
 <details>
-<summary>Reply</summary>
+<summary>Web Stack Technology Investigation</summary>
 
 * *Claude*:
   **Comprehensive Web Stack Investigation:**
@@ -3555,7 +3555,7 @@ Task JSON → Orchestrator → Parameter Grid → For each config:
 > FastAPI + ARQ + SQLite + React + typescript, now set up server foundation.
 
 <details>
-<summary>Reply</summary>
+<summary>Backend Foundation Setup</summary>
 
 * *Claude*:
   **Complete Backend Foundation Implementation:**
@@ -3742,7 +3742,7 @@ Task JSON → Orchestrator → Parameter Grid → For each config:
 > Install env for web/backend and test to run the server, reuse the `env` folder, don't create new venv.
 
 <details>
-<summary>Reply</summary>
+<summary>Backend Server Testing & Database Migration to Home Directory</summary>
 
 * *Claude*:
   **Environment Setup & Testing:**
@@ -3850,7 +3850,7 @@ Task JSON → Orchestrator → Parameter Grid → For each config:
 > Reorganize source code in src/, merge web/backend folder into it.
 
 <details>
-  <summary>Reply</summary>
+  <summary>Consolidated all source code under src/ by merging web/backend into src/web/</summary>
 
 * *Claude*:
   **Objective:** Consolidate all source code under a single `src/` directory by merging the separate `web/backend/` structure into `src/web/`. This improves project organization, reduces directory depth, and creates a more intuitive structure for development.
