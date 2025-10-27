@@ -108,7 +108,7 @@ export default function Layout() {
 							<span className="text-white text-sm font-bold">AI</span>
 						</div>
 						<div>
-							<h1 className="text-sm font-bold text-gray-900">LLM Autotuner</h1>
+							<h1 className="text-sm font-bold text-gray-900">Inference Autotuner</h1>
 							<p className="text-xs text-gray-500">v0.1.0</p>
 						</div>
 					</div>

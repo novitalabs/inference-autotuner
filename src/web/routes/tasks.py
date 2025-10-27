@@ -3,9 +3,13 @@ Task management API endpoints.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from typing import List
+import asyncio
+from pathlib import Path
+import os
 
 from web.db.session import get_db
 from web.db.models import Task, TaskStatus
@@ -175,3 +179,127 @@ async def cancel_task(task_id: int, db: AsyncSession = Depends(get_db)):
 	# TODO: Cancel ARQ job (will be implemented in ARQ setup)
 
 	return task
+
+
+def get_task_log_file(task_id: int) -> Path:
+	"""Get the log file path for a task."""
+	log_dir = Path.home() / ".local/share/inference-autotuner/logs"
+	log_dir.mkdir(parents=True, exist_ok=True)
+	return log_dir / f"task_{task_id}.log"
+
+
+async def stream_log_file(log_file: Path, follow: bool = False):
+	"""Stream log file contents, optionally following new lines."""
+	try:
+		# If file doesn't exist yet, wait for it (up to 30 seconds)
+		if not log_file.exists():
+			if follow:
+				yield "data: Waiting for log file to be created...\n\n"
+				for _ in range(30):
+					await asyncio.sleep(1)
+					if log_file.exists():
+						break
+				else:
+					yield "data: Log file not found. Task may not have started yet.\n\n"
+					return
+			else:
+				yield "data: Log file not found.\n\n"
+				return
+
+		# Stream existing content
+		with open(log_file, "r") as f:
+			for line in f:
+				yield f"data: {line.rstrip()}\n\n"
+
+		# If follow mode, watch for new lines
+		if follow:
+			last_pos = log_file.stat().st_size
+			while True:
+				await asyncio.sleep(0.5)  # Poll every 500ms
+				
+				# Check if file still exists
+				if not log_file.exists():
+					yield "data: [Log file removed]\n\n"
+					break
+					
+				current_size = log_file.stat().st_size
+				if current_size > last_pos:
+					with open(log_file, "r") as f:
+						f.seek(last_pos)
+						for line in f:
+							yield f"data: {line.rstrip()}\n\n"
+					last_pos = current_size
+				elif current_size < last_pos:
+					# File was truncated, start from beginning
+					last_pos = 0
+					yield "data: [Log file was truncated]\n\n"
+	except Exception as e:
+		yield f"data: Error reading log: {str(e)}\n\n"
+
+
+@router.get("/{task_id}/logs")
+async def get_task_logs(
+	task_id: int,
+	follow: bool = False,
+	db: AsyncSession = Depends(get_db)
+):
+	"""
+	Get task execution logs.
+	
+	Args:
+		task_id: Task ID
+		follow: If True, streams logs in real-time (Server-Sent Events)
+	
+	Returns:
+		Log content as text or streaming response
+	"""
+	# Verify task exists
+	result = await db.execute(select(Task).where(Task.id == task_id))
+	task = result.scalar_one_or_none()
+	
+	if not task:
+		raise HTTPException(
+			status_code=status.HTTP_404_NOT_FOUND,
+			detail=f"Task {task_id} not found"
+		)
+	
+	log_file = get_task_log_file(task_id)
+	
+	# If follow mode, return streaming response (Server-Sent Events)
+	if follow:
+		return StreamingResponse(
+			stream_log_file(log_file, follow=True),
+			media_type="text/event-stream",
+			headers={
+				"Cache-Control": "no-cache",
+				"Connection": "keep-alive",
+				"X-Accel-Buffering": "no"  # Disable nginx buffering
+			}
+		)
+	
+	# Otherwise return static log content
+	if not log_file.exists():
+		return {"logs": "No logs available yet."}
+	
+	with open(log_file, "r") as f:
+		logs = f.read()
+	
+	return {"logs": logs}
+
+
+@router.delete("/{task_id}/logs", status_code=status.HTTP_204_NO_CONTENT)
+async def clear_task_logs(task_id: int, db: AsyncSession = Depends(get_db)):
+	"""Clear task logs."""
+	# Verify task exists
+	result = await db.execute(select(Task).where(Task.id == task_id))
+	task = result.scalar_one_or_none()
+	
+	if not task:
+		raise HTTPException(
+			status_code=status.HTTP_404_NOT_FOUND,
+			detail=f"Task {task_id} not found"
+		)
+	
+	log_file = get_task_log_file(task_id)
+	if log_file.exists():
+		log_file.unlink()

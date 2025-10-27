@@ -70,6 +70,16 @@ class ApiClient {
 		const { data } = await this.client.get(`/experiments/task/${taskId}`);
 		return data;
 	}
+
+	// Task Logs
+	async getTaskLogs(taskId: number): Promise<{ logs: string }> {
+		const { data } = await this.client.get(`/tasks/${taskId}/logs`);
+		return data;
+	}
+
+	async clearTaskLogs(taskId: number): Promise<void> {
+		await this.client.delete(`/tasks/${taskId}/logs`);
+	}
 }
 
 export const apiClient = new ApiClient();

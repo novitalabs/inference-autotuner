@@ -1,4 +1,4 @@
-# LLM Inference Autotuner - Prototype
+# LLM Inference Autotuner
 
 Automated parameters tuning for LLM inference engines.
 

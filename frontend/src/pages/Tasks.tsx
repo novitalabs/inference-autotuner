@@ -2,12 +2,14 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "@/services/api";
 import type { Task } from "@/types/api";
+import LogViewer from "@/components/LogViewer";
 
 export default function Tasks() {
 	const queryClient = useQueryClient();
 	const [selectedTask, setSelectedTask] = useState<Task | null>(null);
 	const [showCreateForm, setShowCreateForm] = useState(false);
 	const [statusFilter, setStatusFilter] = useState<string>("all");
+	const [logViewerTask, setLogViewerTask] = useState<Task | null>(null);
 
 	// Fetch tasks
 	const {
@@ -268,6 +270,12 @@ export default function Tasks() {
 												>
 													View
 												</button>
+												<button
+													onClick={() => setLogViewerTask(task)}
+													className="text-purple-600 hover:text-purple-900"
+												>
+													Logs
+												</button>
 												{canStartTask(task) && (
 													<button
 														onClick={() =>
@@ -303,6 +311,15 @@ export default function Tasks() {
 			{/* Task Detail Modal */}
 			{selectedTask && (
 				<TaskDetailModal task={selectedTask} onClose={() => setSelectedTask(null)} />
+			)}
+
+			{/* Log Viewer Modal */}
+			{logViewerTask && (
+				<LogViewer
+					taskId={logViewerTask.id}
+					taskName={logViewerTask.task_name}
+					onClose={() => setLogViewerTask(null)}
+				/>
 			)}
 
 			{/* Create Task Modal */}
