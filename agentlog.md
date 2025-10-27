@@ -4381,3 +4381,140 @@ Task JSON → Orchestrator → Parameter Grid → For each config:
 
 ---
 
+## 2025/10/27
+
+## Mini-milestone: Frontend Development Server Setup & Documentation Cleanup
+
+> Learn recent changes and local git repo change, try to run a develop server for web frontend, and fix issues if present.
+
+<details>
+<summary>Frontend setup with React + TypeScript; fixed vite-env.d.ts TypeScript error</summary>
+
+* *Claude*:
+  **Recent Changes Review:**
+  - Frontend was recently added to the repository
+  - 18 new files in `frontend/` directory: React + TypeScript + Vite setup
+  - Recent commits showed web backend reorganization and document updates
+
+  **Frontend Structure Analysis:**
+  - Tech stack: React 18, TypeScript, Vite, React Router, TanStack Query, Axios
+  - Project organized with: components, pages, services, types directories
+  - API client configured with proxy to backend at `http://localhost:8000/api`
+  - Development server configured to run on port 3000
+
+  **Environment Verification:**
+  - Node.js v24.10.0 and npm 11.6.1 already installed
+  - Backend server already running and healthy at `http://localhost:8000`
+  - Database and Redis operational
+
+  **Installation & Startup:**
+  - Ran `npm install` in frontend directory (273 packages installed in 29s)
+  - Started development server with `npm run dev`
+  - Server started successfully on `http://localhost:3000`
+
+  **TypeScript Error Fixed:**
+  - Error: `Property 'env' does not exist on type 'ImportMeta'`
+  - Root cause: Missing Vite environment type declarations
+  - Solution: Created `frontend/src/vite-env.d.ts` with proper type definitions:
+    ```typescript
+    /// <reference types="vite/client" />
+
+    interface ImportMetaEnv {
+      readonly VITE_API_URL: string;
+    }
+
+    interface ImportMeta {
+      readonly env: ImportMetaEnv;
+    }
+    ```
+  - Verification: `npm run type-check` passed with no errors
+
+  **Integration Testing:**
+  - ✅ Frontend server: `http://localhost:3000` - HTML rendering correctly
+  - ✅ Backend API health: `/api/system/health` - database: ok, redis: ok
+  - ✅ Vite proxy working: `/api` requests forwarded to backend successfully
+  - ✅ API data retrieval: 1 task found in database
+  - ✅ No errors in HTML response
+
+  **System Status:**
+  ```
+  Frontend: http://localhost:3000 (Vite v5.4.21)
+  Backend:  http://localhost:8000 (FastAPI with SQLite + Redis)
+  Database: ~/.local/share/inference-autotuner/autotuner.db
+  API Docs: http://localhost:8000/docs (Swagger UI)
+  ```
+
+  **Files Created:**
+  - `frontend/src/vite-env.d.ts`: Type declarations for Vite environment variables
+
+</details>
+
+> I have renamed `prompts.md` to `agentlog.md`, replace all `<summary>Reply</summary>` in this document by a concise summary for every section.
+
+<details>
+<summary>Replaced all 50 generic summary tags with concise, context-appropriate descriptions</summary>
+
+* *Claude*:
+  **Task Analysis:**
+  - File renamed from `prompts.md` to `agentlog.md` (4383 lines)
+  - Found 50 occurrences of `<summary>Reply</summary>` to replace
+  - Goal: Create concise, descriptive summaries for each section
+
+  **Implementation Approach:**
+  - Created Python script to systematically process the file
+  - Extracted context around each summary tag to understand content
+  - Generated appropriate summaries based on:
+    * Mini-milestone headers
+    * User queries and commands
+    * Key actions and implementations in responses
+    * Bullet points and accomplishments
+
+  **Summary Examples Created:**
+  - "Architecture design with multi-tier system using OME, genai-bench, and web frontend"
+  - "Fixed 5 template bugs: labels format, container name, env vars, outputLocation, storage URI"
+  - "Created comprehensive install.sh with automated setup and verification"
+  - "Implemented --verbose flag for real-time genai-bench log streaming during execution"
+  - "Consolidated all source code under src/ by merging web/backend into src/web/"
+  - "Fixed Docker mode end-to-end: GPU device allocation, API parameters, type errors"
+  - "Refactored parameter system to support arbitrary runtime flags with native names"
+  - "Made Docker container auto-removal the default behavior without CLI flag"
+
+  **Processing Steps:**
+  1. Initial automated replacement: 50 summaries generated with context extraction
+  2. Manual refinement: Fixed user-question verbatim summaries
+  3. Pattern fixes: Removed markdown formatting in summary tags
+  4. Context enhancement: Improved generic "Implementation details" summaries
+  5. Meta-instruction update: Changed `prompts.md` reference to `agentlog.md`
+
+  **Quality Assurance:**
+  - Verified all 50 summaries replaced
+  - Checked for problematic patterns:
+    * Reply tags: 0 remaining ✅
+    * Empty tags: 0 remaining ✅
+    * Markdown in summaries: 0 remaining ✅
+  - Random sampling showed diverse, descriptive summaries
+
+  **Files Modified:**
+  - `agentlog.md`: All 50 summary tags updated with concise descriptions
+  - Line 5: Updated meta-instruction to reference `agentlog.md` instead of `prompts.md`
+
+  **Verification:**
+  ```
+  Total summaries: 50
+  Problematic patterns: 0
+  File integrity: 4383 lines maintained
+  Frontend dependencies: 273 packages installed
+  TypeScript compilation: Passes with no errors
+  ```
+
+  **Benefits:**
+  - Easy to scan and understand document structure
+  - Quick navigation to specific topics
+  - Professional documentation format
+  - Context-aware descriptions for each section
+  - Full-stack development environment now operational
+
+</details>
+
+---
+
