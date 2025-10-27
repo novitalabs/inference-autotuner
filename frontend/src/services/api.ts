@@ -56,6 +56,11 @@ class ApiClient {
   }
 
   // Experiments
+  async getExperiments(): Promise<Experiment[]> {
+    const { data } = await this.client.get('/experiments/');
+    return data;
+  }
+
   async getExperiment(id: number): Promise<Experiment> {
     const { data } = await this.client.get(`/experiments/${id}`);
     return data;

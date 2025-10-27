@@ -14,6 +14,17 @@ from web.schemas import ExperimentResponse
 router = APIRouter()
 
 
+@router.get("/", response_model=List[ExperimentResponse])
+async def list_all_experiments(db: AsyncSession = Depends(get_db)):
+	"""List all experiments."""
+	result = await db.execute(
+		select(Experiment).order_by(Experiment.task_id, Experiment.experiment_id)
+	)
+	experiments = result.scalars().all()
+
+	return experiments
+
+
 @router.get("/{experiment_id}", response_model=ExperimentResponse)
 async def get_experiment(experiment_id: int, db: AsyncSession = Depends(get_db)):
 	"""Get experiment by ID."""
