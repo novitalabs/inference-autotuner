@@ -4666,5 +4666,507 @@ Task JSON → Orchestrator → Parameter Grid → For each config:
 
 </details>
 
+> Refactor frontend pages into a one-page application, let user can view different modules by switching tabs.
+
+<details>
+<summary>Refactored to single-page app with tab-based navigation; removed React Router</summary>
+
+* *Claude*:
+  **Objective:**
+  - Transform multi-page routing application into single-page app with tabs
+  - Remove React Router dependency
+  - Implement client-side tab switching
+
+  **Architecture Changes:**
+
+  **Before (Multi-Page with React Router):**
+  ```typescript
+  App.tsx:
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<Layout />}>
+          <Route index element={<Dashboard />} />
+          <Route path="tasks" element={<Tasks />} />
+          <Route path="experiments" element={<Experiments />} />
+        </Route>
+      </Routes>
+    </BrowserRouter>
+
+  Layout.tsx:
+    <Link> components for navigation
+    <Outlet> for nested routes
+    URL changes: /, /tasks, /experiments
+  ```
+
+  **After (Single-Page with Tabs):**
+  ```typescript
+  App.tsx:
+    <QueryClientProvider>
+      <Layout />
+    </QueryClientProvider>
+
+  Layout.tsx:
+    useState for active tab state
+    Button elements with onClick handlers
+    Dynamic component rendering
+    No URL changes - pure client state
+  ```
+
+  **Implementation:**
+
+  **1. App.tsx Simplification:**
+  - Removed `BrowserRouter`, `Routes`, `Route` imports
+  - Removed all routing logic
+  - Simplified to single Layout component render
+  - File size: 34 lines → 21 lines
+
+  **2. Layout.tsx Tab System:**
+  - Added `useState<TabId>` for tab management
+  - Created tab configuration array with components
+  - Implemented button-based navigation (desktop)
+  - Added dropdown select menu (mobile)
+  - Dynamic component lookup and rendering
+  - File size: 45 lines → 79 lines
+
+  **Tab Configuration:**
+  ```typescript
+  interface Tab {
+    id: TabId;
+    name: string;
+    component: React.ComponentType;
+  }
+
+  const tabs: Tab[] = [
+    { id: 'dashboard', name: 'Dashboard', component: Dashboard },
+    { id: 'tasks', name: 'Tasks', component: Tasks },
+    { id: 'experiments', name: 'Experiments', component: Experiments },
+  ];
+  ```
+
+  **State Management:**
+  ```typescript
+  const [activeTab, setActiveTab] = useState<TabId>('dashboard');
+  const ActiveComponent = tabs.find(tab => tab.id === activeTab)?.component;
+  ```
+
+  **Features Implemented:**
+  - Desktop: Horizontal tab buttons with active state (blue border)
+  - Mobile: Dropdown select menu with all tabs
+  - Active tab highlighted with blue underline
+  - Smooth color transitions on tab switch
+  - No page reloads - instant switching
+  - TypeScript-safe tab IDs
+
+  **Benefits:**
+  - ✅ Simpler architecture (no routing config)
+  - ✅ Faster navigation (no route matching)
+  - ✅ Better UX (no page flashing)
+  - ✅ State preservation (React Query cache persists)
+  - ✅ Mobile-friendly dropdown
+  - ✅ Less dependencies
+
+  **Testing:**
+  - TypeScript compilation: PASSED
+  - Hot reload: WORKING
+  - Tab switching: Instant, smooth
+  - No console errors
+
+</details>
+
+> Good, adjust styles for app page, make a vertical navigator for tab switching.
+
+<details>
+<summary>Implemented hierarchical sidebar menu with sections, icons, and professional layout</summary>
+
+* *Claude*:
+  **Objective:**
+  - Transform horizontal tabs into vertical sidebar navigation
+  - Create hierarchical menu with section headers
+  - Add icons for visual identification
+  - Professional dashboard-style layout
+
+  **Menu Structure:**
+  ```
+  OVERVIEW
+    └─ Dashboard (Home icon)
+
+  AUTOTUNING
+    ├─ Tasks (Clipboard icon)
+    └─ Experiments (Bar chart icon)
+  ```
+
+  **Architecture:**
+  ```typescript
+  interface MenuItem {
+    id: TabId;
+    name: string;
+    component: React.ComponentType;
+    icon: React.ReactNode;
+  }
+
+  interface MenuSection {
+    title: string;      // Section header
+    items: MenuItem[];  // Items in section
+  }
+
+  const menuSections: MenuSection[] = [
+    {
+      title: 'Overview',
+      items: [Dashboard with icon]
+    },
+    {
+      title: 'Autotuning',
+      items: [Tasks with icon, Experiments with icon]
+    }
+  ];
+  ```
+
+  **Layout Components:**
+
+  **1. Fixed Sidebar (Desktop ≥1024px):**
+  - Width: 256px (w-64)
+  - Position: Fixed left, full height
+  - Structure:
+    * Header: App logo + name + version
+    * Navigation: Hierarchical menu
+    * Footer: User info + settings button
+
+  **2. Slide-Out Sidebar (Mobile <1024px):**
+  - Hidden by default
+  - Hamburger menu button triggers
+  - Smooth slide animation (300ms)
+  - Semi-transparent backdrop
+  - Touch-friendly close gestures
+
+  **3. Sidebar Header:**
+  - Gradient blue logo badge (AI)
+  - App name: "LLM Autotuner"
+  - Version: "v0.1.0"
+  - Close button (mobile only)
+
+  **4. Navigation Menu:**
+  - Section headers:
+    * Uppercase text (text-xs)
+    * Gray color for hierarchy
+    * Spacing between sections (mt-6)
+
+  - Menu items:
+    * Icon + Label layout
+    * Active state: Blue background + checkmark
+    * Hover state: Gray background
+    * Smooth transitions (150ms)
+    * Full width buttons
+
+  **5. Sidebar Footer:**
+  - User avatar (circular)
+  - Admin name and role
+  - Settings button (gear icon)
+
+  **6. Enhanced Top Bar:**
+  - Hamburger menu (mobile)
+  - Page title (dynamic)
+  - Breadcrumb (section name)
+  - Search button
+  - Notification bell with red badge
+
+  **Visual Features:**
+
+  **Active Item Indicator:**
+  - Blue background (`bg-blue-50`)
+  - Blue text (`text-blue-700`)
+  - Checkmark icon on right
+  - Subtle shadow
+  - Visual confirmation
+
+  **Icons Used:**
+  - Dashboard: Home/House icon
+  - Tasks: Clipboard/Document icon
+  - Experiments: Bar chart/Analytics icon
+  - User: Profile icon
+  - Settings: Gear icon
+  - Search: Magnifying glass
+  - Notifications: Bell icon
+
+  **Responsive Behavior:**
+
+  **Desktop:**
+  ```css
+  .sidebar {
+    position: fixed;
+    left: 0;
+    width: 16rem;
+    height: 100vh;
+  }
+
+  .main-content {
+    padding-left: 16rem;
+  }
+  ```
+
+  **Mobile:**
+  ```css
+  .sidebar {
+    position: fixed;
+    transform: translateX(-100%);
+    transition: transform 300ms;
+  }
+
+  .sidebar.open {
+    transform: translateX(0);
+  }
+  ```
+
+  **State Management:**
+  ```typescript
+  const [activeTab, setActiveTab] = useState<TabId>('dashboard');
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  const allMenuItems = menuSections.flatMap(s => s.items);
+  ```
+
+  **Implementation Details:**
+  - File: Layout.tsx (79 lines → 234 lines)
+  - Added: 155 lines
+  - Sections: 2 (Overview, Autotuning)
+  - Menu items: 3 with icons
+  - Mobile responsive: Full support
+
+  **Benefits:**
+  - ✅ Professional dashboard appearance
+  - ✅ Better organization with sections
+  - ✅ Visual hierarchy clear
+  - ✅ Scalable for more items
+  - ✅ Mobile-optimized
+  - ✅ Icons aid quick identification
+
+  **Testing:**
+  - TypeScript: PASSED
+  - Hot reload: WORKING
+  - Sidebar slide animation: Smooth
+  - Mobile menu: Functional
+  - Desktop layout: Fixed and visible
+
+</details>
+
+> Create a proper css file for app.
+
+<details>
+<summary>Created comprehensive CSS file with variables, components, and utility classes</summary>
+
+* *Claude*:
+  **Objective:**
+  - Create professional, well-organized CSS file
+  - Replace basic index.css with comprehensive styles
+  - Implement design system with CSS variables
+  - Add reusable component classes
+
+  **File Created:**
+  - Path: `frontend/src/styles/app.css`
+  - Size: 10KB
+  - Lines: 504 lines
+  - Structure: 8 major sections
+
+  **CSS Architecture:**
+
+  **1. CSS Variables & Theme (75 lines):**
+  - Color system:
+    * Primary: #3b82f6 (blue)
+    * Success: #10b981 (green)
+    * Warning: #f59e0b (yellow)
+    * Error: #ef4444 (red)
+    * Grayscale: gray-50 through gray-900
+
+  - Design tokens:
+    * Spacing: xs, sm, md, lg, xl, 2xl
+    * Border radius: sm, md, lg, xl, 2xl, full
+    * Shadows: sm, md, lg, xl
+    * Transitions: fast (150ms), base (200ms), slow (300ms)
+
+  - Typography:
+    * Font Sans: Inter, system-ui
+    * Font Mono: SF Mono, Monaco, Consolas
+
+  - Z-Index layers:
+    * base (1), dropdown (10), sticky (20), fixed (30)
+    * modal-backdrop (40), modal (50), popover (60), tooltip (70)
+
+  **2. Base Styles (35 lines):**
+  - Universal box model reset
+  - HTML font smoothing (antialiased)
+  - Body defaults
+  - Root element setup
+
+  **3. Typography (30 lines):**
+  - Heading hierarchy (h1-h6)
+  - Font sizes: 2.25rem → 1rem
+  - Paragraph spacing
+  - Code/Pre monospace fonts
+
+  **4. Component Styles (200 lines):**
+
+  **Buttons:**
+  ```css
+  .btn - Base style
+  .btn-primary - Blue background
+  .btn-secondary - Gray background
+  .btn-success - Green background
+  .btn-danger - Red background
+  Focus states and hover effects
+  ```
+
+  **Cards:**
+  ```css
+  .card - Container with shadow
+  .card-header - Top section
+  .card-body - Main content
+  .card-footer - Bottom section
+  ```
+
+  **Badges:**
+  ```css
+  .badge - Base badge
+  .badge-primary, .badge-success, .badge-warning, .badge-error
+  Color-coded with proper contrast
+  ```
+
+  **Forms:**
+  ```css
+  .form-group - Field container
+  .form-label - Label styling
+  .form-input - Text input
+  .form-select - Dropdown
+  .form-textarea - Multi-line text
+  Focus states with blue ring
+  ```
+
+  **Tables:**
+  ```css
+  .table - Responsive table
+  Striped rows option
+  Hover effects
+  Proper spacing
+  ```
+
+  **Status Indicators:**
+  ```css
+  .status-dot - Colored dot
+  .status-success, .status-warning, .status-error, .status-info
+  ```
+
+  **5. Layout Components (100 lines):**
+
+  **Sidebar:**
+  ```css
+  .sidebar - Main container
+  .sidebar-header - Top section
+  .sidebar-nav - Navigation area
+  .sidebar-footer - Bottom section
+  ```
+
+  **Navigation:**
+  ```css
+  .nav-section - Menu section
+  .nav-section-title - Section header
+  .nav-item - Menu item
+  .nav-item-active - Active state
+  .nav-item-icon - Icon styling
+  ```
+
+  **6. Utility Classes (40 lines):**
+
+  **Loading Spinners:**
+  ```css
+  .spinner - Default (2rem)
+  .spinner-sm - Small (1rem)
+  .spinner-lg - Large (3rem)
+  @keyframes spin animation
+  ```
+
+  **Scrollbar Styling:**
+  ```css
+  ::-webkit-scrollbar - Width/height
+  ::-webkit-scrollbar-track - Background
+  ::-webkit-scrollbar-thumb - Draggable part
+  Hover effects
+  ```
+
+  **7. Responsive Design (15 lines):**
+  ```css
+  @media (max-width: 1024px)
+    Sidebar positioning
+    Transform animations
+    Mobile menu behavior
+  ```
+
+  **8. Print Styles (9 lines):**
+  ```css
+  @media print
+    Hide interactive elements
+    Remove shadows
+    Clean borders
+  ```
+
+  **Usage Examples:**
+
+  **Buttons:**
+  ```html
+  <button class="btn btn-primary">Save</button>
+  <button class="btn btn-secondary">Cancel</button>
+  ```
+
+  **Cards:**
+  ```html
+  <div class="card">
+    <div class="card-header">Title</div>
+    <div class="card-body">Content</div>
+  </div>
+  ```
+
+  **Forms:**
+  ```html
+  <div class="form-group">
+    <label class="form-label">Name</label>
+    <input class="form-input" type="text" />
+  </div>
+  ```
+
+  **Badges:**
+  ```html
+  <span class="badge badge-success">Active</span>
+  <span class="badge badge-warning">Pending</span>
+  ```
+
+  **Loading:**
+  ```html
+  <div class="spinner"></div>
+  ```
+
+  **Files Modified:**
+  1. Created: `frontend/src/styles/app.css` (504 lines)
+  2. Updated: `frontend/src/main.tsx` (changed import from index.css to styles/app.css)
+
+  **Benefits:**
+  - ✅ Consistent design system via CSS variables
+  - ✅ Reusable component classes
+  - ✅ Easy theme customization
+  - ✅ Responsive and mobile-first
+  - ✅ Accessible focus states
+  - ✅ Performance optimized
+  - ✅ Well-organized and documented
+  - ✅ Works with Tailwind CSS
+
+  **Testing:**
+  - Vite hot reload: WORKING
+  - CSS loading: Successful
+  - No compilation errors
+  - Application: Running smoothly
+
+  **Integration:**
+  - Seamlessly integrates with existing Tailwind classes
+  - Can use both custom classes and utility classes
+  - No conflicts or overrides
+
+</details>
+
 ---
 
