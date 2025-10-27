@@ -1,0 +1,541 @@
+import { useState } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { apiClient } from '../services/api';
+import toast from 'react-hot-toast';
+import { navigateTo } from '../components/Layout';
+
+interface TaskFormData {
+  task_name: string;
+  description: string;
+  deployment_mode: string;
+  base_runtime: string;
+  runtime_image_tag?: string;
+  model: {
+    name: string;
+    namespace: string;
+  };
+  parameters: Record<string, number[]>;
+  optimization: {
+    strategy: string;
+    objective: string;
+    max_iterations: number;
+    timeout_per_iteration: number;
+  };
+  benchmark: {
+    task: string;
+    model_name: string;
+    model_tokenizer: string;
+    traffic_scenarios: string[];
+    num_concurrency: number[];
+    max_time_per_iteration: number;
+    max_requests_per_iteration: number;
+    additional_params: Record<string, any>;
+  };
+}
+
+interface ParamField {
+  name: string;
+  values: string;
+}
+
+export default function NewTask() {
+  const queryClient = useQueryClient();
+
+  // Basic info
+  const [taskName, setTaskName] = useState('');
+  const [description, setDescription] = useState('');
+  const [deploymentMode, setDeploymentMode] = useState('docker');
+  const [baseRuntime, setBaseRuntime] = useState('sglang');
+  const [runtimeImageTag, setRuntimeImageTag] = useState('');
+
+  // Model config
+  const [modelName, setModelName] = useState('');
+  const [modelNamespace, setModelNamespace] = useState('autotuner');
+
+  // Parameters (dynamic list)
+  const [parameters, setParameters] = useState<ParamField[]>([
+    { name: 'tp-size', values: '1' },
+    { name: 'mem-fraction-static', values: '0.7, 0.8' },
+  ]);
+
+  // Optimization
+  const [strategy, setStrategy] = useState('grid_search');
+  const [objective, setObjective] = useState('minimize_latency');
+  const [maxIterations, setMaxIterations] = useState(2);
+  const [timeoutPerIteration, setTimeoutPerIteration] = useState(600);
+
+  // Benchmark
+  const [benchmarkTask, setBenchmarkTask] = useState('text-to-text');
+  // benchmarkModelName is synced with modelName - no separate state needed
+  const [modelTokenizer, setModelTokenizer] = useState('');
+  const [trafficScenarios, setTrafficScenarios] = useState('D(100,100)');
+  const [numConcurrency, setNumConcurrency] = useState('1, 4');
+  const [maxTimePerIteration, setMaxTimePerIteration] = useState(10);
+  const [maxRequestsPerIteration, setMaxRequestsPerIteration] = useState(50);
+  const [temperature, setTemperature] = useState('0.0');
+
+  const createTaskMutation = useMutation({
+    mutationFn: (data: TaskFormData) => apiClient.createTask(data),
+    onSuccess: (response) => {
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      toast.success(`Task "${response.task_name}" created successfully`);
+      navigateTo('tasks');
+    },
+    onError: (error: any) => {
+      const message = error.response?.data?.detail || 'Failed to create task';
+      toast.error(message);
+    },
+  });
+
+  const addParameter = () => {
+    setParameters([...parameters, { name: '', values: '' }]);
+  };
+
+  const removeParameter = (index: number) => {
+    setParameters(parameters.filter((_, i) => i !== index));
+  };
+
+  const updateParameter = (index: number, field: 'name' | 'values', value: string) => {
+    const newParams = [...parameters];
+    newParams[index][field] = value;
+    setParameters(newParams);
+  };
+
+  const parseNumberArray = (str: string): number[] => {
+    return str
+      .split(',')
+      .map((s) => parseFloat(s.trim()))
+      .filter((n) => !isNaN(n));
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+
+    // Parse parameters
+    const parsedParams: Record<string, number[]> = {};
+    for (const param of parameters) {
+      if (param.name && param.values) {
+        parsedParams[param.name] = parseNumberArray(param.values);
+      }
+    }
+
+    // Parse traffic scenarios
+    const trafficScenariosList = trafficScenarios
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    const formData: TaskFormData = {
+      task_name: taskName,
+      description,
+      deployment_mode: deploymentMode,
+      base_runtime: baseRuntime,
+      ...(runtimeImageTag && { runtime_image_tag: runtimeImageTag }),
+      model: {
+        name: modelName,
+        namespace: modelNamespace,
+      },
+      parameters: parsedParams,
+      optimization: {
+        strategy,
+        objective,
+        max_iterations: maxIterations,
+        timeout_per_iteration: timeoutPerIteration,
+      },
+      benchmark: {
+        task: benchmarkTask,
+        model_name: modelName, // Reuse model name from Model Configuration
+        model_tokenizer: modelTokenizer,
+        traffic_scenarios: trafficScenariosList,
+        num_concurrency: parseNumberArray(numConcurrency),
+        max_time_per_iteration: maxTimePerIteration,
+        max_requests_per_iteration: maxRequestsPerIteration,
+        additional_params: {
+          temperature: parseFloat(temperature),
+        },
+      },
+    };
+
+    createTaskMutation.mutate(formData);
+  };
+
+  return (
+    <div className="max-w-4xl mx-auto">
+      <div className="mb-6">
+        <h1 className="text-3xl font-bold text-gray-900">Create New Task</h1>
+        <p className="mt-2 text-gray-600">Configure a new autotuning task</p>
+      </div>
+
+      <form onSubmit={handleSubmit} className="space-y-8">
+        {/* Basic Information */}
+        <div className="bg-white shadow-sm rounded-lg p-6">
+          <h2 className="text-xl font-semibold mb-4">Basic Information</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Task Name *
+              </label>
+              <input
+                type="text"
+                value={taskName}
+                onChange={(e) => setTaskName(e.target.value)}
+                required
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="docker-simple-tune"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Deployment Mode *
+              </label>
+              <select
+                value={deploymentMode}
+                onChange={(e) => setDeploymentMode(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="docker">Docker</option>
+                <option value="ome">OME (Kubernetes)</option>
+              </select>
+            </div>
+
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Description
+              </label>
+              <textarea
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                rows={2}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="Describe the purpose of this autotuning task"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Runtime Configuration */}
+        <div className="bg-white shadow-sm rounded-lg p-6">
+          <h2 className="text-xl font-semibold mb-4">Runtime Configuration</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Base Runtime *
+              </label>
+              <select
+                value={baseRuntime}
+                onChange={(e) => setBaseRuntime(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="sglang">SGLang</option>
+                <option value="vllm">vLLM</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Runtime Image Tag
+              </label>
+              <input
+                type="text"
+                value={runtimeImageTag}
+                onChange={(e) => setRuntimeImageTag(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="v0.5.2-cu126 (optional)"
+              />
+              <p className="text-sm text-gray-500 mt-1">
+                Docker image tag for the runtime (Docker mode only)
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Model Configuration */}
+        <div className="bg-white shadow-sm rounded-lg p-6">
+          <h2 className="text-xl font-semibold mb-4">Model Configuration</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Model Name *
+              </label>
+              <input
+                type="text"
+                value={modelName}
+                onChange={(e) => setModelName(e.target.value)}
+                required
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="llama-3-2-1b-instruct"
+              />
+              <p className="text-sm text-gray-500 mt-1">
+                Model directory name (e.g., llama-3-2-1b-instruct)
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Model Namespace *
+              </label>
+              <input
+                type="text"
+                value={modelNamespace}
+                onChange={(e) => setModelNamespace(e.target.value)}
+                required
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="autotuner"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Parameters */}
+        <div className="bg-white shadow-sm rounded-lg p-6">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-xl font-semibold">Parameters to Tune</h2>
+            <button
+              type="button"
+              onClick={addParameter}
+              className="px-3 py-1 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm"
+            >
+              Add Parameter
+            </button>
+          </div>
+          <div className="space-y-3">
+            {parameters.map((param, index) => (
+              <div key={index} className="flex gap-3 items-start">
+                <div className="flex-1">
+                  <input
+                    type="text"
+                    value={param.name}
+                    onChange={(e) => updateParameter(index, 'name', e.target.value)}
+                    placeholder="Parameter name (e.g., tp-size)"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div className="flex-1">
+                  <input
+                    type="text"
+                    value={param.values}
+                    onChange={(e) => updateParameter(index, 'values', e.target.value)}
+                    placeholder="Values (e.g., 1, 2, 4)"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => removeParameter(index)}
+                  className="px-3 py-2 bg-red-600 text-white rounded-md hover:bg-red-700"
+                  disabled={parameters.length === 1}
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+          </div>
+          <p className="text-sm text-gray-500 mt-2">
+            Enter parameter values as comma-separated numbers (e.g., 0.7, 0.8, 0.9)
+          </p>
+        </div>
+
+        {/* Optimization Settings */}
+        <div className="bg-white shadow-sm rounded-lg p-6">
+          <h2 className="text-xl font-semibold mb-4">Optimization Settings</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Strategy
+              </label>
+              <select
+                value={strategy}
+                onChange={(e) => setStrategy(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="grid_search">Grid Search</option>
+                <option value="random_search">Random Search</option>
+                <option value="bayesian">Bayesian Optimization</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Objective
+              </label>
+              <select
+                value={objective}
+                onChange={(e) => setObjective(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="minimize_latency">Minimize Latency</option>
+                <option value="maximize_throughput">Maximize Throughput</option>
+                <option value="balanced">Balanced</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Max Iterations
+              </label>
+              <input
+                type="number"
+                value={maxIterations}
+                onChange={(e) => setMaxIterations(parseInt(e.target.value))}
+                min="1"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Timeout Per Iteration (seconds)
+              </label>
+              <input
+                type="number"
+                value={timeoutPerIteration}
+                onChange={(e) => setTimeoutPerIteration(parseInt(e.target.value))}
+                min="1"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Benchmark Configuration */}
+        <div className="bg-white shadow-sm rounded-lg p-6">
+          <h2 className="text-xl font-semibold mb-4">Benchmark Configuration</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Benchmark Task
+              </label>
+              <input
+                type="text"
+                value={benchmarkTask}
+                onChange={(e) => setBenchmarkTask(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="text-to-text"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Model Name (Display)
+              </label>
+              <input
+                type="text"
+                value={modelName}
+                disabled
+                className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50 text-gray-500 cursor-not-allowed"
+                placeholder="Auto-filled from Model Configuration"
+              />
+              <p className="text-sm text-gray-500 mt-1">
+                Automatically uses the model name from Model Configuration above
+              </p>
+            </div>
+
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Model Tokenizer (HuggingFace ID) *
+              </label>
+              <input
+                type="text"
+                value={modelTokenizer}
+                onChange={(e) => setModelTokenizer(e.target.value)}
+                required
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="meta-llama/Llama-3.2-1B-Instruct"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Traffic Scenarios
+              </label>
+              <input
+                type="text"
+                value={trafficScenarios}
+                onChange={(e) => setTrafficScenarios(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="D(100,100)"
+              />
+              <p className="text-sm text-gray-500 mt-1">
+                Comma-separated list (e.g., D(100,100), D(200,200))
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Concurrency Levels
+              </label>
+              <input
+                type="text"
+                value={numConcurrency}
+                onChange={(e) => setNumConcurrency(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="1, 4, 8"
+              />
+              <p className="text-sm text-gray-500 mt-1">
+                Comma-separated numbers
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Max Time Per Iteration (seconds)
+              </label>
+              <input
+                type="number"
+                value={maxTimePerIteration}
+                onChange={(e) => setMaxTimePerIteration(parseInt(e.target.value))}
+                min="1"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Max Requests Per Iteration
+              </label>
+              <input
+                type="number"
+                value={maxRequestsPerIteration}
+                onChange={(e) => setMaxRequestsPerIteration(parseInt(e.target.value))}
+                min="1"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Temperature
+              </label>
+              <input
+                type="text"
+                value={temperature}
+                onChange={(e) => setTemperature(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="0.0"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Action Buttons */}
+        <div className="flex gap-4 justify-end">
+          <button
+            type="button"
+            onClick={() => navigateTo('tasks')}
+            className="px-6 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={createTaskMutation.isPending}
+            className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-blue-400"
+          >
+            {createTaskMutation.isPending ? 'Creating...' : 'Create Task'}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}

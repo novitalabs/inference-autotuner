@@ -2,14 +2,16 @@ import { useState } from "react";
 import Dashboard from "@/pages/Dashboard";
 import Tasks from "@/pages/Tasks";
 import Experiments from "@/pages/Experiments";
+import NewTask from "@/pages/NewTask";
 
-type TabId = "dashboard" | "tasks" | "experiments";
+type TabId = "dashboard" | "tasks" | "experiments" | "new-task";
 
 interface MenuItem {
 	id: TabId;
 	name: string;
 	component: React.ComponentType;
 	icon: React.ReactNode;
+	hideInMenu?: boolean;
 }
 
 interface MenuSection {
@@ -70,6 +72,13 @@ const menuSections: MenuSection[] = [
 						/>
 					</svg>
 				)
+			},
+			{
+				id: "new-task",
+				name: "New Task",
+				component: NewTask,
+				hideInMenu: true,
+				icon: null as any
 			}
 		]
 	}
@@ -78,9 +87,15 @@ const menuSections: MenuSection[] = [
 // Flatten menu items for lookup
 const allMenuItems = menuSections.flatMap((section) => section.items);
 
+// Simple navigation context to share state
+export let navigateTo: (tabId: TabId) => void = () => {};
+
 export default function Layout() {
 	const [activeTab, setActiveTab] = useState<TabId>("dashboard");
 	const [sidebarOpen, setSidebarOpen] = useState(false);
+
+	// Expose navigation function
+	navigateTo = (tabId: TabId) => setActiveTab(tabId);
 
 	const ActiveComponent =
 		allMenuItems.find((item) => item.id === activeTab)?.component || Dashboard;
@@ -145,7 +160,7 @@ export default function Layout() {
 
 							{/* Section Items */}
 							<div className="space-y-1">
-								{section.items.map((item) => (
+								{section.items.filter(item => !item.hideInMenu).map((item) => (
 									<button
 										key={item.id}
 										onClick={() => {

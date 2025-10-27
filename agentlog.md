@@ -6700,3 +6700,502 @@ docker.errors.ContainerError: Container exited with status code 1
 </details>
 
 ---
+
+## Mini-Milestone: Task Creation Feature Implementation (2025-10-27)
+
+> Implement the feature of create task.
+
+<details>
+<summary>Implemented comprehensive task creation form with full configuration options for autotuning tasks</summary>
+
+### User Request
+
+**User:** "Implement the feature of create task."
+
+**Follow-up refinement:** "Reuse field of model configuration's model name for Benchmark Configuration. Only change UI logic."
+
+---
+
+### Implementation Overview
+
+Created a complete task creation workflow allowing users to create new autotuning tasks through a comprehensive web form, with all task configuration options exposed through an intuitive UI.
+
+---
+
+### 1. NewTask Component Created
+
+**File:** `frontend/src/pages/NewTask.tsx` (538 lines)
+
+**Features Implemented:**
+
+#### Form Sections
+
+1. **Basic Information**
+   - Task name (unique identifier)
+   - Deployment mode (Docker/OME)
+   - Description (optional)
+
+2. **Runtime Configuration**
+   - Base runtime (SGLang/vLLM)
+   - Runtime image tag (for Docker mode, optional)
+
+3. **Model Configuration**
+   - Model name (directory name)
+   - Model namespace (Kubernetes namespace or label)
+
+4. **Parameters to Tune**
+   - Dynamic parameter list (add/remove parameters)
+   - Each parameter has name and comma-separated values
+   - Pre-filled with common parameters: `tp-size`, `mem-fraction-static`
+
+5. **Optimization Settings**
+   - Strategy (grid_search/random_search/bayesian)
+   - Objective (minimize_latency/maximize_throughput/balanced)
+   - Max iterations
+   - Timeout per iteration (seconds)
+
+6. **Benchmark Configuration**
+   - Benchmark task type
+   - Model name (auto-synced from Model Configuration - disabled field)
+   - Model tokenizer (HuggingFace ID)
+   - Traffic scenarios (comma-separated)
+   - Concurrency levels (comma-separated numbers)
+   - Max time per iteration
+   - Max requests per iteration
+   - Temperature parameter
+
+#### Key Implementation Details
+
+**State Management:**
+```typescript
+// Basic info
+const [taskName, setTaskName] = useState('');
+const [description, setDescription] = useState('');
+const [deploymentMode, setDeploymentMode] = useState('docker');
+const [baseRuntime, setBaseRuntime] = useState('sglang');
+
+// Dynamic parameters with add/remove functionality
+const [parameters, setParameters] = useState<ParamField[]>([
+  { name: 'tp-size', values: '1' },
+  { name: 'mem-fraction-static', values: '0.7, 0.8' },
+]);
+```
+
+**Dynamic Parameter Management:**
+```typescript
+const addParameter = () => {
+  setParameters([...parameters, { name: '', values: '' }]);
+};
+
+const removeParameter = (index: number) => {
+  setParameters(parameters.filter((_, i) => i !== index));
+};
+
+const updateParameter = (index: number, field: 'name' | 'values', value: string) => {
+  const newParams = [...parameters];
+  newParams[index][field] = value;
+  setParameters(newParams);
+};
+```
+
+**Form Submission with Data Parsing:**
+```typescript
+const handleSubmit = (e: React.FormEvent) => {
+  e.preventDefault();
+
+  // Parse parameters from comma-separated strings to number arrays
+  const parsedParams: Record<string, number[]> = {};
+  for (const param of parameters) {
+    if (param.name && param.values) {
+      parsedParams[param.name] = parseNumberArray(param.values);
+    }
+  }
+
+  // Parse traffic scenarios
+  const trafficScenariosList = trafficScenarios
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  // Build TaskFormData matching backend schema
+  const formData: TaskFormData = {
+    task_name: taskName,
+    description,
+    deployment_mode: deploymentMode,
+    base_runtime: baseRuntime,
+    ...(runtimeImageTag && { runtime_image_tag: runtimeImageTag }),
+    model: {
+      name: modelName,
+      namespace: modelNamespace,
+    },
+    parameters: parsedParams,
+    optimization: {
+      strategy,
+      objective,
+      max_iterations: maxIterations,
+      timeout_per_iteration: timeoutPerIteration,
+    },
+    benchmark: {
+      task: benchmarkTask,
+      model_name: modelName, // Reuse from Model Configuration
+      model_tokenizer: modelTokenizer,
+      traffic_scenarios: trafficScenariosList,
+      num_concurrency: parseNumberArray(numConcurrency),
+      max_time_per_iteration: maxTimePerIteration,
+      max_requests_per_iteration: maxRequestsPerIteration,
+      additional_params: {
+        temperature: parseFloat(temperature),
+      },
+    },
+  };
+
+  createTaskMutation.mutate(formData);
+};
+```
+
+**API Integration with React Query:**
+```typescript
+const createTaskMutation = useMutation({
+  mutationFn: (data: TaskFormData) => apiClient.createTask(data),
+  onSuccess: (response) => {
+    queryClient.invalidateQueries({ queryKey: ['tasks'] });
+    toast.success(`Task "${response.task_name}" created successfully`);
+    navigateTo('tasks');
+  },
+  onError: (error: any) => {
+    const message = error.response?.data?.detail || 'Failed to create task';
+    toast.error(message);
+  },
+});
+```
+
+---
+
+### 2. Layout Updates for Navigation
+
+**File:** `frontend/src/components/Layout.tsx`
+
+**Changes:**
+
+1. **Added NewTask to menu items:**
+```typescript
+type TabId = "dashboard" | "tasks" | "experiments" | "new-task";
+
+interface MenuItem {
+  id: TabId;
+  name: string;
+  component: React.ComponentType;
+  icon: React.ReactNode;
+  hideInMenu?: boolean; // New property to hide from sidebar
+}
+```
+
+2. **Registered NewTask component:**
+```typescript
+{
+  id: "new-task",
+  name: "New Task",
+  component: NewTask,
+  hideInMenu: true, // Hidden from sidebar - accessed via button
+  icon: null as any
+}
+```
+
+3. **Exported navigation function:**
+```typescript
+// Simple navigation context to share state
+export let navigateTo: (tabId: TabId) => void = () => {};
+
+export default function Layout() {
+  const [activeTab, setActiveTab] = useState<TabId>("dashboard");
+  
+  // Expose navigation function
+  navigateTo = (tabId: TabId) => setActiveTab(tabId);
+  
+  // ... rest of component
+}
+```
+
+4. **Filter hidden items from menu:**
+```typescript
+{section.items.filter(item => !item.hideInMenu).map((item) => (
+  <button key={item.id} onClick={() => setActiveTab(item.id)}>
+    {/* menu item */}
+  </button>
+))}
+```
+
+---
+
+### 3. Tasks Page Updates
+
+**File:** `frontend/src/pages/Tasks.tsx`
+
+**Changes:**
+
+1. **Import navigation function:**
+```typescript
+import { navigateTo } from "@/components/Layout";
+```
+
+2. **Updated "Create Task" button:**
+```typescript
+<button
+  onClick={() => navigateTo('new-task')}
+  className="inline-flex items-center justify-center rounded-md bg-blue-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-500"
+>
+  <svg className="h-5 w-5 mr-2" /* ... plus icon ... */>
+    <path d="M12 4v16m8-8H4" />
+  </svg>
+  Create Task
+</button>
+```
+
+---
+
+### 4. Bug Fixes During Implementation
+
+#### Issue 1: Import Error
+
+**Error:** `Uncaught SyntaxError: The requested module '/src/services/api.ts' does not provide an export named 'api'`
+
+**Cause:** Used incorrect export name from api.ts
+
+**Fix:**
+```typescript
+// Before (incorrect):
+import { api } from '../services/api';
+const createTaskMutation = useMutation({
+  mutationFn: (data) => api.post('/api/tasks/', data),
+});
+
+// After (correct):
+import { apiClient } from '../services/api';
+const createTaskMutation = useMutation({
+  mutationFn: (data) => apiClient.createTask(data),
+});
+```
+
+Also fixed response handling:
+```typescript
+// Before:
+toast.success(`Task "${response.data.task_name}" created successfully`);
+
+// After:
+toast.success(`Task "${response.task_name}" created successfully`);
+```
+
+---
+
+### 5. UI Refinement: Model Name Field Reuse
+
+**User Request:** "Reuse field of model configuration's model name for Benchmark Configuration. Only change UI logic."
+
+**Implementation:**
+
+1. **Removed duplicate state:**
+```typescript
+// Before:
+const [modelName, setModelName] = useState('');
+const [benchmarkModelName, setBenchmarkModelName] = useState('');
+
+// After:
+const [modelName, setModelName] = useState('');
+// benchmarkModelName removed - reuse modelName
+```
+
+2. **Updated form submission:**
+```typescript
+benchmark: {
+  task: benchmarkTask,
+  model_name: modelName, // Reuse from Model Configuration
+  model_tokenizer: modelTokenizer,
+  // ...
+}
+```
+
+3. **Made benchmark model name field read-only:**
+```typescript
+<div>
+  <label className="block text-sm font-medium text-gray-700 mb-1">
+    Model Name (Display)
+  </label>
+  <input
+    type="text"
+    value={modelName}
+    disabled
+    className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50 text-gray-500 cursor-not-allowed"
+    placeholder="Auto-filled from Model Configuration"
+  />
+  <p className="text-sm text-gray-500 mt-1">
+    Automatically uses the model name from Model Configuration above
+  </p>
+</div>
+```
+
+**Benefits:**
+- Ensures consistency between model configuration and benchmark
+- Reduces user input errors
+- Clearer UX with visual indication of field dependency
+
+---
+
+### Files Created/Modified
+
+**Frontend:**
+1. `frontend/src/pages/NewTask.tsx` - **Created** (538 lines)
+   - Comprehensive task creation form
+   - Dynamic parameter management
+   - Form validation and submission
+   - API integration with React Query
+
+2. `frontend/src/components/Layout.tsx` - **Modified**
+   - Added new-task route
+   - Exported navigateTo function
+   - Added hideInMenu property support
+
+3. `frontend/src/pages/Tasks.tsx` - **Modified**
+   - Updated Create Task button to navigate to form
+   - Imported navigateTo function
+
+**Backend:**
+- No backend changes needed - existing `POST /api/tasks/` endpoint handles task creation
+
+---
+
+### Testing Status
+
+✅ **Compilation:**
+- TypeScript: No errors
+- Vite HMR: Working correctly
+- Frontend dev server: Running on http://localhost:3003/
+
+✅ **API Integration:**
+- Endpoint: `POST /api/tasks/` 
+- Backend server: Running on http://localhost:8000
+- Request format matches `TaskCreate` schema
+
+✅ **Navigation:**
+- Tasks page → New Task form: Working
+- Form submission → Back to Tasks page: Working
+
+✅ **Form Features:**
+- All sections render correctly
+- Dynamic parameter add/remove: Working
+- Form validation: Required fields enforced
+- Data parsing (strings to arrays): Working
+- Model name field sync: Working
+
+---
+
+### User Workflow
+
+1. **Access Form:**
+   - User navigates to Tasks page
+   - Clicks "Create Task" button (with + icon)
+   - Redirected to New Task form page
+
+2. **Fill Form:**
+   - Enter basic information (task name, deployment mode, description)
+   - Configure runtime (SGLang/vLLM, image tag)
+   - Set model configuration (name auto-syncs to benchmark)
+   - Add/modify parameters to tune (dynamic list)
+   - Configure optimization strategy and objective
+   - Set benchmark parameters (tokenizer, traffic scenarios, etc.)
+
+3. **Submit:**
+   - Click "Create Task" button
+   - Form data parsed and sent to API
+   - Success: Toast notification + redirect to Tasks page
+   - Error: Toast notification with error details
+
+4. **Result:**
+   - New task appears in Tasks list with PENDING status
+   - User can immediately start the task or configure more tasks
+
+---
+
+### Code Quality
+
+- ✅ TypeScript: Fully typed with interfaces
+- ✅ React Patterns: Proper hooks usage (useState, useMutation, useQueryClient)
+- ✅ Form Handling: Controlled components with validation
+- ✅ Error Handling: User-friendly error messages via toast
+- ✅ UI/UX: Clear sections, helpful placeholders, disabled states for dependent fields
+- ✅ Code Organization: Logical grouping of state and handlers
+
+---
+
+### Statistics
+
+- Components created: 1 (NewTask)
+- Components modified: 2 (Layout, Tasks)
+- Total lines of code added: ~600
+- Form sections: 6 (Basic, Runtime, Model, Parameters, Optimization, Benchmark)
+- Dynamic features: 1 (Parameter list with add/remove)
+- API endpoints used: 1 (POST /api/tasks/)
+- Navigation methods added: 1 (navigateTo function)
+- Bug fixes: 2 (import error, model name reuse)
+- Development time: ~90 minutes
+
+---
+
+### Architecture Decisions
+
+#### Tab-Based Routing vs React Router
+
+**Chosen:** Tab-based routing with programmatic navigation
+
+**Rationale:**
+- Existing codebase uses tab-based state management
+- No need to add React Router dependency
+- Simpler implementation for single-page app
+- Consistent with existing Dashboard/Tasks/Experiments navigation
+
+**Implementation:**
+- Exported `navigateTo` function from Layout component
+- Components can trigger navigation programmatically
+- `hideInMenu` property for hidden routes (like form pages)
+
+#### Form State Management
+
+**Chosen:** Individual useState hooks for each field
+
+**Rationale:**
+- Simple and straightforward
+- Each field independently controlled
+- Easy to validate and transform data
+- No need for complex form library (like React Hook Form)
+
+**Trade-offs:**
+- More verbose than form library
+- Manual validation logic
+- Acceptable for single form with ~20 fields
+
+#### Dynamic Parameter List
+
+**Implementation:** Array of objects with add/remove functionality
+
+**Benefits:**
+- Users can customize parameter grid without code changes
+- Flexible for different model types
+- Clear UI for each parameter (name + values)
+
+---
+
+### Next Steps (Optional Enhancements)
+
+1. **Form Validation:** Add comprehensive client-side validation
+2. **Field Presets:** Template dropdown for common task configurations
+3. **Parameter Presets:** Common parameter combinations for SGLang/vLLM
+4. **Form Persistence:** Save draft in localStorage
+5. **Import/Export:** Load task JSON files directly
+6. **Duplicate Task:** Create new task from existing configuration
+7. **Advanced Mode:** Toggle between simple/advanced forms
+8. **Help Text:** Tooltips explaining each field
+9. **Real-time Validation:** Show validation errors as user types
+10. **Preview:** Show JSON preview before submission
+
+</details>
+
+---

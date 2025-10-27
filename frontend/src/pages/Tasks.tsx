@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "@/services/api";
 import type { Task } from "@/types/api";
 import LogViewer from "@/components/LogViewer";
+import { navigateTo } from "@/components/Layout";
 
 export default function Tasks() {
 	const queryClient = useQueryClient();
@@ -97,7 +98,7 @@ export default function Tasks() {
 				</div>
 				<div className="mt-4 sm:mt-0 sm:ml-16 sm:flex-none">
 					<button
-						onClick={() => setShowCreateForm(true)}
+						onClick={() => navigateTo('new-task')}
 						className="inline-flex items-center justify-center rounded-md bg-blue-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
 					>
 						<svg

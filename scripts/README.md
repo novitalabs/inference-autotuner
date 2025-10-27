@@ -43,7 +43,7 @@ The Inference Autotuner uses **ARQ (Async Redis Queue)** for background job proc
 
 ```
 ┌──────────────┐    Enqueue Job    ┌───────────┐
-│  Web Server  │ ───────────────> │   Redis   │
+│  Web Server  │ ────────────────> │   Redis   │
 │  (FastAPI)   │                   │   Queue   │
 └──────────────┘                   └─────┬─────┘
                                          │
