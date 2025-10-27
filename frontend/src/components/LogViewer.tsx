@@ -10,13 +10,14 @@ interface LogViewerProps {
 
 export default function LogViewer({ taskId, taskName, onClose }: LogViewerProps) {
 	const [autoScroll, setAutoScroll] = useState(true);
-	const [isStreaming, setIsStreaming] = useState(false);
+	const [isStreaming, setIsStreaming] = useState(false); // Will be set to true after initial load
 	const [streamLogs, setStreamLogs] = useState<string[]>([]);
+	const [initialLoadDone, setInitialLoadDone] = useState(false);
 	const logContainerRef = useRef<HTMLDivElement>(null);
 	const eventSourceRef = useRef<EventSource | null>(null);
 	const queryClient = useQueryClient();
 
-	// Fetch static logs
+	// Fetch static logs (initially enabled to load existing logs)
 	const {
 		data: logData,
 		isLoading,
@@ -54,8 +55,12 @@ export default function LogViewer({ taskId, taskName, onClose }: LogViewerProps)
 			}
 			setIsStreaming(false);
 		} else {
-			// Start streaming
-			setStreamLogs([]);
+			// Start streaming - preserve existing logs if any
+			if (logData?.logs && streamLogs.length === 0) {
+				// If we have static logs but empty streamLogs, initialize from static logs
+				const existingLogs = logData.logs.split('\n').filter(Boolean);
+				setStreamLogs(existingLogs);
+			}
 			setIsStreaming(true);
 
 			const apiUrl = import.meta.env.VITE_API_URL || "/api";
@@ -84,6 +89,35 @@ export default function LogViewer({ taskId, taskName, onClose }: LogViewerProps)
 			}
 		};
 	}, []);
+
+	// Auto-start streaming on mount after initial logs are loaded
+	useEffect(() => {
+		if (!initialLoadDone && logData && !isLoading) {
+			// Initialize streamLogs with existing logs
+			const existingLogs = logData.logs ? logData.logs.split('\n').filter(Boolean) : [];
+			setStreamLogs(existingLogs);
+			setInitialLoadDone(true);
+
+			// Start streaming
+			setIsStreaming(true);
+
+			const apiUrl = import.meta.env.VITE_API_URL || "/api";
+			const eventSource = new EventSource(`${apiUrl}/tasks/${taskId}/logs?follow=true`);
+
+			eventSource.onmessage = (event) => {
+				const logLine = event.data;
+				setStreamLogs((prev) => [...prev, logLine]);
+			};
+
+			eventSource.onerror = (error) => {
+				console.error("EventSource error:", error);
+				eventSource.close();
+				setIsStreaming(false);
+			};
+
+			eventSourceRef.current = eventSource;
+		}
+	}, [logData, isLoading, initialLoadDone, taskId]); // Dependencies to track initial load
 
 	const displayLogs = isStreaming
 		? streamLogs.join("\n")
