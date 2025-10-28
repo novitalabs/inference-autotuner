@@ -182,6 +182,13 @@ async def run_autotuning_task(ctx: Dict[str, Any], task_id: int) -> Dict[str, An
 					if result.get("metrics"):
 						logger.info(f"[Experiment {idx}] Metrics: {result['metrics']}")
 
+					# Save container logs if available (Docker mode)
+					if result.get("container_logs"):
+						logger.info(f"[Experiment {idx}] ========== Container Logs ==========")
+						for line in result["container_logs"].splitlines():
+							logger.info(f"[Experiment {idx}] {line}")
+						logger.info(f"[Experiment {idx}] ========== End Container Logs ==========")
+
 					# Update experiment with results
 					db_experiment.status = (
 						ExperimentStatus.SUCCESS if result["status"] == "success" else ExperimentStatus.FAILED

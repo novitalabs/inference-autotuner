@@ -10467,3 +10467,164 @@ The implementation demonstrates:
 </details>
 
 ---
+
+## Field Renaming, Container Log Preservation, and Log Clearing Improvements
+
+> Copy docker container's log into task log when container stop.
+
+<details>
+<summary>Model field renamed, container logs preserved, and log clearing behavior improved</summary>
+
+### Session Overview
+
+This session involved three main improvements to the autotuner system:
+1. Renaming the model configuration field from `name` to `id_or_path`
+2. Implementing Docker container log preservation
+3. Updating log clearing to preserve files instead of deleting them
+
+### 1. Model Field Renaming
+
+**Problem:** The field name `model.name` was ambiguous - it could be either a local path or a HuggingFace model ID.
+
+**Solution:** Renamed to `model.id_or_path` to clearly indicate dual purpose.
+
+**Changes:**
+- **Frontend** (`frontend/src/pages/NewTask.tsx`):
+  - Renamed state variable: `modelName` → `modelIdOrPath`
+  - Updated interface to use `model`, `optimization`, `benchmark` (matching backend schema)
+  - Implemented auto-fill: `benchmark.model_name` and `benchmark.model_tokenizer` now auto-populate from model config
+  
+- **Frontend Types** (`frontend/src/types/api.ts`):
+  - Updated `TaskCreate` interface to match backend schema exactly
+  - Changed from `model_config`, `optimization_config`, `benchmark_config` to `model`, `optimization`, `benchmark`
+
+- **Backend** (`src/orchestrator.py:82`):
+  - Updated: `model_name = task["model"]["id_or_path"]`
+
+- **Example Files** (`examples/*.json`):
+  - Updated all 4 example files using: `sed -i 's/"name":/"id_or_path":/g' examples/*.json`
+
+- **Documentation** (`CLAUDE.md`):
+  - Added explanation of `id_or_path` field usage
+  - Documented benchmark auto-fill behavior
+
+**Errors Fixed:**
+1. **React validation error**: Frontend was sending field names that didn't match backend Pydantic schema
+2. **KeyError**: Orchestrator still accessing old `task["model"]["name"]` field
+
+### 2. Docker Container Log Preservation
+
+**Problem:** Containers with `remove=True` were auto-removed by Docker immediately after stopping, making logs inaccessible. This caused "404 Not Found" errors when trying to retrieve logs.
+
+**Root Cause Analysis:**
+- Original implementation used `remove=True` in Docker container creation (line 183)
+- Docker automatically deleted containers as soon as they stopped
+- By cleanup time, container was gone → logs inaccessible
+
+**Solution:** Changed to manual container lifecycle management:
+1. Create containers with `remove=False`
+2. Retrieve logs before deletion
+3. Manually stop and remove containers after log retrieval
+
+**Changes:**
+- **DockerController** (`src/controllers/docker_controller.py`):
+  - Line 183: Changed `remove=True` to `remove=False`
+  - Lines 25-34: Updated `__init__` docstring
+  - Lines 319-363: Enhanced `delete_inference_service()` with separate stop/remove and better error handling
+  - Lines 371-398: Added `get_container_logs()` method (retrieves last 1000 lines)
+
+- **Orchestrator** (`src/orchestrator.py`):
+  - Line 99: Added `container_logs` field to experiment result
+  - Lines 209-213: Store retrieved logs in experiment result
+  - Lines 217-249: Updated `cleanup_experiment()` to:
+    - Retrieve logs before deletion (lines 232-236)
+    - Return logs to caller (line 249)
+
+- **ARQ Worker** (`src/web/workers/autotuner_worker.py`):
+  - Lines 185-190: Added log writing logic with clear delimiters
+  - Format: `========== Container Logs ==========`
+
+- **Documentation** (`CLAUDE.md:182-186`):
+  - Updated Container Lifecycle section
+
+**Flow:**
+```
+1. Container deployed with remove=False
+2. Experiment completes (success/failure)
+3. cleanup_experiment() called
+4. → Retrieve logs via get_container_logs()
+5. → Return logs in result dict
+6. Worker writes logs to task log file
+7. → Stop container
+8. → Remove container
+```
+
+**Benefits:**
+- No more 404 errors
+- Complete log history preserved
+- Clean formatting with delimiters
+- Better cleanup with separate stop/remove
+- Still removes containers, just at the right time
+
+### 3. Log Clearing Behavior Improvement
+
+**Problem:** Clicking "Clear Logs" deleted the log file completely (`log_file.unlink()`), which could cause issues if the task was running or restarted.
+
+**Solution:** Clear file content instead of deleting the file.
+
+**Changes:**
+- **Backend** (`src/web/routes/tasks.py:335-339`):
+  ```python
+  # Before:
+  if log_file.exists():
+      log_file.unlink()
+  
+  # After:
+  if log_file.exists():
+      with open(log_file, 'w') as f:
+          pass  # Empty write truncates the file
+  ```
+
+**Benefits:**
+- File remains at `~/.local/share/inference-autotuner/logs/task_{task_id}.log`
+- Content cleared (0 bytes)
+- No 404 errors on subsequent reads
+- Consistent behavior - file always exists once task starts
+- Next run appends to existing (now empty) file
+
+### Technical Details
+
+**Backend Schema (Pydantic):**
+- API expects: `model`, `optimization`, `benchmark`
+- Database stores as: `model_config`, `optimization_config`, `benchmark_config`
+- Pydantic aliases handle the conversion
+
+**Docker Container Logs:**
+- Retrieved before cleanup using `container.logs(tail=1000, stdout=True, stderr=True)`
+- UTF-8 decoded with error replacement
+- Written to task log with experiment ID prefix
+
+**File Operations:**
+- Opening file in 'w' mode automatically truncates (empties) it
+- File descriptor remains valid
+- Preserves file permissions and ownership
+
+### Testing Notes
+
+- ARQ worker restarted to pick up orchestrator changes
+- Backend server restarted for route changes
+- All background processes verified running
+- TypeScript type checks passed (0 errors)
+
+### Conclusion
+
+Successfully implemented three related improvements:
+1. **Clearer naming**: `id_or_path` better describes dual-purpose field
+2. **Log preservation**: Container logs now saved before cleanup
+3. **Better UX**: Log clearing preserves file structure
+
+The changes demonstrate good error handling, proper lifecycle management, and attention to edge cases (auto-removal timing, file existence, error scenarios).
+
+</details>
+
+---

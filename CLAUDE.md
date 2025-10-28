@@ -179,9 +179,10 @@ kubectl apply -f config/examples/
 
 **Port Management**: Auto-allocates ports 8000-8100 to avoid conflicts between experiments
 
-**Container Lifecycle**: Containers are automatically removed after they stop (equivalent to `docker run --rm`)
-- Provides automatic cleanup during experimentation
-- Logs not accessible after stop - use `--verbose` flag to capture output during run
+**Container Lifecycle**: Containers are manually removed after cleanup
+- Container logs are retrieved before removal and saved to task log file
+- Logs preserved at `~/.local/share/inference-autotuner/logs/task_{task_id}.log`
+- Containers are stopped and removed during cleanup phase
 - Check running containers: `docker ps`
 
 **Model Path**: Maps host path to `/model` inside container

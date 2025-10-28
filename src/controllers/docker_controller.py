@@ -29,7 +29,8 @@ class DockerController(BaseModelController):
 		    model_base_path: Base path where models are stored on the host
 
 		Note:
-		    Containers are automatically removed after they stop for automatic cleanup.
+		    Container logs are retrieved before deletion and saved to task log file.
+		    Containers are manually removed during cleanup phase.
 		"""
 		if docker is None:
 			raise ImportError("Docker SDK for Python is not installed. " "Install it with: pip install docker")
@@ -61,7 +62,7 @@ class DockerController(BaseModelController):
 		    task_name: Autotuning task name
 		    experiment_id: Unique experiment identifier
 		    namespace: Namespace identifier (used for container naming)
-		    model_name: Model name (used to find model path)
+		    model_name: Model name (HuggingFace model ID or local path)
 		    runtime_name: Runtime identifier (e.g., 'sglang', 'vllm')
 		    parameters: SGLang/runtime parameters (tp_size, mem_frac, etc.)
 		    image_tag: Optional Docker image tag (e.g., 'v0.5.2-cu126')
@@ -72,11 +73,36 @@ class DockerController(BaseModelController):
 		service_id = f"{namespace}-{task_name}-exp{experiment_id}"
 		container_name = service_id
 
-		# Determine model path
-		model_path = self.model_base_path / model_name
-		if not model_path.exists():
-			print(f"[Docker] Warning: Model path {model_path} does not exist on host")
-			print(f"[Docker] Container will attempt to use model path: {model_path}")
+		# Determine if model_name is a local path or HuggingFace model ID
+		# Local paths start with / or contain model_base_path
+		use_local_model = False
+		model_identifier = model_name
+		volumes = {}
+
+		if model_name.startswith("/") or "/" not in model_name:
+			# Could be a local path - check if it exists
+			if model_name.startswith("/"):
+				model_path = Path(model_name)
+			else:
+				model_path = self.model_base_path / model_name
+
+			if model_path.exists():
+				# Local model exists - use volume mount
+				use_local_model = True
+				model_identifier = "/model"
+				volumes = {str(model_path): {"bind": "/model", "mode": "ro"}}
+				print(f"[Docker] Using local model at {model_path}")
+			else:
+				# Local path doesn't exist - fail early
+				print(f"[Docker] ERROR: Local model path {model_path} does not exist")
+				print(f"[Docker] Either:")
+				print(f"[Docker]   1. Download the model to {model_path}")
+				print(f"[Docker]   2. Use a HuggingFace model ID (e.g., 'meta-llama/Llama-3.2-1B-Instruct')")
+				return None
+		else:
+			# Contains / - likely a HuggingFace model ID (e.g., meta-llama/Llama-3.2-1B)
+			print(f"[Docker] Using HuggingFace model ID: {model_name}")
+			print(f"[Docker] Model will be downloaded from HuggingFace Hub if not cached")
 
 		# Determine runtime image and command based on runtime_name
 		runtime_config = self._get_runtime_config(runtime_name, parameters, image_tag)
@@ -84,9 +110,8 @@ class DockerController(BaseModelController):
 			print(f"[Docker] Unsupported runtime: {runtime_name}")
 			return None
 
-		# Extract parameters
-		# Build command with arbitrary parameters
-		command_str = runtime_config["command"].format(model_path=f"/model")
+		# Build command with model identifier
+		command_str = runtime_config["command"].format(model_path=model_identifier)
 
 		# Add all parameters as command-line arguments
 		for param_name, param_value in parameters.items():
@@ -117,7 +142,10 @@ class DockerController(BaseModelController):
 
 			print(f"[Docker] Deploying container '{container_name}'")
 			print(f"[Docker] Image: {runtime_config['image']}")
-			print(f"[Docker] Model: {model_path}")
+			if use_local_model:
+				print(f"[Docker] Model: {model_path} (local)")
+			else:
+				print(f"[Docker] Model: {model_name} (HuggingFace Hub)")
 			print(f"[Docker] GPUs: {gpu_devices}")
 			print(f"[Docker] Parameters: {parameters}")
 
@@ -146,13 +174,14 @@ class DockerController(BaseModelController):
 				detach=True,
 				device_requests=[docker.types.DeviceRequest(device_ids=gpu_devices, capabilities=[["gpu"]])],
 				ports={"8080/tcp": host_port},
-				volumes={str(model_path): {"bind": "/model", "mode": "ro"}},
+				volumes=volumes,  # Use conditional volumes (empty for HuggingFace models)
 				environment={
-					"MODEL_PATH": "/model"
+					"MODEL_PATH": model_identifier,
+					"HF_HOME": "/root/.cache/huggingface"  # Cache directory for downloaded models
 					# Note: Don't set CUDA_VISIBLE_DEVICES as it conflicts with device_requests
 				},
 				shm_size="16g",  # Shared memory for multi-process inference
-				remove=True,  # Auto-remove container after stop for automatic cleanup
+				remove=False,  # Don't auto-remove - we need to retrieve logs first
 			)
 
 			# Store container reference
@@ -174,7 +203,7 @@ class DockerController(BaseModelController):
 			print(f"[Docker] Unexpected error: {e}")
 			return None
 
-	def wait_for_ready(self, service_id: str, namespace: str, timeout: int = 600, poll_interval: int = 10) -> bool:
+	def wait_for_ready(self, service_id: str, namespace: str, timeout: int = 600, poll_interval: int = 5) -> bool:
 		"""Wait for the Docker container service to become ready.
 
 		Args:
@@ -198,43 +227,93 @@ class DockerController(BaseModelController):
 		start_time = time.time()
 		print(f"[Docker] Waiting for service to be ready at {health_url}...")
 
+		# Track consecutive failures for crash-loop detection
+		consecutive_exits = 0
+		max_consecutive_exits = 3
+
 		while time.time() - start_time < timeout:
 			try:
 				# Check container status
 				container.reload()
-				if container.status != "running":
-					print(f"[Docker] Container status: {container.status}")
-					if container.status == "exited":
-						logs = container.logs(tail=50).decode("utf-8")
+
+				# Handle different container states
+				if container.status == "running":
+					# Container is running, try health check
+					consecutive_exits = 0  # Reset counter
+
+					try:
+						response = requests.get(health_url, timeout=5)
+						if response.status_code == 200:
+							print(f"[Docker] Service is ready! URL: http://localhost:{host_port}")
+							return True
+					except requests.RequestException:
+						# Health endpoint not ready yet, continue waiting
+						pass
+
+				elif container.status in ["exited", "dead"]:
+					# Container has stopped - this is a failure
+					consecutive_exits += 1
+					print(f"[Docker] Container status: {container.status} (attempt {consecutive_exits}/{max_consecutive_exits})")
+
+					# Get exit code for more information
+					exit_code = container.attrs.get('State', {}).get('ExitCode', 'unknown')
+					print(f"[Docker] Container exit code: {exit_code}")
+
+					# Print logs to help diagnose the issue
+					try:
+						logs = container.logs(tail=100).decode("utf-8")
 						print(f"[Docker] Container logs:\n{logs}")
+					except Exception as e:
+						print(f"[Docker] Could not retrieve container logs: {e}")
+
+					# If container exits multiple times quickly, it's crash-looping - fail immediately
+					if consecutive_exits >= max_consecutive_exits:
+						print(f"[Docker] Container is crash-looping, giving up")
 						return False
-					time.sleep(poll_interval)
-					continue
 
-				# Try health check
-				response = requests.get(health_url, timeout=5)
-				if response.status_code == 200:
-					print(f"[Docker] Service is ready! URL: http://localhost:{host_port}")
-					return True
+					# Container exited, likely due to error - fail immediately
+					print(f"[Docker] Container stopped unexpectedly, deployment failed")
+					return False
 
-			except requests.RequestException:
-				# Service not ready yet
-				pass
+				elif container.status in ["removing", "paused"]:
+					# Container is being removed or paused - this is a failure
+					print(f"[Docker] Container status: {container.status} - deployment failed")
+					return False
+
+				elif container.status in ["created", "restarting"]:
+					# Container is starting or restarting - keep waiting
+					print(f"[Docker] Container status: {container.status} - waiting for running state...")
+
+				else:
+					# Unknown status
+					print(f"[Docker] Container status: {container.status} (unknown state)")
+
+			except NotFound:
+				# Container has been auto-removed (because it exited with remove=True)
+				print(f"[Docker] Container was automatically removed after exiting")
+				print(f"[Docker] This typically means the container failed to start")
+				print(f"[Docker] Check that the model path exists and the runtime parameters are correct")
+				return False
 			except Exception as e:
 				print(f"[Docker] Error checking service status: {e}")
+				# If we can't check status, the container might be gone
+				return False
 
 			elapsed = int(time.time() - start_time)
 			print(f"[Docker] Waiting for service... ({elapsed}s)")
 			time.sleep(poll_interval)
 
-		print(f"[Docker] Timeout waiting for service '{service_id}' to be ready")
+		# Timeout reached
+		print(f"[Docker] Timeout waiting for service '{service_id}' to be ready after {timeout}s")
 
-		# Print container logs for debugging
+		# Print final container logs for debugging
 		try:
+			container.reload()
+			print(f"[Docker] Final container status: {container.status}")
 			logs = container.logs(tail=100).decode("utf-8")
 			print(f"[Docker] Container logs:\n{logs}")
 		except Exception as e:
-			print(f"[Docker] Could not retrieve container logs: {e}")
+			print(f"[Docker] Could not retrieve final container state: {e}")
 
 		return False
 
@@ -257,8 +336,18 @@ class DockerController(BaseModelController):
 			container = container_info["container"]
 
 			print(f"[Docker] Stopping and removing container '{service_id}'...")
-			container.stop(timeout=10)
-			container.remove()
+
+			# Stop the container first
+			try:
+				container.stop(timeout=10)
+			except Exception as e:
+				print(f"[Docker] Error stopping container (may already be stopped): {e}")
+
+			# Now remove the container
+			try:
+				container.remove(force=True)
+			except Exception as e:
+				print(f"[Docker] Error removing container: {e}")
 
 			# Release GPU tracking (if implemented)
 			del self.containers[service_id]
@@ -289,6 +378,35 @@ class DockerController(BaseModelController):
 
 		host_port = self.containers[service_id]["host_port"]
 		return f"http://localhost:{host_port}"
+
+	def get_container_logs(self, service_id: str, namespace: str, tail: int = 1000) -> Optional[str]:
+		"""Get logs from a Docker container.
+
+		Args:
+		    service_id: Service identifier
+		    namespace: Namespace identifier
+		    tail: Number of lines to retrieve (default: 1000, 0 for all)
+
+		Returns:
+		    Container logs as string, None if container not found
+		"""
+		if service_id not in self.containers:
+			print(f"[Docker] Service '{service_id}' not found, cannot retrieve logs")
+			return None
+
+		try:
+			container = self.containers[service_id]["container"]
+
+			# Get logs (both stdout and stderr)
+			if tail > 0:
+				logs = container.logs(tail=tail, stdout=True, stderr=True).decode("utf-8", errors="replace")
+			else:
+				logs = container.logs(stdout=True, stderr=True).decode("utf-8", errors="replace")
+
+			return logs
+		except Exception as e:
+			print(f"[Docker] Error retrieving logs for '{service_id}': {e}")
+			return None
 
 	def _get_runtime_config(
 		self, runtime_name: str, parameters: Dict[str, Any], image_tag: Optional[str] = None

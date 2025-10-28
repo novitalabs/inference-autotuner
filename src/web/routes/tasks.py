@@ -321,17 +321,19 @@ async def get_task_logs(
 
 @router.delete("/{task_id}/logs", status_code=status.HTTP_204_NO_CONTENT)
 async def clear_task_logs(task_id: int, db: AsyncSession = Depends(get_db)):
-	"""Clear task logs."""
+	"""Clear task logs (empty the file content, but keep the file)."""
 	# Verify task exists
 	result = await db.execute(select(Task).where(Task.id == task_id))
 	task = result.scalar_one_or_none()
-	
+
 	if not task:
 		raise HTTPException(
 			status_code=status.HTTP_404_NOT_FOUND,
 			detail=f"Task {task_id} not found"
 		)
-	
+
 	log_file = get_task_log_file(task_id)
 	if log_file.exists():
-		log_file.unlink()
+		# Clear file content by opening in write mode with truncation
+		with open(log_file, 'w') as f:
+			pass  # Empty write truncates the file

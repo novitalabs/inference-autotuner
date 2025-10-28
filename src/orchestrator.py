@@ -96,6 +96,7 @@ class AutotunerOrchestrator:
 			"parameters": parameters,
 			"status": "failed",
 			"metrics": None,
+			"container_logs": None,  # Will store container logs for Docker mode
 		}
 
 		# Step 1: Deploy InferenceService
@@ -205,11 +206,15 @@ class AutotunerOrchestrator:
 
 		# Cleanup
 		print(f"\n[Cleanup] Removing experiment resources...")
-		self.cleanup_experiment(isvc_name, benchmark_name, namespace)
+		container_logs = self.cleanup_experiment(isvc_name, benchmark_name, namespace, experiment_id)
+
+		# Store container logs in result if available
+		if container_logs:
+			experiment_result["container_logs"] = container_logs
 
 		return experiment_result
 
-	def cleanup_experiment(self, isvc_name: str, benchmark_name: str, namespace: str, experiment_id: int = None):
+	def cleanup_experiment(self, isvc_name: str, benchmark_name: str, namespace: str, experiment_id: int = None) -> str:
 		"""Clean up experiment resources.
 
 		Args:
@@ -217,7 +222,20 @@ class AutotunerOrchestrator:
 		    benchmark_name: BenchmarkJob name (can be None)
 		    namespace: K8s namespace
 		    experiment_id: Experiment ID (for direct benchmark cleanup)
+
+		Returns:
+		    Container logs if available (Docker mode only), None otherwise
 		"""
+		container_logs = None
+
+		# Retrieve container logs before deletion (Docker mode only)
+		if self.deployment_mode == "docker" and hasattr(self.model_controller, "get_container_logs"):
+			print(f"[Cleanup] Retrieving container logs before deletion...")
+			container_logs = self.model_controller.get_container_logs(isvc_name, namespace, tail=1000)
+			if container_logs:
+				print(f"[Cleanup] Retrieved {len(container_logs)} bytes of container logs")
+
+		# Continue with cleanup
 		if self.use_direct_benchmark and experiment_id:
 			self.benchmark_controller.cleanup_results(
 				task_name=isvc_name.rsplit("-exp", 1)[0], experiment_id=experiment_id
@@ -227,6 +245,8 @@ class AutotunerOrchestrator:
 
 		if isvc_name:
 			self.model_controller.delete_inference_service(isvc_name, namespace)
+
+		return container_logs
 
 	def run_task(self, task: Dict[str, Any]) -> Dict[str, Any]:
 		"""Run a complete autotuning task.
