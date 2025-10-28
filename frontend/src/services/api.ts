@@ -110,6 +110,15 @@ class ApiClient {
 		return data;
 	}
 
+	async updateTask(id: number, updates: { description?: string }): Promise<Task> {
+		const { data } = await this.client.patch(`/tasks/${id}`, updates);
+		return data;
+	}
+
+	async deleteTask(id: number): Promise<void> {
+		await this.client.delete(`/tasks/${id}`);
+	}
+
 	// Experiments
 	async getExperiments(): Promise<Experiment[]> {
 		const { data } = await this.client.get("/experiments/");

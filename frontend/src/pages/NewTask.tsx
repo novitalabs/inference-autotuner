@@ -1,8 +1,10 @@
-import { useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useState, useEffect } from 'react';
+import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import { apiClient } from '../services/api';
 import toast from 'react-hot-toast';
 import { navigateTo } from '../components/Layout';
+import { getEditingTaskId } from '../utils/editTaskStore';
+import type { Task } from '../types/api';
 
 interface TaskFormData {
   task_name: string;
@@ -10,18 +12,18 @@ interface TaskFormData {
   deployment_mode: string;
   base_runtime: string;
   runtime_image_tag?: string;
-  model: {
+  model_config: {
     name: string;
     namespace: string;
   };
   parameters: Record<string, number[]>;
-  optimization: {
+  optimization_config: {
     strategy: string;
     objective: string;
     max_iterations: number;
     timeout_per_iteration: number;
   };
-  benchmark: {
+  benchmark_config: {
     task: string;
     model_name: string;
     model_tokenizer: string;
@@ -40,6 +42,75 @@ interface ParamField {
 
 export default function NewTask() {
   const queryClient = useQueryClient();
+  // Edit mode support
+  const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
+  const [originalTask, setOriginalTask] = useState<Task | null>(null);
+
+  // Check for edit mode on mount
+  useEffect(() => {
+    const taskId = getEditingTaskId();
+    if (taskId) {
+      setEditingTaskId(taskId);
+    }
+  }, []);
+
+  // Fetch task if editing
+  const { data: taskToEdit } = useQuery({
+    queryKey: ['task', editingTaskId],
+    queryFn: () => editingTaskId ? apiClient.getTask(editingTaskId) : null,
+    enabled: editingTaskId !== null,
+  });
+
+  // Pre-populate form when task data is loaded
+  useEffect(() => {
+    if (taskToEdit) {
+      setOriginalTask(taskToEdit);
+      
+      // Basic info
+      setTaskName(taskToEdit.task_name);
+      setDescription(taskToEdit.description || '');
+      setDeploymentMode(taskToEdit.deployment_mode);
+      setBaseRuntime(taskToEdit.base_runtime);
+      setRuntimeImageTag(taskToEdit.runtime_image_tag || '');
+      
+      // Model config
+      setModelName(taskToEdit.model_config?.name || '');
+      setModelNamespace(taskToEdit.model_config?.namespace || 'autotuner');
+      
+      // Parameters - convert from API format to form format
+      const params: ParamField[] = [];
+      if (taskToEdit.parameters) {
+        for (const [key, value] of Object.entries(taskToEdit.parameters)) {
+          if (Array.isArray(value)) {
+            params.push({ name: key, values: value.join(', ') });
+          }
+        }
+      }
+      if (params.length > 0) {
+        setParameters(params);
+      }
+      
+      // Optimization
+      if (taskToEdit.optimization_config) {
+        setStrategy(taskToEdit.optimization_config.strategy || 'grid_search');
+        setObjective(taskToEdit.optimization_config.objective || 'minimize_latency');
+        setMaxIterations(taskToEdit.optimization_config.max_iterations || 2);
+        setTimeoutPerIteration(taskToEdit.optimization_config.timeout_per_iteration || 600);
+      }
+      
+      // Benchmark
+      if (taskToEdit.benchmark_config) {
+        setBenchmarkTask(taskToEdit.benchmark_config.task || 'text-to-text');
+        setModelTokenizer(taskToEdit.benchmark_config.model_tokenizer || '');
+        setTrafficScenarios(taskToEdit.benchmark_config.traffic_scenarios?.join(', ') || 'D(100,100)');
+        setNumConcurrency(taskToEdit.benchmark_config.num_concurrency?.join(', ') || '1, 4');
+        setMaxTimePerIteration(taskToEdit.benchmark_config.max_time_per_iteration || 10);
+        setMaxRequestsPerIteration(taskToEdit.benchmark_config.max_requests_per_iteration || 50);
+        setTemperature(taskToEdit.benchmark_config.additional_params?.temperature?.toString() || '0.0');
+      }
+    }
+  }, [taskToEdit]);
+
 
   // Basic info
   const [taskName, setTaskName] = useState('');
@@ -75,14 +146,24 @@ export default function NewTask() {
   const [temperature, setTemperature] = useState('0.0');
 
   const createTaskMutation = useMutation({
-    mutationFn: (data: TaskFormData) => apiClient.createTask(data),
+    mutationFn: async (data: TaskFormData) => {
+      // Create new task
+      const newTask = await apiClient.createTask(data);
+      
+      // If editing, delete old task after successful creation
+      if (originalTask) {
+        await apiClient.deleteTask(originalTask.id);
+      }
+      
+      return newTask;
+    },
     onSuccess: (response) => {
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
-      toast.success(`Task "${response.task_name}" created successfully`);
+      toast.success(`Task "${response.task_name}" ${originalTask ? 'updated' : 'created'} successfully`);
       navigateTo('tasks');
     },
     onError: (error: any) => {
-      const message = error.response?.data?.detail || 'Failed to create task';
+      const message = error.response?.data?.detail || `Failed to ${originalTask ? 'update' : 'create'} task`;
       toast.error(message);
     },
   });
@@ -131,18 +212,18 @@ export default function NewTask() {
       deployment_mode: deploymentMode,
       base_runtime: baseRuntime,
       ...(runtimeImageTag && { runtime_image_tag: runtimeImageTag }),
-      model: {
+      model_config: {
         name: modelName,
         namespace: modelNamespace,
       },
       parameters: parsedParams,
-      optimization: {
+      optimization_config: {
         strategy,
         objective,
         max_iterations: maxIterations,
         timeout_per_iteration: timeoutPerIteration,
       },
-      benchmark: {
+      benchmark_config: {
         task: benchmarkTask,
         model_name: modelName, // Reuse model name from Model Configuration
         model_tokenizer: modelTokenizer,
@@ -162,7 +243,7 @@ export default function NewTask() {
   return (
     <div className="max-w-4xl mx-auto">
       <div className="mb-6">
-        <h1 className="text-3xl font-bold text-gray-900">Create New Task</h1>
+        <h1 className="text-3xl font-bold text-gray-900">{originalTask ? "Edit Task" : "Create New Task"}</h1>
         <p className="mt-2 text-gray-600">Configure a new autotuning task</p>
       </div>
 
@@ -532,7 +613,7 @@ export default function NewTask() {
             disabled={createTaskMutation.isPending}
             className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-blue-400"
           >
-            {createTaskMutation.isPending ? 'Creating...' : 'Create Task'}
+            {createTaskMutation.isPending ? (originalTask ? 'Saving...' : 'Creating...') : (originalTask ? 'Save Changes' : 'Create Task')}
           </button>
         </div>
       </form>
