@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 
 from web.config import get_settings
 from web.db.session import init_db
-from web.routes import tasks, experiments, system
+from web.routes import tasks, experiments, system, docker
 
 
 @asynccontextmanager
@@ -45,6 +45,7 @@ app.add_middleware(
 app.include_router(tasks.router, prefix="/api/tasks", tags=["tasks"])
 app.include_router(experiments.router, prefix="/api/experiments", tags=["experiments"])
 app.include_router(system.router, prefix="/api/system", tags=["system"])
+app.include_router(docker.router, prefix="/api/docker", tags=["docker"])
 
 
 @app.get("/")

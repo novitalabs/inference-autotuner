@@ -1,6 +1,16 @@
 import axios, { AxiosInstance, AxiosError } from "axios";
 import toast from "react-hot-toast";
-import type { Task, TaskCreate, Experiment, HealthResponse, SystemInfoResponse } from "@/types/api";
+import type {
+	Task,
+	TaskCreate,
+	Experiment,
+	HealthResponse,
+	SystemInfoResponse,
+	ContainerInfo,
+	ContainerStats,
+	ContainerLogs,
+	DockerInfo
+} from "@/types/api";
 
 class ApiClient {
 	private client: AxiosInstance;
@@ -119,6 +129,66 @@ class ApiClient {
 
 	async clearTaskLogs(taskId: number): Promise<void> {
 		await this.client.delete(`/tasks/${taskId}/logs`);
+	}
+
+	// Docker
+	async getContainers(all: boolean = true): Promise<ContainerInfo[]> {
+		const { data } = await this.client.get("/docker/containers", {
+			params: { all }
+		});
+		return data;
+	}
+
+	async getContainer(containerId: string): Promise<ContainerInfo> {
+		const { data } = await this.client.get(`/docker/containers/${containerId}`);
+		return data;
+	}
+
+	async getContainerLogs(
+		containerId: string,
+		tail: number = 1000,
+		timestamps: boolean = false
+	): Promise<ContainerLogs> {
+		const { data } = await this.client.get(`/docker/containers/${containerId}/logs`, {
+			params: { tail, timestamps }
+		});
+		return data;
+	}
+
+	async getContainerStats(containerId: string): Promise<ContainerStats> {
+		const { data } = await this.client.get(`/docker/containers/${containerId}/stats`);
+		return data;
+	}
+
+	async startContainer(containerId: string): Promise<{ message: string }> {
+		const { data } = await this.client.post(`/docker/containers/${containerId}/start`);
+		return data;
+	}
+
+	async stopContainer(containerId: string, timeout: number = 10): Promise<{ message: string }> {
+		const { data } = await this.client.post(`/docker/containers/${containerId}/stop`, null, {
+			params: { timeout }
+		});
+		return data;
+	}
+
+	async restartContainer(containerId: string, timeout: number = 10): Promise<{ message: string }> {
+		const { data } = await this.client.post(`/docker/containers/${containerId}/restart`, null, {
+			params: { timeout }
+		});
+		return data;
+	}
+
+	async removeContainer(containerId: string, force: boolean = false): Promise<{ message: string }> {
+		const { data } = await this.client.delete(`/docker/containers/${containerId}`, {
+			params: { force }
+		});
+		return data;
+	}
+
+	async getDockerInfo(): Promise<DockerInfo> {
+		const { data } = await this.client.get("/docker/info");
+		return data;
 	}
 }
 

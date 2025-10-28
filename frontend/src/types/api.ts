@@ -79,3 +79,50 @@ export interface TaskCreate {
 	benchmark_config: Record<string, any>;
 	deployment_mode?: string;
 }
+
+// Docker Types
+export interface ContainerInfo {
+	id: string;
+	short_id: string;
+	name: string;
+	image: string;
+	status: string;
+	state: string;
+	created: string;
+	started_at: string | null;
+	finished_at: string | null;
+	ports: Record<string, string>;
+	labels: Record<string, string>;
+	command: string | null;
+}
+
+export interface ContainerStats {
+	cpu_percent: number;
+	memory_usage: string;
+	memory_limit: string;
+	memory_percent: number;
+	network_rx: string;
+	network_tx: string;
+	block_read: string;
+	block_write: string;
+}
+
+export interface ContainerLogs {
+	logs: string;
+	lines: number;
+}
+
+export interface DockerInfo {
+	version: string;
+	api_version: string;
+	containers: number;
+	containers_running: number;
+	containers_paused: number;
+	containers_stopped: number;
+	images: number;
+	driver: string;
+	memory_total: string;
+	cpus: number;
+	operating_system: string;
+	architecture: string;
+}
