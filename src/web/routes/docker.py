@@ -1,11 +1,13 @@
 """Docker container management API endpoints."""
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 from typing import List, Optional
 from pydantic import BaseModel
 from datetime import datetime
 import docker
 from docker.errors import NotFound, APIError
+import asyncio
 
 router = APIRouter(tags=["docker"])
 
@@ -67,6 +69,52 @@ def format_bytes(bytes_value: int) -> str:
             return f"{bytes_value:.2f} {unit}"
         bytes_value /= 1024.0
     return f"{bytes_value:.2f} PB"
+
+
+async def stream_container_logs(container_id: str, follow: bool = True):
+    """
+    Stream Docker container logs in real-time.
+
+    Args:
+        container_id: Container ID or name
+        follow: Whether to follow new log lines
+
+    Yields:
+        Server-Sent Events formatted log lines
+    """
+    client = None
+    try:
+        client = get_docker_client()
+        container = client.containers.get(container_id)
+
+        # Stream logs from Docker
+        log_stream = container.logs(
+            stream=True,
+            follow=follow,
+            timestamps=False,
+            tail=500  # Start with last 500 lines
+        )
+
+        for log_line in log_stream:
+            try:
+                # Decode and send each log line
+                line = log_line.decode("utf-8", errors="replace").rstrip()
+                if line:  # Only send non-empty lines
+                    yield f"data: {line}\n\n"
+                    await asyncio.sleep(0.01)  # Small delay to prevent overwhelming
+            except Exception as e:
+                yield f"data: Error decoding log line: {str(e)}\n\n"
+                break
+
+    except NotFound:
+        yield f"data: Container {container_id} not found\n\n"
+    except APIError as e:
+        yield f"data: Docker API error: {str(e)}\n\n"
+    except Exception as e:
+        yield f"data: Error streaming logs: {str(e)}\n\n"
+    finally:
+        if client:
+            client.close()
 
 
 def parse_container_info(container) -> ContainerInfo:
@@ -157,11 +205,12 @@ async def get_container(container_id: str):
         client.close()
 
 
-@router.get("/containers/{container_id}/logs", response_model=ContainerLogs)
+@router.get("/containers/{container_id}/logs")
 async def get_container_logs(
     container_id: str,
     tail: int = 1000,
     timestamps: bool = False,
+    follow: bool = False,
     since: Optional[str] = None,
 ):
     """
@@ -171,11 +220,25 @@ async def get_container_logs(
         container_id: Container ID or name.
         tail: Number of lines to return from the end. Default 1000.
         timestamps: Include timestamps in logs. Default False.
+        follow: If True, streams logs in real-time (Server-Sent Events). Default False.
         since: Show logs since timestamp (ISO 8601 format).
 
     Returns:
-        Container logs.
+        Container logs (static) or streaming response.
     """
+    # If follow mode, return streaming response (Server-Sent Events)
+    if follow:
+        return StreamingResponse(
+            stream_container_logs(container_id, follow=True),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no"  # Disable nginx buffering
+            }
+        )
+
+    # Otherwise return static logs
     client = get_docker_client()
 
     try:

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "@/services/api";
 import type { ContainerInfo } from "@/types/api";
@@ -10,6 +10,14 @@ export default function Containers() {
 	const [selectedContainer, setSelectedContainer] = useState<string | null>(null);
 	const [showLogs, setShowLogs] = useState(false);
 	const [showStats, setShowStats] = useState(false);
+
+	// Streaming log state
+	const [isStreaming, setIsStreaming] = useState(false);
+	const [streamLogs, setStreamLogs] = useState<string[]>([]);
+	const [initialLoadDone, setInitialLoadDone] = useState(false);
+	const eventSourceRef = useRef<EventSource | null>(null);
+	const logEndRef = useRef<HTMLDivElement | null>(null);
+	const [autoScroll, setAutoScroll] = useState(true);
 
 	// Fetch containers
 	const {
@@ -29,12 +37,15 @@ export default function Containers() {
 		refetchInterval: 10000
 	});
 
-	// Fetch container logs
-	const { data: logs } = useQuery({
+	// Fetch container logs (static mode)
+	const {
+		data: logs,
+		isLoading: logsLoading
+	} = useQuery({
 		queryKey: ["containerLogs", selectedContainer],
 		queryFn: () => apiClient.getContainerLogs(selectedContainer!, 500),
-		enabled: !!selectedContainer && showLogs,
-		refetchInterval: 2000
+		enabled: !!selectedContainer && showLogs && !isStreaming,
+		refetchInterval: isStreaming ? false : 2000
 	});
 
 	// Fetch container stats
@@ -120,13 +131,108 @@ export default function Containers() {
 		setSelectedContainer(container.id);
 		setShowLogs(true);
 		setShowStats(true);
+		// Reset streaming state for new container
+		setInitialLoadDone(false);
+		setIsStreaming(false);
+		setStreamLogs([]);
 	};
 
 	const handleCloseDetails = () => {
+		// Stop streaming if active
+		if (eventSourceRef.current) {
+			eventSourceRef.current.close();
+			eventSourceRef.current = null;
+		}
 		setSelectedContainer(null);
 		setShowLogs(false);
 		setShowStats(false);
+		setIsStreaming(false);
+		setStreamLogs([]);
+		setInitialLoadDone(false);
 	};
+
+	const toggleStreaming = () => {
+		if (isStreaming) {
+			// Stop streaming
+			if (eventSourceRef.current) {
+				eventSourceRef.current.close();
+				eventSourceRef.current = null;
+			}
+			setIsStreaming(false);
+		} else {
+			// Start streaming - preserve existing logs if any
+			if (logs?.logs && streamLogs.length === 0) {
+				const existingLogs = logs.logs.split("\n").filter(Boolean);
+				setStreamLogs(existingLogs);
+			}
+			setIsStreaming(true);
+
+			const apiUrl = import.meta.env.VITE_API_URL || "/api";
+			const eventSource = new EventSource(
+				`${apiUrl}/docker/containers/${selectedContainer}/logs?follow=true`
+			);
+
+			eventSource.onmessage = (event) => {
+				const logLine = event.data;
+				setStreamLogs((prev) => [...prev, logLine]);
+			};
+
+			eventSource.onerror = (error) => {
+				console.error("EventSource error:", error);
+				eventSource.close();
+				setIsStreaming(false);
+			};
+
+			eventSourceRef.current = eventSource;
+		}
+	};
+
+	// Auto-start streaming after initial logs are loaded
+	useEffect(() => {
+		if (!initialLoadDone && logs && !logsLoading && selectedContainer && showLogs) {
+			// Initialize streamLogs with existing logs
+			const existingLogs = logs.logs ? logs.logs.split("\n").filter(Boolean) : [];
+			setStreamLogs(existingLogs);
+			setInitialLoadDone(true);
+
+			// Auto-start streaming
+			setIsStreaming(true);
+
+			const apiUrl = import.meta.env.VITE_API_URL || "/api";
+			const eventSource = new EventSource(
+				`${apiUrl}/docker/containers/${selectedContainer}/logs?follow=true`
+			);
+
+			eventSource.onmessage = (event) => {
+				const logLine = event.data;
+				setStreamLogs((prev) => [...prev, logLine]);
+			};
+
+			eventSource.onerror = (error) => {
+				console.error("EventSource error:", error);
+				eventSource.close();
+				setIsStreaming(false);
+			};
+
+			eventSourceRef.current = eventSource;
+		}
+	}, [logs, logsLoading, initialLoadDone, selectedContainer, showLogs]);
+
+	// Cleanup on unmount or container change
+	useEffect(() => {
+		return () => {
+			if (eventSourceRef.current) {
+				eventSourceRef.current.close();
+			}
+		};
+	}, []);
+
+	// Auto-scroll to bottom when new logs arrive
+	useEffect(() => {
+		if (autoScroll && logEndRef.current) {
+			logEndRef.current.scrollIntoView({ behavior: "smooth" });
+		}
+	}, [streamLogs, autoScroll]);
 
 	const handleAction = (containerId: string, action: string) => {
 		switch (action) {
@@ -381,15 +487,53 @@ export default function Containers() {
 							)}
 
 							{/* Logs */}
-							{showLogs && logs && (
+							{showLogs && (
 								<div>
 									<div className="flex items-center justify-between mb-2">
 										<h3 className="text-lg font-semibold text-gray-900">
-											Logs (last {logs.lines} lines)
+											Container Logs
+											{isStreaming && (
+												<span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
+													<span className="w-2 h-2 bg-green-500 rounded-full mr-1 animate-pulse"></span>
+													Live
+												</span>
+											)}
 										</h3>
+										<div className="flex items-center gap-2">
+											<label className="flex items-center text-sm text-gray-600">
+												<input
+													type="checkbox"
+													checked={autoScroll}
+													onChange={(e) => setAutoScroll(e.target.checked)}
+													className="mr-1 rounded"
+												/>
+												Auto-scroll
+											</label>
+											<button
+												onClick={toggleStreaming}
+												className={`px-3 py-1 text-sm rounded ${
+													isStreaming
+														? "bg-yellow-600 hover:bg-yellow-700 text-white"
+														: "bg-blue-600 hover:bg-blue-700 text-white"
+												}`}
+											>
+												{isStreaming ? "Stop Streaming" : "Start Streaming"}
+											</button>
+										</div>
 									</div>
 									<div className="bg-gray-900 text-gray-100 p-4 rounded font-mono text-xs overflow-auto max-h-96">
-										<pre className="whitespace-pre-wrap">{logs.logs || "No logs available"}</pre>
+										{logsLoading && !isStreaming ? (
+											<div className="text-gray-400">Loading logs...</div>
+										) : (
+											<>
+												<pre className="whitespace-pre-wrap">
+													{isStreaming
+														? streamLogs.join("\n") || "Waiting for logs..."
+														: logs?.logs || "No logs available"}
+												</pre>
+												<div ref={logEndRef} />
+											</>
+										)}
 									</div>
 								</div>
 							)}
