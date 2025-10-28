@@ -41,6 +41,14 @@ export default function Tasks() {
 		}
 	});
 
+	// Restart task mutation
+	const restartTaskMutation = useMutation({
+		mutationFn: (taskId: number) => apiClient.restartTask(taskId),
+		onSuccess: () => {
+			queryClient.invalidateQueries({ queryKey: ["tasks"] });
+		}
+	});
+
 	// Note: Create task mutation will be implemented when form is added
 	// const createTaskMutation = useMutation({
 	// 	mutationFn: (task: TaskCreate) => apiClient.createTask(task),
@@ -87,6 +95,10 @@ export default function Tasks() {
 
 	const canCancelTask = (task: Task) => {
 		return task.status === "running";
+	};
+
+	const canRestartTask = (task: Task) => {
+		return task.status === "completed" || task.status === "failed" || task.status === "cancelled";
 	};
 
 	return (
@@ -307,6 +319,29 @@ export default function Tasks() {
 														className="text-red-600 hover:text-red-900 disabled:opacity-50"
 													>
 														Cancel
+													</button>
+												)}
+												{canRestartTask(task) && (
+													<button
+														onClick={() => {
+															// Only confirm for completed tasks, not for failed/cancelled
+															if (task.status === "completed") {
+																if (
+																	confirm(
+																		`Are you sure you want to restart task "${task.task_name}"? This will reset the task to PENDING status and clear all previous results.`
+																	)
+																) {
+																	restartTaskMutation.mutate(task.id);
+																}
+															} else {
+																// Directly restart failed/cancelled tasks
+																restartTaskMutation.mutate(task.id);
+															}
+														}}
+														disabled={restartTaskMutation.isPending}
+														className="text-orange-600 hover:text-orange-900 disabled:opacity-50"
+													>
+														Restart
 													</button>
 												)}
 											</div>

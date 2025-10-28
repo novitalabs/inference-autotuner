@@ -6,7 +6,7 @@ import toast from "react-hot-toast";
 
 export default function Containers() {
 	const queryClient = useQueryClient();
-	const [showAll, setShowAll] = useState(true);
+	const [showAll, setShowAll] = useState(false);
 	const [selectedContainer, setSelectedContainer] = useState<string | null>(null);
 	const [showLogs, setShowLogs] = useState(false);
 	const [showStats, setShowStats] = useState(false);

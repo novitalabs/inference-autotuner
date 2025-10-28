@@ -181,6 +181,38 @@ async def cancel_task(task_id: int, db: AsyncSession = Depends(get_db)):
 	return task
 
 
+@router.post("/{task_id}/restart", response_model=TaskResponse)
+async def restart_task(task_id: int, db: AsyncSession = Depends(get_db)):
+	"""Restart a completed, failed, or cancelled task."""
+	result = await db.execute(select(Task).where(Task.id == task_id))
+	task = result.scalar_one_or_none()
+
+	if not task:
+		raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Task {task_id} not found")
+
+	# Only allow restart for completed, failed, or cancelled tasks
+	if task.status not in [TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED]:
+		raise HTTPException(
+			status_code=status.HTTP_400_BAD_REQUEST,
+			detail=f"Task must be completed, failed, or cancelled to restart. Current status: {task.status}"
+		)
+
+	# Reset task to PENDING status
+	task.status = TaskStatus.PENDING
+	from datetime import datetime
+	task.started_at = None
+	task.completed_at = None
+	task.elapsed_time = None
+	# Reset experiment counters
+	task.successful_experiments = 0
+	task.best_experiment_id = None
+
+	await db.commit()
+	await db.refresh(task)
+
+	return task
+
+
 def get_task_log_file(task_id: int) -> Path:
 	"""Get the log file path for a task."""
 	log_dir = Path.home() / ".local/share/inference-autotuner/logs"

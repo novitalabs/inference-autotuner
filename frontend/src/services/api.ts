@@ -105,6 +105,11 @@ class ApiClient {
 		return data;
 	}
 
+	async restartTask(id: number): Promise<Task> {
+		const { data} = await this.client.post(`/tasks/${id}/restart`);
+		return data;
+	}
+
 	// Experiments
 	async getExperiments(): Promise<Experiment[]> {
 		const { data } = await this.client.get("/experiments/");
