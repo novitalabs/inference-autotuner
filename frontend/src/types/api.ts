@@ -71,12 +71,12 @@ export interface SystemInfoResponse {
 export interface TaskCreate {
 	task_name: string;
 	description?: string;
-	model_config: Record<string, any>;
+	model: Record<string, any>;
 	base_runtime: string;
 	runtime_image_tag?: string;
 	parameters: Record<string, any>;
-	optimization_config: Record<string, any>;
-	benchmark_config: Record<string, any>;
+	optimization: Record<string, any>;
+	benchmark: Record<string, any>;
 	deployment_mode?: string;
 }
 

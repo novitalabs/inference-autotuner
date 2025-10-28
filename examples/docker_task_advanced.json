@@ -3,7 +3,7 @@
   "description": "Advanced Docker deployment with multiple SGLang parameters",
   "deployment_mode": "docker",
   "model": {
-    "name": "llama-3-2-1b-instruct",
+    "id_or_path": "llama-3-2-1b-instruct",
     "namespace": "autotuner"
   },
   "base_runtime": "sglang",

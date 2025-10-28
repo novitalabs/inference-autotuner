@@ -12,18 +12,18 @@ interface TaskFormData {
   deployment_mode: string;
   base_runtime: string;
   runtime_image_tag?: string;
-  model_config: {
-    name: string;
+  model: {
+    id_or_path: string;
     namespace: string;
   };
   parameters: Record<string, number[]>;
-  optimization_config: {
+  optimization: {
     strategy: string;
     objective: string;
     max_iterations: number;
     timeout_per_iteration: number;
   };
-  benchmark_config: {
+  benchmark: {
     task: string;
     model_name: string;
     model_tokenizer: string;
@@ -74,7 +74,7 @@ export default function NewTask() {
       setRuntimeImageTag(taskToEdit.runtime_image_tag || '');
       
       // Model config
-      setModelName(taskToEdit.model_config?.name || '');
+      setModelIdOrPath(taskToEdit.model_config?.id_or_path || '');
       setModelNamespace(taskToEdit.model_config?.namespace || 'autotuner');
       
       // Parameters - convert from API format to form format
@@ -120,7 +120,7 @@ export default function NewTask() {
   const [runtimeImageTag, setRuntimeImageTag] = useState('');
 
   // Model config
-  const [modelName, setModelName] = useState('');
+  const [modelIdOrPath, setModelIdOrPath] = useState('');
   const [modelNamespace, setModelNamespace] = useState('autotuner');
 
   // Parameters (dynamic list)
@@ -212,21 +212,21 @@ export default function NewTask() {
       deployment_mode: deploymentMode,
       base_runtime: baseRuntime,
       ...(runtimeImageTag && { runtime_image_tag: runtimeImageTag }),
-      model_config: {
-        name: modelName,
+      model: {
+        id_or_path: modelIdOrPath,
         namespace: modelNamespace,
       },
       parameters: parsedParams,
-      optimization_config: {
+      optimization: {
         strategy,
         objective,
         max_iterations: maxIterations,
         timeout_per_iteration: timeoutPerIteration,
       },
-      benchmark_config: {
+      benchmark: {
         task: benchmarkTask,
-        model_name: modelName, // Reuse model name from Model Configuration
-        model_tokenizer: modelTokenizer,
+        model_name: modelIdOrPath, // Auto-deduced from model config
+        model_tokenizer: modelTokenizer || modelIdOrPath, // Auto-deduced if empty
         traffic_scenarios: trafficScenariosList,
         num_concurrency: parseNumberArray(numConcurrency),
         max_time_per_iteration: maxTimePerIteration,
@@ -337,18 +337,18 @@ export default function NewTask() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Model Name *
+                Model ID or Path *
               </label>
               <input
                 type="text"
-                value={modelName}
-                onChange={(e) => setModelName(e.target.value)}
+                value={modelIdOrPath}
+                onChange={(e) => setModelIdOrPath(e.target.value)}
                 required
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="llama-3-2-1b-instruct"
+                placeholder="llama-3-2-1b-instruct or meta-llama/Llama-3.2-1B-Instruct"
               />
               <p className="text-sm text-gray-500 mt-1">
-                Model directory name (e.g., llama-3-2-1b-instruct)
+                Local model directory name or HuggingFace model ID
               </p>
             </div>
 
@@ -498,32 +498,34 @@ export default function NewTask() {
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Model Name (Display)
+                Model Name (Auto-filled)
               </label>
               <input
                 type="text"
-                value={modelName}
+                value={modelIdOrPath}
                 disabled
                 className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50 text-gray-500 cursor-not-allowed"
                 placeholder="Auto-filled from Model Configuration"
               />
               <p className="text-sm text-gray-500 mt-1">
-                Automatically uses the model name from Model Configuration above
+                Automatically uses the Model ID or Path from above
               </p>
             </div>
 
             <div className="md:col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Model Tokenizer (HuggingFace ID) *
+                Model Tokenizer (HuggingFace ID)
               </label>
               <input
                 type="text"
                 value={modelTokenizer}
                 onChange={(e) => setModelTokenizer(e.target.value)}
-                required
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="meta-llama/Llama-3.2-1B-Instruct"
+                placeholder="Leave empty to auto-fill with Model ID/Path"
               />
+              <p className="text-sm text-gray-500 mt-1">
+                HuggingFace model ID for tokenizer. Auto-fills from Model ID if empty.
+              </p>
             </div>
 
             <div>

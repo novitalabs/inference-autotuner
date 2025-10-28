@@ -79,7 +79,7 @@ Task JSON files define experiments. Key fields:
 ```json
 {
   "task_name": "unique-identifier",
-  "model": {"name": "model-id", "namespace": "k8s-namespace-or-label"},
+  "model": {"id_or_path": "model-id-or-path", "namespace": "k8s-namespace-or-label"},
   "base_runtime": "sglang" or "vllm",
   "runtime_image_tag": "v0.5.2-cu126",  // Optional: Docker image tag (Docker mode only)
   "parameters": {
@@ -95,14 +95,24 @@ Task JSON files define experiments. Key fields:
   },
   "benchmark": {
     "task": "text-to-text",
-    "model_name": "display-name",
-    "model_tokenizer": "HuggingFace/model-id",
+    "model_name": "display-name",  // Auto-filled from model.id_or_path if using web UI
+    "model_tokenizer": "HuggingFace/model-id",  // Auto-filled if empty in web UI
     "traffic_scenarios": ["D(100,100)"],
     "num_concurrency": [1, 4],
     "additional_params": {"temperature": 0.0}
   }
 }
 ```
+
+**Model Configuration**:
+- `model.id_or_path`: Can be either:
+  - **Local path**: Directory name in `/mnt/data/models/` (e.g., `llama-3-2-1b-instruct`)
+  - **HuggingFace ID**: Full model ID (e.g., `meta-llama/Llama-3.2-1B-Instruct`)
+- `model.namespace`: Kubernetes namespace (OME mode) or label (Docker mode)
+
+**Benchmark Auto-Fill** (Web UI only):
+- `benchmark.model_name`: Automatically filled with `model.id_or_path`
+- `benchmark.model_tokenizer`: Automatically filled with `model.id_or_path` if left empty
 
 **Parameters Format**:
 - **Simple format** (recommended): `"param-name": [value1, value2, ...]`

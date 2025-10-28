@@ -79,7 +79,7 @@ class AutotunerOrchestrator:
 		"""
 		task_name = task["task_name"]
 		namespace = task["model"]["namespace"]
-		model_name = task["model"]["name"]
+		model_name = task["model"]["id_or_path"]
 		runtime_name = task["base_runtime"]
 		timeout = task["optimization"]["timeout_per_iteration"]
 
