@@ -152,7 +152,7 @@ async def start_task(task_id: int, db: AsyncSession = Depends(get_db)):
 	await db.refresh(task)
 
 	# Enqueue ARQ job
-	from workers import enqueue_autotuning_task
+	from web.workers import enqueue_autotuning_task
 
 	job_id = await enqueue_autotuning_task(task.id)
 	print(f"[API] Enqueued task {task.id} with job_id: {job_id}")

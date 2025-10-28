@@ -8,11 +8,18 @@ import { navigateTo } from "@/components/Layout";
 
 export default function Tasks() {
 	const queryClient = useQueryClient();
-	const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+	const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
 	const [showCreateForm, setShowCreateForm] = useState(false);
 	const [statusFilter, setStatusFilter] = useState<string>("all");
 	const [logViewerTask, setLogViewerTask] = useState<Task | null>(null);
 	const [resultsTask, setResultsTask] = useState<Task | null>(null);
+
+	// Fetch full task details when a task is selected
+	const { data: selectedTask } = useQuery({
+		queryKey: ["task", selectedTaskId],
+		queryFn: () => selectedTaskId ? apiClient.getTask(selectedTaskId) : null,
+		enabled: selectedTaskId !== null
+	});
 
 	// Fetch tasks
 	const {
@@ -280,7 +287,7 @@ export default function Tasks() {
 										<td className="relative whitespace-nowrap py-4 pl-3 pr-4 text-right text-sm">
 											<div className="flex items-center justify-end gap-2">
 												<button
-													onClick={() => setSelectedTask(task)}
+													onClick={() => setSelectedTaskId(task.id)}
 													className="text-blue-600 hover:text-blue-900"
 												>
 													View
@@ -356,7 +363,7 @@ export default function Tasks() {
 
 			{/* Task Detail Modal */}
 			{selectedTask && (
-				<TaskDetailModal task={selectedTask} onClose={() => setSelectedTask(null)} />
+				<TaskDetailModal task={selectedTask} onClose={() => setSelectedTaskId(null)} />
 			)}
 
 			{/* Log Viewer Modal */}
