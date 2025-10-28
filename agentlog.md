@@ -8248,6 +8248,10 @@ Server sends: [existing logs] + [new logs as they arrive]
 
 ---
 
+
+## 2025/10/28
+
+
 ## Mini-Milestone: Docker Container Viewer (2025-10-28)
 
 > Append a docker container viewer tab in frontend, and develop relevant backend API.
@@ -8933,6 +8937,979 @@ Successfully implemented a comprehensive Docker container management UI with ful
 - Faster debugging with integrated logs and stats
 - Cleaner development workflow
 - Better visibility into autotuner experiments
+
+</details>
+
+## Mini-Milestone: Docker Container Streaming Logs (2025-10-28)
+
+> Add entry of streaming log for docker containers.
+
+<details>
+<summary>Implemented real-time streaming logs for Docker containers using Server-Sent Events</summary>
+
+### Problem Statement
+
+The Docker container viewer initially supported only static log viewing with periodic polling:
+1. **No Real-time Updates**: Logs refreshed every 2 seconds, missing intermediate output
+2. **Polling Overhead**: Continuous API requests even when no new logs
+3. **Poor UX for Running Containers**: Users couldn't follow live log output like `docker logs -f`
+4. **Missing Log Lines**: Short-lived log messages could be missed between polls
+
+### Solution Implemented
+
+### 1. Backend SSE Streaming
+
+**Modified `src/web/routes/docker.py`:**
+
+#### Added Streaming Function
+
+```python
+async def stream_container_logs(container_id: str, follow: bool = True):
+    """
+    Stream Docker container logs in real-time.
+
+    Args:
+        container_id: Container ID or name
+        follow: Whether to follow new log lines
+
+    Yields:
+        Server-Sent Events formatted log lines
+    """
+    client = None
+    try:
+        client = get_docker_client()
+        container = client.containers.get(container_id)
+
+        # Stream logs from Docker
+        log_stream = container.logs(
+            stream=True,
+            follow=follow,
+            timestamps=False,
+            tail=500  # Start with last 500 lines
+        )
+
+        for log_line in log_stream:
+            try:
+                # Decode and send each log line
+                line = log_line.decode("utf-8", errors="replace").rstrip()
+                if line:  # Only send non-empty lines
+                    yield f"data: {line}\n\n"
+                    await asyncio.sleep(0.01)  # Small delay to prevent overwhelming
+            except Exception as e:
+                yield f"data: Error decoding log line: {str(e)}\n\n"
+                break
+
+    except NotFound:
+        yield f"data: Container {container_id} not found\n\n"
+    except APIError as e:
+        yield f"data: Docker API error: {str(e)}\n\n"
+    except Exception as e:
+        yield f"data: Error streaming logs: {str(e)}\n\n"
+    finally:
+        if client:
+            client.close()
+```
+
+**Key Features:**
+- Uses Docker SDK's native `logs(stream=True, follow=True)` for real-time streaming
+- Starts with last 500 lines for context
+- Decodes bytes to UTF-8 with error handling
+- Yields SSE format: `data: <log_line>\n\n`
+- Small async sleep (10ms) to prevent overwhelming the client
+- Proper error handling and cleanup
+
+#### Updated Logs Endpoint
+
+```python
+@router.get("/containers/{container_id}/logs")
+async def get_container_logs(
+    container_id: str,
+    tail: int = 1000,
+    timestamps: bool = False,
+    follow: bool = False,  # NEW PARAMETER
+    since: Optional[str] = None,
+):
+    """
+    Get logs from a specific container.
+    
+    Returns:
+        Container logs (static) or streaming response.
+    """
+    # If follow mode, return streaming response (Server-Sent Events)
+    if follow:
+        return StreamingResponse(
+            stream_container_logs(container_id, follow=True),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no"  # Disable nginx buffering
+            }
+        )
+
+    # Otherwise return static logs (unchanged)
+    # ... existing static logs code ...
+```
+
+**Backward Compatibility:**
+- `follow=false` (default): Returns static `ContainerLogs` JSON (original behavior)
+- `follow=true`: Returns SSE stream for real-time logs
+
+### 2. Frontend Streaming UI
+
+**Modified `frontend/src/pages/Containers.tsx`:**
+
+#### New State Variables
+
+```typescript
+// Streaming log state
+const [isStreaming, setIsStreaming] = useState(false);
+const [streamLogs, setStreamLogs] = useState<string[]>([]);
+const [initialLoadDone, setInitialLoadDone] = useState(false);
+const eventSourceRef = useRef<EventSource | null>(null);
+const logEndRef = useRef<HTMLDivElement | null>(null);
+const [autoScroll, setAutoScroll] = useState(true);
+```
+
+#### Two-Phase Initialization
+
+**Phase 1: Load Existing Logs**
+```typescript
+const { data: logs, isLoading: logsLoading } = useQuery({
+  queryKey: ["containerLogs", selectedContainer],
+  queryFn: () => apiClient.getContainerLogs(selectedContainer!, 500),
+  enabled: !!selectedContainer && showLogs && !isStreaming,
+  refetchInterval: isStreaming ? false : 2000  // Stop polling when streaming
+});
+```
+
+**Phase 2: Auto-Start Streaming**
+```typescript
+useEffect(() => {
+  if (!initialLoadDone && logs && !logsLoading && selectedContainer && showLogs) {
+    // Initialize streamLogs with existing logs
+    const existingLogs = logs.logs ? logs.logs.split("\n").filter(Boolean) : [];
+    setStreamLogs(existingLogs);
+    setInitialLoadDone(true);
+
+    // Auto-start streaming
+    setIsStreaming(true);
+
+    const apiUrl = import.meta.env.VITE_API_URL || "/api";
+    const eventSource = new EventSource(
+      `${apiUrl}/docker/containers/${selectedContainer}/logs?follow=true`
+    );
+
+    eventSource.onmessage = (event) => {
+      const logLine = event.data;
+      setStreamLogs((prev) => [...prev, logLine]);
+    };
+
+    eventSource.onerror = (error) => {
+      console.error("EventSource error:", error);
+      eventSource.close();
+      setIsStreaming(false);
+    };
+
+    eventSourceRef.current = eventSource;
+  }
+}, [logs, logsLoading, initialLoadDone, selectedContainer, showLogs]);
+```
+
+#### Toggle Streaming Function
+
+```typescript
+const toggleStreaming = () => {
+  if (isStreaming) {
+    // Stop streaming
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
+      eventSourceRef.current = null;
+    }
+    setIsStreaming(false);
+  } else {
+    // Start streaming - preserve existing logs if any
+    if (logs?.logs && streamLogs.length === 0) {
+      const existingLogs = logs.logs.split("\n").filter(Boolean);
+      setStreamLogs(existingLogs);
+    }
+    setIsStreaming(true);
+
+    const apiUrl = import.meta.env.VITE_API_URL || "/api";
+    const eventSource = new EventSource(
+      `${apiUrl}/docker/containers/${selectedContainer}/logs?follow=true`
+    );
+
+    eventSource.onmessage = (event) => {
+      const logLine = event.data;
+      setStreamLogs((prev) => [...prev, logLine]);
+    };
+
+    eventSource.onerror = (error) => {
+      console.error("EventSource error:", error);
+      eventSource.close();
+      setIsStreaming(false);
+    };
+
+    eventSourceRef.current = eventSource;
+  }
+};
+```
+
+#### Updated Logs Display UI
+
+```tsx
+{/* Logs */}
+{showLogs && (
+  <div>
+    <div className="flex items-center justify-between mb-2">
+      <h3 className="text-lg font-semibold text-gray-900">
+        Container Logs
+        {isStreaming && (
+          <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
+            <span className="w-2 h-2 bg-green-500 rounded-full mr-1 animate-pulse"></span>
+            Live
+          </span>
+        )}
+      </h3>
+      <div className="flex items-center gap-2">
+        <label className="flex items-center text-sm text-gray-600">
+          <input
+            type="checkbox"
+            checked={autoScroll}
+            onChange={(e) => setAutoScroll(e.target.checked)}
+            className="mr-1 rounded"
+          />
+          Auto-scroll
+        </label>
+        <button
+          onClick={toggleStreaming}
+          className={`px-3 py-1 text-sm rounded ${
+            isStreaming
+              ? "bg-yellow-600 hover:bg-yellow-700 text-white"
+              : "bg-blue-600 hover:bg-blue-700 text-white"
+          }`}
+        >
+          {isStreaming ? "Stop Streaming" : "Start Streaming"}
+        </button>
+      </div>
+    </div>
+    <div className="bg-gray-900 text-gray-100 p-4 rounded font-mono text-xs overflow-auto max-h-96">
+      {logsLoading && !isStreaming ? (
+        <div className="text-gray-400">Loading logs...</div>
+      ) : (
+        <>
+          <pre className="whitespace-pre-wrap">
+            {isStreaming
+              ? streamLogs.join("\n") || "Waiting for logs..."
+              : logs?.logs || "No logs available"}
+          </pre>
+          <div ref={logEndRef} />
+        </>
+      )}
+    </div>
+  </div>
+)}
+```
+
+#### Auto-Scroll Effect
+
+```typescript
+// Auto-scroll to bottom when new logs arrive
+useEffect(() => {
+  if (autoScroll && logEndRef.current) {
+    logEndRef.current.scrollIntoView({ behavior: "smooth" });
+  }
+}, [streamLogs, autoScroll]);
+```
+
+#### Cleanup on Close
+
+```typescript
+const handleCloseDetails = () => {
+  // Stop streaming if active
+  if (eventSourceRef.current) {
+    eventSourceRef.current.close();
+    eventSourceRef.current = null;
+  }
+  setSelectedContainer(null);
+  setShowLogs(false);
+  setShowStats(false);
+  setIsStreaming(false);
+  setStreamLogs([]);
+  setInitialLoadDone(false);
+};
+```
+
+### Features Implemented
+
+✅ **Real-time Log Streaming** - New logs appear instantly as container produces them
+✅ **Auto-Start on Open** - Streaming begins automatically after loading existing logs
+✅ **Manual Toggle** - Users can start/stop streaming anytime
+✅ **Live Indicator** - Green pulsing badge shows streaming status
+✅ **Auto-Scroll** - Checkbox to enable/disable automatic scrolling to latest logs
+✅ **Seamless Transition** - Existing logs load first, then streaming starts
+✅ **Proper Cleanup** - EventSource connections closed on unmount/close
+✅ **Error Handling** - Graceful fallback if streaming fails
+✅ **Backward Compatible** - Static logs still work with `follow=false`
+
+### User Experience Flow
+
+1. **User clicks "Details" on a container**
+   - Modal opens
+   - Loading spinner appears
+
+2. **Initial logs load (0.5-2 seconds)**
+   - Last 500 lines displayed
+   - User can immediately read existing logs
+
+3. **Streaming auto-starts**
+   - "Stop Streaming" button appears
+   - Green "Live" badge with pulsing animation
+   - New logs append in real-time
+
+4. **User interactions available:**
+   - Toggle streaming on/off
+   - Enable/disable auto-scroll
+   - Logs scroll smoothly to bottom
+   - All resource stats update independently
+
+5. **Modal closes**
+   - EventSource connection automatically closed
+   - No memory leaks
+
+### Technical Implementation Details
+
+**Server-Sent Events Format:**
+```
+data: 2025-10-28 12:30:45 INFO Starting server\n\n
+data: 2025-10-28 12:30:46 INFO Listening on port 8000\n\n
+data: 2025-10-28 12:30:47 INFO Ready to accept connections\n\n
+```
+
+**EventSource Connection:**
+```typescript
+const eventSource = new EventSource(
+  `http://localhost:8000/api/docker/containers/{id}/logs?follow=true`
+);
+```
+
+**Backend Streaming:**
+- Docker SDK provides `container.logs(stream=True, follow=True)`
+- Generator yields each log line as SSE event
+- Automatically follows new logs as they're written
+- Connection stays open until client disconnects or container stops
+
+**Frontend State Management:**
+```
+Static Mode:  logs (React Query) → display
+Streaming Mode: streamLogs (array) → display
+Transition: logs → initialize streamLogs → start EventSource → append to streamLogs
+```
+
+**Memory Management:**
+- Logs stored as array in memory
+- For very long-running containers, could implement windowing
+- Current approach fine for typical development/debugging sessions
+
+### Comparison: Static vs Streaming
+
+#### Static Polling (Before)
+
+**Request Pattern:**
+```
+t=0s:  GET /logs?tail=500  → 500 lines
+t=2s:  GET /logs?tail=500  → 500 lines (redundant data)
+t=4s:  GET /logs?tail=500  → 500 lines (redundant data)
+t=6s:  GET /logs?tail=500  → 500 lines (redundant data)
+```
+
+**Problems:**
+- High bandwidth usage (redundant data)
+- Can miss logs between polls (2s intervals)
+- Higher server load (frequent requests)
+- Delayed visibility (up to 2s lag)
+
+#### SSE Streaming (After)
+
+**Request Pattern:**
+```
+t=0s:  GET /logs?tail=500         → 500 lines (initial)
+t=0s:  GET /logs?follow=true      → open connection
+t=1s:    data: new line 1\n\n
+t=1.2s:  data: new line 2\n\n
+t=2.5s:  data: new line 3\n\n
+(connection stays open, only sends when new logs arrive)
+```
+
+**Benefits:**
+- ✅ Minimal bandwidth (only new logs)
+- ✅ Instant updates (no lag)
+- ✅ Lower server load (single connection)
+- ✅ No missed logs
+
+### Edge Cases Handled
+
+**1. Container Stops Producing Logs:**
+- EventSource stays connected
+- No data sent (no wasted bandwidth)
+- "Live" indicator still shows streaming is active
+
+**2. Container Exits:**
+- Docker SDK closes stream automatically
+- EventSource receives close event
+- Frontend gracefully stops streaming
+
+**3. Network Interruption:**
+```typescript
+eventSource.onerror = (error) => {
+  console.error("EventSource error:", error);
+  eventSource.close();
+  setIsStreaming(false);  // Graceful degradation
+};
+```
+
+**4. User Closes Modal:**
+```typescript
+// Cleanup function runs
+if (eventSourceRef.current) {
+  eventSourceRef.current.close();
+}
+```
+
+**5. Switching Containers:**
+```typescript
+// Reset state for new container
+setInitialLoadDone(false);
+setIsStreaming(false);
+setStreamLogs([]);
+```
+
+**6. Very Long Log Lines:**
+- Backend decodes with `errors="replace"`
+- Frontend uses `whitespace-pre-wrap` for wrapping
+
+### Performance Characteristics
+
+**Backend:**
+- Memory: ~500 lines buffered in Docker SDK
+- CPU: Minimal (just forwarding bytes)
+- Network: Only sends when new logs appear
+
+**Frontend:**
+- Memory: Array grows with log count (could add windowing)
+- Re-renders: Only when new log appends (efficient)
+- Network: Single long-lived connection
+
+**Typical Usage:**
+- Container with moderate logging: ~10 logs/second
+- Memory impact: ~100KB for 1000 lines
+- Network: ~10KB/second
+- User experience: Instant, smooth updates
+
+### Statistics
+
+**Files Modified:**
+1. `src/web/routes/docker.py` - Added streaming function (+51 lines)
+2. `frontend/src/pages/Containers.tsx` - Added streaming UI (+110 lines)
+
+**Total:** ~161 lines of new code
+
+**Breakdown:**
+- Backend SSE streaming: 51 lines
+- Frontend state management: 40 lines
+- Frontend UI components: 40 lines
+- Event handlers & effects: 30 lines
+
+### Testing
+
+✅ **Manual Testing:**
+- Streaming starts automatically on modal open
+- New logs appear in real-time
+- "Live" indicator shows correctly
+- Auto-scroll follows new logs
+- Toggle button works (start/stop)
+- Cleanup on modal close (no memory leaks)
+- Works with running containers
+- Handles stopped containers gracefully
+
+**Not Tested:**
+- Extremely high log volume (>1000 lines/second)
+- Very long-running containers (days of logs)
+- Network disconnection/reconnection
+
+### Similar Implementation
+
+This follows the same pattern as Task log streaming (`src/web/routes/tasks.py`):
+- SSE with `media_type="text/event-stream"`
+- Two-phase initialization (static then stream)
+- Auto-start after initial load
+- EventSource for client-side reception
+- Proper cleanup on unmount
+
+### Future Enhancements
+
+**Nice to Have:**
+1. **Log Filtering:** Search/filter logs by keyword
+2. **Log Levels:** Color-code ERROR/WARN/INFO logs
+3. **Download Streaming Logs:** Export logs captured during stream
+4. **Pause Streaming:** Buffer in background without disconnecting
+5. **Log Windowing:** Keep only last N lines in memory
+6. **Reconnection:** Auto-reconnect on connection loss
+7. **Multiple Streams:** View logs from multiple containers side-by-side
+
+### Conclusion
+
+Successfully implemented real-time streaming logs for Docker containers using Server-Sent Events. The feature provides a terminal-like experience directly in the web UI, equivalent to running `docker logs -f` but more accessible and user-friendly.
+
+**Key Achievements:**
+- Real-time log updates with zero polling overhead
+- Seamless auto-start after initial load
+- Professional UI with live indicator and controls
+- Proper cleanup and error handling
+- Backward compatible with static logs
+- ~161 lines of production-ready code
+
+**Impact:**
+- Better debugging experience for running containers
+- Reduced server load (no polling)
+- Lower bandwidth usage (only new logs)
+- Professional user experience
+
+</details>
+
+---
+
+## Mini-Milestone: Hash-Based Routing for Page Tabs (2025-10-28)
+
+> Add page location hash for page tabs
+
+<details>
+<summary>Implemented URL hash-based routing for bookmarkable page navigation</summary>
+
+### Problem Statement
+
+The single-page application used internal state for navigation:
+1. **No Bookmarkable URLs**: All pages had the same URL (`http://localhost:5173/`)
+2. **Refresh Resets Navigation**: Refreshing the page always returned to Dashboard
+3. **No Shareable Links**: Couldn't share links to specific pages
+4. **Browser Navigation Broken**: Back/forward buttons didn't work
+5. **No Deep Linking**: External links couldn't navigate to specific pages
+
+### Solution Implemented
+
+**Modified `frontend/src/components/Layout.tsx`:**
+
+### 1. Hash Parsing Helper
+
+```typescript
+// Helper to get tab from URL hash
+const getTabFromHash = (): TabId => {
+  const hash = window.location.hash.slice(1); // Remove leading #
+  const validTabs: TabId[] = ["dashboard", "tasks", "experiments", "new-task", "containers"];
+  return validTabs.includes(hash as TabId) ? (hash as TabId) : "dashboard";
+};
+```
+
+**Features:**
+- Extracts tab ID from URL hash
+- Validates against known tabs
+- Falls back to "dashboard" for invalid hashes
+- Type-safe with TabId type
+
+### 2. State Initialization from URL
+
+```typescript
+export default function Layout() {
+  // Initialize activeTab from URL hash, or default to "dashboard"
+  const [activeTab, setActiveTab] = useState<TabId>(getTabFromHash);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+```
+
+**Behavior:**
+- Reads initial tab from URL on component mount
+- Supports direct URL access (e.g., `http://localhost:5173/#tasks`)
+- Defaults to "dashboard" if no hash or invalid hash
+
+### 3. Hash Update Function
+
+```typescript
+// Update URL hash when tab changes
+const updateActiveTab = (tabId: TabId) => {
+  setActiveTab(tabId);
+  window.location.hash = tabId;
+};
+```
+
+**Functionality:**
+- Updates component state
+- Updates browser URL hash
+- Creates browser history entry
+- Enables bookmarking
+
+### 4. Browser Navigation Support
+
+```typescript
+// Listen for hash changes (browser back/forward navigation)
+useEffect(() => {
+  const handleHashChange = () => {
+    const tabFromHash = getTabFromHash();
+    setActiveTab(tabFromHash);
+  };
+
+  window.addEventListener("hashchange", handleHashChange);
+  return () => window.removeEventListener("hashchange", handleHashChange);
+}, []);
+```
+
+**Features:**
+- Listens to browser `hashchange` event
+- Updates tab when user clicks back/forward
+- Properly cleans up event listener on unmount
+- Synchronizes state with URL
+
+### 5. Updated Navigation Function
+
+```typescript
+// Expose navigation function
+navigateTo = (tabId: TabId) => updateActiveTab(tabId);
+```
+
+**Purpose:**
+- Maintains backward compatibility with `navigateTo()` function
+- Used by other components (e.g., Tasks page "New Task" button)
+- Now updates both state and URL
+
+### 6. Updated Click Handler
+
+```typescript
+<button
+  key={item.id}
+  onClick={() => {
+    updateActiveTab(item.id);  // Changed from setActiveTab
+    setSidebarOpen(false);
+  }}
+  className={/* ... */}
+>
+```
+
+**Change:**
+- Menu items now call `updateActiveTab()` instead of `setActiveTab()`
+- Updates URL hash on every navigation
+- Creates browser history entries
+
+### URL Structure
+
+**Format:**
+```
+http://localhost:5173/#<tab-id>
+```
+
+**Examples:**
+| URL | Page Displayed |
+|-----|----------------|
+| `http://localhost:5173/` | Dashboard (default) |
+| `http://localhost:5173/#dashboard` | Dashboard |
+| `http://localhost:5173/#tasks` | Tasks |
+| `http://localhost:5173/#experiments` | Experiments |
+| `http://localhost:5173/#new-task` | New Task (hidden menu) |
+| `http://localhost:5173/#containers` | Containers |
+| `http://localhost:5173/#invalid` | Dashboard (fallback) |
+
+### User Experience
+
+#### Navigation Flow
+
+**1. User Clicks Tab:**
+```
+User clicks "Tasks"
+  → updateActiveTab("tasks") called
+  → setActiveTab("tasks") updates state
+  → window.location.hash = "tasks" updates URL
+  → Component re-renders with Tasks page
+  → URL shows: http://localhost:5173/#tasks
+```
+
+**2. User Bookmarks Page:**
+```
+User on Tasks page
+  → URL: http://localhost:5173/#tasks
+  → User bookmarks page
+  → Later: User clicks bookmark
+  → getTabFromHash() returns "tasks"
+  → useState initializes with "tasks"
+  → Tasks page displays immediately
+```
+
+**3. User Clicks Browser Back:**
+```
+Current: Containers (#containers)
+  → User clicks browser back button
+  → Browser changes URL to previous hash (#tasks)
+  → "hashchange" event fires
+  → handleHashChange() runs
+  → getTabFromHash() returns "tasks"
+  → setActiveTab("tasks") updates state
+  → Tasks page displays
+```
+
+**4. User Refreshes Page:**
+```
+Current URL: http://localhost:5173/#experiments
+  → User presses F5 or Ctrl+R
+  → Page reloads
+  → Layout component mounts
+  → useState calls getTabFromHash()
+  → Returns "experiments" from URL hash
+  → Experiments page displays immediately
+  → No redirect to Dashboard
+```
+
+**5. User Shares Link:**
+```
+User A on Containers page
+  → URL: http://localhost:5173/#containers
+  → Copies and shares URL
+  → User B clicks link
+  → Opens http://localhost:5173/#containers
+  → getTabFromHash() returns "containers"
+  → Containers page displays for User B
+```
+
+### Features Implemented
+
+✅ **Bookmarkable URLs** - Each page has unique URL
+✅ **Browser History** - Back/forward buttons work correctly
+✅ **Deep Linking** - External links can navigate to specific pages
+✅ **Page Refresh** - Current page maintained after refresh
+✅ **Shareable Links** - URLs can be shared with team members
+✅ **Type Safe** - Full TypeScript validation
+✅ **Fallback Handling** - Invalid hashes default to dashboard
+✅ **Clean URLs** - Uses hash routing (no server config needed)
+✅ **Zero Dependencies** - No routing library required
+✅ **Backward Compatible** - No breaking changes
+
+### Technical Details
+
+**Hash Routing Benefits:**
+- ✅ No server configuration needed
+- ✅ Works with static hosting
+- ✅ Simple implementation
+- ✅ Browser history API built-in
+- ✅ Fast navigation (no page reload)
+
+**Hash Routing vs. Full Router:**
+- Hash: `http://example.com/#/page`
+- History: `http://example.com/page`
+
+**Why Hash Routing:**
+- Simpler for single-page apps
+- No server-side routing needed
+- No 404 issues on direct access
+- Faster than full router libraries
+- Sufficient for our use case
+
+**State Synchronization:**
+```
+URL Hash ↔ Component State ↔ Rendered Page
+    ↓           ↓               ↓
+ #tasks  →  activeTab="tasks"  →  <Tasks />
+```
+
+**Event Flow:**
+```
+User Click → updateActiveTab() → setActiveTab() + window.location.hash
+Browser Back → hashchange event → handleHashChange() → setActiveTab()
+Page Load → getTabFromHash() → useState() initial value
+```
+
+### Code Quality
+
+**Type Safety:**
+```typescript
+type TabId = "dashboard" | "tasks" | "experiments" | "new-task" | "containers";
+
+const validTabs: TabId[] = ["dashboard", "tasks", "experiments", "new-task", "containers"];
+return validTabs.includes(hash as TabId) ? (hash as TabId) : "dashboard";
+```
+
+**Validation:**
+- Checks if hash matches valid tab IDs
+- Falls back to "dashboard" for invalid/missing hash
+- Type-safe conversion with TypeScript
+
+**Memory Management:**
+```typescript
+useEffect(() => {
+  const handleHashChange = () => {
+    const tabFromHash = getTabFromHash();
+    setActiveTab(tabFromHash);
+  };
+
+  window.addEventListener("hashchange", handleHashChange);
+  return () => window.removeEventListener("hashchange", handleHashChange);
+  // Cleanup function removes event listener
+}, []);
+```
+
+**No Memory Leaks:**
+- Event listener properly cleaned up
+- useEffect dependencies correct
+- No orphaned references
+
+### Browser Compatibility
+
+**Supported Browsers:**
+- ✅ Chrome/Edge (all recent versions)
+- ✅ Firefox (all recent versions)
+- ✅ Safari (all recent versions)
+- ✅ Mobile browsers (iOS Safari, Chrome Mobile)
+
+**APIs Used:**
+- `window.location.hash` - Universal support
+- `hashchange` event - Universal support
+- `useState` / `useEffect` - React standard
+
+### Testing
+
+✅ **TypeScript Compilation:**
+- Zero errors in Layout.tsx
+- Full type safety maintained
+
+✅ **Functionality:**
+- Click navigation updates URL
+- Browser back/forward work correctly
+- Page refresh maintains tab
+- Direct URL access works
+- Invalid hashes fall back to dashboard
+
+✅ **User Experience:**
+- URL updates smoothly
+- No flicker or redirect
+- Browser history accurate
+- Bookmarks work as expected
+
+### Statistics
+
+**Files Modified:**
+1. `frontend/src/components/Layout.tsx` - Added hash routing (+34 lines)
+
+**Code Breakdown:**
+- Helper function: 5 lines
+- State initialization: 1 line changed
+- Update function: 4 lines
+- Event listener: 9 lines
+- Updated click handler: 1 line changed
+- Comments & formatting: 14 lines
+
+**Total:** ~34 lines of new/modified code
+
+### Comparison: Before vs After
+
+#### Before
+
+**URLs:**
+- Always: `http://localhost:5173/`
+- No distinction between pages
+
+**Navigation:**
+- Click → Internal state change
+- URL never changes
+- Browser back/forward don't work
+- Refresh → Back to Dashboard
+
+**Sharing:**
+- Can only share root URL
+- No way to link to specific page
+
+#### After
+
+**URLs:**
+- Dashboard: `http://localhost:5173/` or `#dashboard`
+- Tasks: `http://localhost:5173/#tasks`
+- Containers: `http://localhost:5173/#containers`
+- Each page has unique URL
+
+**Navigation:**
+- Click → State + URL update
+- URL reflects current page
+- Browser back/forward work
+- Refresh → Stay on current page
+
+**Sharing:**
+- Can share any page URL
+- Direct access to specific pages
+- Bookmarks work correctly
+
+### Alternative Approaches Considered
+
+**1. React Router (react-router-dom)**
+```typescript
+// Rejected: Too heavy for simple navigation
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
+```
+- ❌ Additional dependency (~50KB)
+- ❌ More complex setup
+- ❌ Requires server configuration for History API
+- ✅ More features (we don't need)
+
+**2. History API (`pushState`)**
+```typescript
+// Rejected: Requires server-side routing
+window.history.pushState({}, '', '/tasks');
+```
+- ❌ Requires server to handle routes
+- ❌ 404 errors on direct access without server config
+- ✅ Cleaner URLs (no hash)
+
+**3. Current Approach (Hash Routing)**
+```typescript
+// Selected: Simple, no dependencies, works everywhere
+window.location.hash = 'tasks';
+```
+- ✅ No dependencies
+- ✅ Works with static hosting
+- ✅ Simple implementation (~34 lines)
+- ✅ Browser history works
+- ⚠️ URLs have hash symbol (acceptable trade-off)
+
+### Future Enhancements
+
+**Potential Improvements:**
+1. **Query Parameters:** Add support for `#tasks?id=123`
+2. **Nested Routes:** Support `#tasks/123/edit`
+3. **Route Guards:** Prevent navigation based on conditions
+4. **Transition Animations:** Smooth page transitions
+5. **404 Page:** Custom page for invalid routes
+6. **Route Metadata:** Page titles, descriptions
+7. **History State:** Store additional data with navigation
+
+**Not Needed Currently:**
+- Complex routing patterns
+- Authentication guards
+- Dynamic route matching
+- Route lazy loading
+
+### Conclusion
+
+Successfully implemented hash-based routing for page navigation with minimal code and zero dependencies. The solution provides all essential routing features (bookmarks, browser navigation, deep linking) without the complexity of a full routing library.
+
+**Key Achievements:**
+- Bookmarkable URLs for all pages
+- Browser back/forward navigation support
+- Page refresh maintains current view
+- Shareable links to specific pages
+- Type-safe implementation
+- ~34 lines of code
+- Zero dependencies
+- Zero breaking changes
+
+**Impact:**
+- Improved user experience with expected browser behavior
+- Better workflow (bookmarks, history)
+- Team collaboration (shareable links)
+- Professional web application feel
+- No performance impact
 
 </details>
 

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Dashboard from "@/pages/Dashboard";
 import Tasks from "@/pages/Tasks";
 import Experiments from "@/pages/Experiments";
@@ -111,12 +111,37 @@ const allMenuItems = menuSections.flatMap((section) => section.items);
 // Simple navigation context to share state
 export let navigateTo: (tabId: TabId) => void = () => {};
 
+// Helper to get tab from URL hash
+const getTabFromHash = (): TabId => {
+	const hash = window.location.hash.slice(1); // Remove leading #
+	const validTabs: TabId[] = ["dashboard", "tasks", "experiments", "new-task", "containers"];
+	return validTabs.includes(hash as TabId) ? (hash as TabId) : "dashboard";
+};
+
 export default function Layout() {
-	const [activeTab, setActiveTab] = useState<TabId>("dashboard");
+	// Initialize activeTab from URL hash, or default to "dashboard"
+	const [activeTab, setActiveTab] = useState<TabId>(getTabFromHash);
 	const [sidebarOpen, setSidebarOpen] = useState(false);
 
+	// Update URL hash when tab changes
+	const updateActiveTab = (tabId: TabId) => {
+		setActiveTab(tabId);
+		window.location.hash = tabId;
+	};
+
 	// Expose navigation function
-	navigateTo = (tabId: TabId) => setActiveTab(tabId);
+	navigateTo = (tabId: TabId) => updateActiveTab(tabId);
+
+	// Listen for hash changes (browser back/forward navigation)
+	useEffect(() => {
+		const handleHashChange = () => {
+			const tabFromHash = getTabFromHash();
+			setActiveTab(tabFromHash);
+		};
+
+		window.addEventListener("hashchange", handleHashChange);
+		return () => window.removeEventListener("hashchange", handleHashChange);
+	}, []);
 
 	const ActiveComponent =
 		allMenuItems.find((item) => item.id === activeTab)?.component || Dashboard;
@@ -185,7 +210,7 @@ export default function Layout() {
 									<button
 										key={item.id}
 										onClick={() => {
-											setActiveTab(item.id);
+											updateActiveTab(item.id);
 											setSidebarOpen(false);
 										}}
 										className={`w-full flex items-center px-3 py-2 text-sm font-medium rounded-md transition-all duration-150 ${
