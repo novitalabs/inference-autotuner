@@ -97,10 +97,11 @@ export default function NewTask() {
         setMaxIterations(taskToEdit.optimization_config.max_iterations || 2);
         setTimeoutPerIteration(taskToEdit.optimization_config.timeout_per_iteration || 600);
       }
-      
+
       // Benchmark
       if (taskToEdit.benchmark_config) {
         setBenchmarkTask(taskToEdit.benchmark_config.task || 'text-to-text');
+        setBenchmarkModelName(taskToEdit.benchmark_config.model_name || '');
         setModelTokenizer(taskToEdit.benchmark_config.model_tokenizer || '');
         setTrafficScenarios(taskToEdit.benchmark_config.traffic_scenarios?.join(', ') || 'D(100,100)');
         setNumConcurrency(taskToEdit.benchmark_config.num_concurrency?.join(', ') || '1, 4');
@@ -110,7 +111,6 @@ export default function NewTask() {
       }
     }
   }, [taskToEdit]);
-
 
   // Basic info
   const [taskName, setTaskName] = useState('');
@@ -137,13 +137,28 @@ export default function NewTask() {
 
   // Benchmark
   const [benchmarkTask, setBenchmarkTask] = useState('text-to-text');
-  // benchmarkModelName is synced with modelName - no separate state needed
+  const [benchmarkModelName, setBenchmarkModelName] = useState('');
   const [modelTokenizer, setModelTokenizer] = useState('');
   const [trafficScenarios, setTrafficScenarios] = useState('D(100,100)');
   const [numConcurrency, setNumConcurrency] = useState('1, 4');
   const [maxTimePerIteration, setMaxTimePerIteration] = useState(10);
   const [maxRequestsPerIteration, setMaxRequestsPerIteration] = useState(50);
   const [temperature, setTemperature] = useState('0.0');
+
+  // Auto-update benchmarkModelName when modelIdOrPath changes
+  useEffect(() => {
+    if (modelIdOrPath && !benchmarkModelName) {
+      const derivedName = modelIdOrPath.split('/').pop() || modelIdOrPath;
+      setBenchmarkModelName(derivedName);
+    }
+  }, [modelIdOrPath, benchmarkModelName]);
+
+  // Auto-update modelTokenizer when modelIdOrPath changes
+  useEffect(() => {
+    if (modelIdOrPath && !modelTokenizer) {
+      setModelTokenizer(modelIdOrPath);
+    }
+  }, [modelIdOrPath, modelTokenizer]);
 
   const createTaskMutation = useMutation({
     mutationFn: async (data: TaskFormData) => {
@@ -224,8 +239,8 @@ export default function NewTask() {
       },
       benchmark: {
         task: benchmarkTask,
-        model_name: modelIdOrPath, // Auto-deduced from model config
-        model_tokenizer: modelTokenizer || modelIdOrPath, // Auto-deduced if empty
+        model_name: benchmarkModelName || modelIdOrPath.split('/').pop() || modelIdOrPath, // Use editable field or fallback
+        model_tokenizer: modelTokenizer || modelIdOrPath, // Auto-fill with full id_or_path if empty
         traffic_scenarios: trafficScenariosList,
         num_concurrency: parseNumberArray(numConcurrency),
         max_time_per_iteration: maxTimePerIteration,
@@ -497,17 +512,17 @@ export default function NewTask() {
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Model Name (Auto-filled)
+                Model Name
               </label>
               <input
                 type="text"
-                value={modelIdOrPath}
-                disabled
-                className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50 text-gray-500 cursor-not-allowed"
-                placeholder="Auto-filled from Model Configuration"
+                value={benchmarkModelName}
+                onChange={(e) => setBenchmarkModelName(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="Auto-filled from Model ID/Path"
               />
               <p className="text-sm text-gray-500 mt-1">
-                Automatically uses the Model ID or Path from above
+                Display name for benchmark results (auto-filled but editable)
               </p>
             </div>
 
@@ -523,7 +538,7 @@ export default function NewTask() {
                 placeholder="Leave empty to auto-fill with Model ID/Path"
               />
               <p className="text-sm text-gray-500 mt-1">
-                HuggingFace model ID for tokenizer. Auto-fills from Model ID if empty.
+                HuggingFace model ID for tokenizer. Linked to Model ID/Path above (auto-fills if empty).
               </p>
             </div>
 

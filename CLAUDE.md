@@ -111,8 +111,8 @@ Task JSON files define experiments. Key fields:
 - `model.namespace`: Kubernetes namespace (OME mode) or label (Docker mode)
 
 **Benchmark Auto-Fill** (Web UI only):
-- `benchmark.model_name`: Automatically filled with `model.id_or_path`
-- `benchmark.model_tokenizer`: Automatically filled with `model.id_or_path` if left empty
+- `benchmark.model_name`: Editable field, auto-filled with last segment of `model.id_or_path` (e.g., "meta-llama/Llama-3.2-1B-Instruct" → "Llama-3.2-1B-Instruct")
+- `benchmark.model_tokenizer`: Editable field, auto-filled with full `model.id_or_path` if left empty (linked to Model ID/Path field)
 
 **Parameters Format**:
 - **Simple format** (recommended): `"param-name": [value1, value2, ...]`
