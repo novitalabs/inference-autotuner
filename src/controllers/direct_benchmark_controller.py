@@ -244,6 +244,28 @@ class DirectBenchmarkController:
 
 		print(f"[Benchmark] Command: {' '.join(cmd)}")
 
+		# Setup environment with proxy settings for HuggingFace downloads
+		import os
+		env = os.environ.copy()
+
+		# Check if proxy is configured in environment or use default
+		proxy_url = os.environ.get('HTTPS_PROXY') or os.environ.get('https_proxy') or 'http://172.17.0.1:1081'
+		env['HTTP_PROXY'] = proxy_url
+		env['http_proxy'] = proxy_url
+		env['HTTPS_PROXY'] = proxy_url
+		env['https_proxy'] = proxy_url
+		env['NO_PROXY'] = 'localhost,127.0.0.1,.local'
+		env['no_proxy'] = 'localhost,127.0.0.1,.local'
+
+		print(f"[Benchmark] Using proxy: {proxy_url}")
+
+		# Pass through HF_TOKEN if set (for gated models like Llama)
+		if 'HF_TOKEN' in os.environ:
+			env['HF_TOKEN'] = os.environ['HF_TOKEN']
+			print(f"[Benchmark] HF_TOKEN is set (for accessing gated models)")
+		else:
+			print(f"[Benchmark] HF_TOKEN not set (only public models accessible)")
+
 		# Run benchmark
 		try:
 			start_time = time.time()
@@ -251,7 +273,7 @@ class DirectBenchmarkController:
 			if self.verbose:
 				# Stream output in real-time
 				print(f"[Benchmark] Starting genai-bench (streaming output)...")
-				process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+				process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, env=env)
 
 				stdout_lines = []
 				for line in process.stdout:
@@ -270,6 +292,7 @@ class DirectBenchmarkController:
 					text=True,
 					timeout=timeout,
 					check=False,  # Don't raise exception on non-zero exit
+					env=env,
 				)
 				result_returncode = result.returncode
 				result_stdout = result.stdout
