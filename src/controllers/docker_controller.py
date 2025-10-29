@@ -289,6 +289,10 @@ class DockerController(BaseModelController):
 		consecutive_exits = 0
 		max_consecutive_exits = 3
 
+		# Track log snapshots - capture logs at key intervals for debugging
+		log_snapshot_intervals = [60, 120, 300]  # Capture logs at 1min, 2min, 5min
+		next_snapshot_idx = 0
+
 		while time.time() - start_time < timeout:
 			try:
 				# Check container status
@@ -319,7 +323,8 @@ class DockerController(BaseModelController):
 
 					# Print logs to help diagnose the issue
 					try:
-						logs = container.logs(tail=100).decode("utf-8")
+						# Retrieve ALL logs to diagnose startup issues (not just last 100 lines)
+						logs = container.logs(stdout=True, stderr=True).decode("utf-8", errors="replace")
 						print(f"[Docker] Container logs:\n{logs}")
 					except Exception as e:
 						print(f"[Docker] Could not retrieve container logs: {e}")
@@ -358,6 +363,19 @@ class DockerController(BaseModelController):
 				return False
 
 			elapsed = int(time.time() - start_time)
+
+			# Capture log snapshots at key intervals for debugging long startups
+			if next_snapshot_idx < len(log_snapshot_intervals):
+				if elapsed >= log_snapshot_intervals[next_snapshot_idx]:
+					print(f"\n[Docker] === Log Snapshot at {elapsed}s ===")
+					try:
+						snapshot_logs = container.logs(tail=50, stdout=True, stderr=True).decode("utf-8", errors="replace")
+						print(snapshot_logs)
+						print(f"[Docker] === End Snapshot ===\n")
+					except Exception as e:
+						print(f"[Docker] Could not capture log snapshot: {e}")
+					next_snapshot_idx += 1
+
 			print(f"[Docker] Waiting for service... ({elapsed}s)")
 			time.sleep(poll_interval)
 
@@ -368,7 +386,8 @@ class DockerController(BaseModelController):
 		try:
 			container.reload()
 			print(f"[Docker] Final container status: {container.status}")
-			logs = container.logs(tail=100).decode("utf-8")
+			# Retrieve ALL logs to diagnose startup issues (not just last 100 lines)
+			logs = container.logs(stdout=True, stderr=True).decode("utf-8", errors="replace")
 			print(f"[Docker] Container logs:\n{logs}")
 		except Exception as e:
 			print(f"[Docker] Could not retrieve final container state: {e}")

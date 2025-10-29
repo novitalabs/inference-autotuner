@@ -486,58 +486,6 @@ export default function Containers() {
 								</div>
 							)}
 
-							{/* Logs */}
-							{showLogs && (
-								<div>
-									<div className="flex items-center justify-between mb-2">
-										<h3 className="text-lg font-semibold text-gray-900">
-											Container Logs
-											{isStreaming && (
-												<span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
-													<span className="w-2 h-2 bg-green-500 rounded-full mr-1 animate-pulse"></span>
-													Live
-												</span>
-											)}
-										</h3>
-										<div className="flex items-center gap-2">
-											<label className="flex items-center text-sm text-gray-600">
-												<input
-													type="checkbox"
-													checked={autoScroll}
-													onChange={(e) => setAutoScroll(e.target.checked)}
-													className="mr-1 rounded"
-												/>
-												Auto-scroll
-											</label>
-											<button
-												onClick={toggleStreaming}
-												className={`px-3 py-1 text-sm rounded ${
-													isStreaming
-														? "bg-yellow-600 hover:bg-yellow-700 text-white"
-														: "bg-blue-600 hover:bg-blue-700 text-white"
-												}`}
-											>
-												{isStreaming ? "Stop Streaming" : "Start Streaming"}
-											</button>
-										</div>
-									</div>
-									<div className="bg-gray-900 text-gray-100 p-4 rounded font-mono text-xs overflow-auto max-h-96">
-										{logsLoading && !isStreaming ? (
-											<div className="text-gray-400">Loading logs...</div>
-										) : (
-											<>
-												<pre className="whitespace-pre-wrap">
-													{isStreaming
-														? streamLogs.join("\n") || "Waiting for logs..."
-														: logs?.logs || "No logs available"}
-												</pre>
-												<div ref={logEndRef} />
-											</>
-										)}
-									</div>
-								</div>
-							)}
-
 							{/* Container Details */}
 							<div>
 								<h3 className="text-lg font-semibold text-gray-900 mb-2">
@@ -590,6 +538,58 @@ export default function Containers() {
 									)}
 								</div>
 							</div>
+
+							{/* Logs */}
+							{showLogs && (
+								<div>
+									<div className="flex items-center justify-between mb-2">
+										<h3 className="text-lg font-semibold text-gray-900">
+											Container Logs
+											{isStreaming && (
+												<span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
+													<span className="w-2 h-2 bg-green-500 rounded-full mr-1 animate-pulse"></span>
+													Live
+												</span>
+											)}
+										</h3>
+										<div className="flex items-center gap-2">
+											<label className="flex items-center text-sm text-gray-600">
+												<input
+													type="checkbox"
+													checked={autoScroll}
+													onChange={(e) => setAutoScroll(e.target.checked)}
+													className="mr-1 rounded"
+												/>
+												Auto-scroll
+											</label>
+											<button
+												onClick={toggleStreaming}
+												className={`px-3 py-1 text-sm rounded ${
+													isStreaming
+														? "bg-yellow-600 hover:bg-yellow-700 text-white"
+														: "bg-blue-600 hover:bg-blue-700 text-white"
+												}`}
+											>
+												{isStreaming ? "Stop Streaming" : "Start Streaming"}
+											</button>
+										</div>
+									</div>
+									<div className="bg-gray-900 text-gray-100 p-4 rounded font-mono text-xs overflow-auto max-h-96">
+										{logsLoading && !isStreaming ? (
+											<div className="text-gray-400">Loading logs...</div>
+										) : (
+											<>
+												<pre className="whitespace-pre-wrap">
+													{isStreaming
+														? streamLogs.join("\n") || "Waiting for logs..."
+														: logs?.logs || "No logs available"}
+												</pre>
+												<div ref={logEndRef} />
+											</>
+										)}
+									</div>
+								</div>
+							)}
 						</div>
 
 						{/* Modal Footer */}

@@ -244,7 +244,7 @@ class AutotunerOrchestrator:
 		# Retrieve container logs before deletion (Docker mode only)
 		if self.deployment_mode == "docker" and hasattr(self.model_controller, "get_container_logs"):
 			print(f"[Cleanup] Retrieving container logs before deletion...")
-			container_logs = self.model_controller.get_container_logs(isvc_name, namespace, tail=1000)
+			container_logs = self.model_controller.get_container_logs(isvc_name, namespace, tail=0)  # Get ALL logs
 			if container_logs:
 				print(f"[Cleanup] Retrieved {len(container_logs)} bytes of container logs")
 
