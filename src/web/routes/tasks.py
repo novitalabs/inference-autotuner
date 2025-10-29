@@ -229,7 +229,7 @@ async def cancel_task(task_id: int, db: AsyncSession = Depends(get_db)):
 
 @router.post("/{task_id}/restart", response_model=TaskResponse)
 async def restart_task(task_id: int, db: AsyncSession = Depends(get_db)):
-	"""Restart a completed, failed, or cancelled task."""
+	"""Restart a completed, failed, or cancelled task and immediately start it."""
 	result = await db.execute(select(Task).where(Task.id == task_id))
 	task = result.scalar_one_or_none()
 
@@ -243,18 +243,26 @@ async def restart_task(task_id: int, db: AsyncSession = Depends(get_db)):
 			detail=f"Task must be completed, failed, or cancelled to restart. Current status: {task.status}"
 		)
 
-	# Reset task to PENDING status
-	task.status = TaskStatus.PENDING
+	# Reset task fields
 	from datetime import datetime
-	task.started_at = None
 	task.completed_at = None
 	task.elapsed_time = None
 	# Reset experiment counters
 	task.successful_experiments = 0
 	task.best_experiment_id = None
 
+	# Set status to RUNNING and start immediately
+	task.status = TaskStatus.RUNNING
+	task.started_at = datetime.utcnow()
+
 	await db.commit()
 	await db.refresh(task)
+
+	# Enqueue ARQ job
+	from web.workers import enqueue_autotuning_task
+
+	job_id = await enqueue_autotuning_task(task.id)
+	print(f"[API] Restarted and enqueued task {task.id} with job_id: {job_id}")
 
 	return task
 

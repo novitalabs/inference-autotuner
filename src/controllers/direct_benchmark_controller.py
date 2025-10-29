@@ -20,16 +20,29 @@ class DirectBenchmarkController:
 		"""Initialize the direct benchmark controller.
 
 		Args:
-		    genai_bench_path: Path to genai-bench executable
+		    genai_bench_path: Path to genai-bench executable (can be relative or absolute)
 		    verbose: If True, stream genai-bench output in real-time
 		"""
-		self.genai_bench_path = Path(genai_bench_path)
+		# Convert to Path and resolve to absolute path
+		genai_bench_path_obj = Path(genai_bench_path)
+
+		# If relative path, resolve relative to project root
+		if not genai_bench_path_obj.is_absolute():
+			# Try to find project root (where src/ directory is located)
+			current_file = Path(__file__).resolve()  # controllers/direct_benchmark_controller.py
+			project_root = current_file.parent.parent.parent  # Go up to inference-autotuner/
+			genai_bench_path_obj = project_root / genai_bench_path_obj
+
+		self.genai_bench_path = genai_bench_path_obj
 		if not self.genai_bench_path.exists():
-			raise FileNotFoundError(f"genai-bench not found at {genai_bench_path}")
+			raise FileNotFoundError(f"genai-bench not found at {self.genai_bench_path}")
 
 		self.verbose = verbose
-		# Results directory
-		self.results_dir = Path("benchmark_results")
+
+		# Results directory - always resolve relative to project root
+		current_file = Path(__file__).resolve()  # controllers/direct_benchmark_controller.py
+		project_root = current_file.parent.parent.parent  # Go up to inference-autotuner/
+		self.results_dir = project_root / "benchmark_results"
 		self.results_dir.mkdir(exist_ok=True)
 
 		# Port forward process tracking

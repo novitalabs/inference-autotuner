@@ -98,7 +98,7 @@ export default function Tasks() {
 	};
 
 	const canStartTask = (task: Task) => {
-		return task.status === "pending" || task.status === "failed" || task.status === "cancelled";
+		return task.status === "pending";
 	};
 
 	const canCancelTask = (task: Task) => {
