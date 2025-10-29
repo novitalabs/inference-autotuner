@@ -189,14 +189,48 @@ export default function TaskResults({ task, onClose }: TaskResultsProps) {
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {/* Objective Score Bar Chart */}
                 <div className="bg-white border border-gray-200 rounded-lg p-4">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Objective Scores by Experiment</h3>
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4">
+                    Objective Scores by Experiment
+                    <span className="ml-3 text-sm font-normal text-gray-500">
+                      <span className="inline-block w-3 h-3 bg-green-500 rounded mr-1"></span>
+                      Best
+                    </span>
+                  </h3>
                   <ResponsiveContainer width="100%" height={300}>
                     <BarChart data={chartData}>
                       <CartesianGrid strokeDasharray="3 3" />
                       <XAxis dataKey="name" />
                       <YAxis />
-                      <Tooltip />
-                      <Bar dataKey="objective_score" name="Objective Score">
+                      <Tooltip
+                        content={({ active, payload }) => {
+                          if (active && payload && payload.length) {
+                            const isBest = payload[0].payload.experiment_id === bestExperiment?.experiment_id;
+                            return (
+                              <div className="bg-white border border-gray-200 rounded shadow-lg p-2">
+                                <p className="text-sm font-semibold text-gray-900">{payload[0].payload.name}</p>
+                                <p className="text-sm text-gray-600">
+                                  Score: <span className="font-mono">{(payload[0].value as number).toFixed(4)}</span>
+                                </p>
+                                {isBest && (
+                                  <p className="text-xs text-green-600 font-semibold mt-1">⭐ Best Experiment</p>
+                                )}
+                              </div>
+                            );
+                          }
+                          return null;
+                        }}
+                      />
+                      <Bar dataKey="objective_score" name="Objective Score" label={({ x, y, width, value, index }) => {
+                        const isBest = chartData[index]?.experiment_id === bestExperiment?.experiment_id;
+                        if (isBest) {
+                          return (
+                            <text x={x + width / 2} y={y - 5} fill="#10b981" textAnchor="middle" fontSize={16}>
+                              ⭐
+                            </text>
+                          );
+                        }
+                        return null;
+                      }}>
                         {chartData.map((entry, index) => (
                           <Cell
                             key={`cell-${index}`}
