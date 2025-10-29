@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/services/api';
-import type { Task, Experiment } from '@/types/api';
+import type { Task } from '@/types/api';
+import toast from 'react-hot-toast';
 import {
   BarChart,
   Bar,
@@ -10,8 +11,6 @@ import {
   Tooltip,
   Legend,
   ResponsiveContainer,
-  ScatterChart,
-  Scatter,
   Cell,
 } from 'recharts';
 
@@ -43,11 +42,6 @@ export default function TaskResults({ task, onClose }: TaskResultsProps) {
 
   const successfulExperiments = experiments.filter((exp) => exp.status === 'success');
   const bestExperiment = experiments.find((exp) => exp.id === task.best_experiment_id);
-
-  // Helper function to check if a value is primitive (number, string, boolean, null)
-  const isPrimitive = (val: any): boolean => {
-    return val === null || (typeof val !== 'object' && typeof val !== 'function');
-  };
 
   // Helper function to format metric value for display
   const formatMetricValue = (value: any): string => {
@@ -81,7 +75,7 @@ export default function TaskResults({ task, onClose }: TaskResultsProps) {
   // Get all numeric metric keys from successful experiments
   const metricKeys = successfulExperiments.length > 0 && successfulExperiments[0].metrics
     ? Object.keys(successfulExperiments[0].metrics).filter(key =>
-        typeof successfulExperiments[0].metrics[key] === 'number'
+        successfulExperiments[0].metrics && typeof successfulExperiments[0].metrics[key] === 'number'
       )
     : [];
 
@@ -147,40 +141,72 @@ export default function TaskResults({ task, onClose }: TaskResultsProps) {
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div>
-                    <h4 className="text-sm font-medium text-green-700 mb-2">Parameters</h4>
-                    <div className="space-y-1">
-                      {Object.entries(bestExperiment.parameters).map(([key, value]) => (
-                        <div key={key} className="flex justify-between text-sm">
-                          <span className="text-gray-700">{key}:</span>
-                          <span className="font-mono text-gray-900">{String(value)}</span>
-                        </div>
-                      ))}
+                  {/* Parameters Section - Enhanced */}
+                  <div className="md:col-span-2">
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="text-sm font-medium text-green-700">Optimal Parameters</h4>
+                      <button
+                        onClick={() => {
+                          const paramsText = Object.entries(bestExperiment.parameters)
+                            .map(([key, value]) => `${key}=${value}`)
+                            .join(' ');
+                          navigator.clipboard.writeText(paramsText);
+                          toast.success('Parameters copied to clipboard!');
+                        }}
+                        className="text-xs px-2 py-1 bg-green-600 text-white rounded hover:bg-green-700 transition-colors"
+                        title="Copy parameters to clipboard"
+                      >
+                        Copy
+                      </button>
+                    </div>
+                    <div className="bg-white rounded-md p-3 border border-green-200">
+                      <div className="space-y-2">
+                        {Object.entries(bestExperiment.parameters).map(([key, value]) => (
+                          <div key={key} className="flex items-center justify-between">
+                            <span className="text-sm font-medium text-gray-700">{key}:</span>
+                            <span className="text-sm font-mono font-bold text-green-800 bg-green-50 px-2 py-1 rounded">
+                              {String(value)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   </div>
 
+                  {/* Score Section */}
                   <div>
-                    <h4 className="text-sm font-medium text-green-700 mb-2">Metrics</h4>
-                    <div className="space-y-1">
-                      {bestExperiment.metrics && Object.entries(bestExperiment.metrics).map(([key, value]) => (
-                        <div key={key} className="flex justify-between text-sm">
-                          <span className="text-gray-700">{key}:</span>
-                          <span className="font-mono text-gray-900">
-                            {formatMetricValue(value)}
-                          </span>
-                        </div>
-                      ))}
+                    <h4 className="text-sm font-medium text-green-700 mb-2">Objective Score</h4>
+                    <div className="bg-white rounded-md p-3 border border-green-200 text-center">
+                      <div className="text-4xl font-bold text-green-900">
+                        {bestExperiment.objective_score?.toFixed(4) || 'N/A'}
+                      </div>
+                      <p className="text-xs text-green-600 mt-2">
+                        {task.optimization?.objective === 'minimize_latency' && 'Lower is better'}
+                        {task.optimization?.objective === 'maximize_throughput' && 'Higher is better'}
+                        {task.optimization?.objective === 'balanced' && 'Balanced score'}
+                      </p>
                     </div>
-                  </div>
-
-                  <div>
-                    <h4 className="text-sm font-medium text-green-700 mb-2">Score</h4>
-                    <div className="text-3xl font-bold text-green-900">
-                      {bestExperiment.objective_score?.toFixed(4) || 'N/A'}
-                    </div>
-                    <p className="text-sm text-green-700 mt-1">Objective Score</p>
                   </div>
                 </div>
+
+                {/* Metrics Section - Full Width Below */}
+                {bestExperiment.metrics && Object.keys(bestExperiment.metrics).length > 0 && (
+                  <div className="mt-4 pt-4 border-t border-green-200">
+                    <h4 className="text-sm font-medium text-green-700 mb-2">Performance Metrics</h4>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                      {Object.entries(bestExperiment.metrics)
+                        .filter(([_, value]) => typeof value === 'number')
+                        .map(([key, value]) => (
+                          <div key={key} className="bg-white rounded-md p-2 border border-green-100">
+                            <div className="text-xs text-gray-500 mb-1">{key}</div>
+                            <div className="text-lg font-semibold text-gray-900">
+                              {formatMetricValue(value)}
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -220,11 +246,13 @@ export default function TaskResults({ task, onClose }: TaskResultsProps) {
                           return null;
                         }}
                       />
-                      <Bar dataKey="objective_score" name="Objective Score" label={({ x, y, width, value, index }) => {
+                      <Bar dataKey="objective_score" name="Objective Score" label={(props: any) => {
+                        const { x, y, width, index } = props;
+                        if (x === undefined || y === undefined || width === undefined || index === undefined) return null;
                         const isBest = chartData[index]?.experiment_id === bestExperiment?.experiment_id;
                         if (isBest) {
                           return (
-                            <text x={x + width / 2} y={y - 5} fill="#10b981" textAnchor="middle" fontSize={16}>
+                            <text x={Number(x) + Number(width) / 2} y={Number(y) - 5} fill="#10b981" textAnchor="middle" fontSize={16}>
                               ⭐
                             </text>
                           );

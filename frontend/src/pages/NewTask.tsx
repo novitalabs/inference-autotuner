@@ -72,11 +72,11 @@ export default function NewTask() {
       setDeploymentMode(taskToEdit.deployment_mode);
       setBaseRuntime(taskToEdit.base_runtime);
       setRuntimeImageTag(taskToEdit.runtime_image_tag || '');
-      
+
       // Model config
-      setModelIdOrPath(taskToEdit.model_config?.id_or_path || '');
-      setModelNamespace(taskToEdit.model_config?.namespace || 'autotuner');
-      
+      setModelIdOrPath(taskToEdit.model?.id_or_path || '');
+      setModelNamespace(taskToEdit.model?.namespace || 'autotuner');
+
       // Parameters - convert from API format to form format
       const params: ParamField[] = [];
       if (taskToEdit.parameters) {
@@ -89,25 +89,25 @@ export default function NewTask() {
       if (params.length > 0) {
         setParameters(params);
       }
-      
+
       // Optimization
-      if (taskToEdit.optimization_config) {
-        setStrategy(taskToEdit.optimization_config.strategy || 'grid_search');
-        setObjective(taskToEdit.optimization_config.objective || 'minimize_latency');
-        setMaxIterations(taskToEdit.optimization_config.max_iterations || 2);
-        setTimeoutPerIteration(taskToEdit.optimization_config.timeout_per_iteration || 600);
+      if (taskToEdit.optimization) {
+        setStrategy(taskToEdit.optimization.strategy || 'grid_search');
+        setObjective(taskToEdit.optimization.objective || 'minimize_latency');
+        setMaxIterations(taskToEdit.optimization.max_iterations || 2);
+        setTimeoutPerIteration(taskToEdit.optimization.timeout_per_iteration || 600);
       }
 
       // Benchmark
-      if (taskToEdit.benchmark_config) {
-        setBenchmarkTask(taskToEdit.benchmark_config.task || 'text-to-text');
-        setBenchmarkModelName(taskToEdit.benchmark_config.model_name || '');
-        setModelTokenizer(taskToEdit.benchmark_config.model_tokenizer || '');
-        setTrafficScenarios(taskToEdit.benchmark_config.traffic_scenarios?.join(', ') || 'D(100,100)');
-        setNumConcurrency(taskToEdit.benchmark_config.num_concurrency?.join(', ') || '1, 4');
-        setMaxTimePerIteration(taskToEdit.benchmark_config.max_time_per_iteration || 10);
-        setMaxRequestsPerIteration(taskToEdit.benchmark_config.max_requests_per_iteration || 50);
-        setTemperature(taskToEdit.benchmark_config.additional_params?.temperature?.toString() || '0.0');
+      if (taskToEdit.benchmark) {
+        setBenchmarkTask(taskToEdit.benchmark.task || 'text-to-text');
+        setBenchmarkModelName(taskToEdit.benchmark.model_name || '');
+        setModelTokenizer(taskToEdit.benchmark.model_tokenizer || '');
+        setTrafficScenarios(taskToEdit.benchmark.traffic_scenarios?.join(', ') || 'D(100,100)');
+        setNumConcurrency(taskToEdit.benchmark.num_concurrency?.join(', ') || '1, 4');
+        setMaxTimePerIteration(taskToEdit.benchmark.max_time_per_iteration || 10);
+        setMaxRequestsPerIteration(taskToEdit.benchmark.max_requests_per_iteration || 50);
+        setTemperature(taskToEdit.benchmark.additional_params?.temperature?.toString() || '0.0');
       }
     }
   }, [taskToEdit]);

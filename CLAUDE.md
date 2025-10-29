@@ -4,285 +4,354 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-The LLM Inference Autotuner is a prototype system for automatically tuning LLM inference engine parameters. It supports two deployment modes:
+The LLM Inference Autotuner is a system for automatically tuning LLM inference engine parameters. It supports dual deployment modes (Kubernetes/OME and standalone Docker) with a web UI for task management and background job processing.
 
-1. **OME Mode**: Kubernetes-based deployment using OME (Open Model Engine)
-2. **Docker Mode**: Standalone Docker containers (no Kubernetes required)
-
-The system runs grid search experiments across parameter combinations (e.g., `tp_size`, `mem_frac`), benchmarks each configuration using genai-bench, and identifies the optimal parameters.
+**Key Capabilities:**
+- Grid search experiments across parameter combinations (e.g., `tp-size`, `mem-fraction-static`)
+- Benchmarking with genai-bench for performance metrics
+- REST API with background task queue (ARQ + Redis)
+- SQLite database for persistence
+- React frontend for task management
 
 ## Architecture
 
-### Core Components
+### System Components
 
-**Orchestrator** (`src/run_autotuner.py`)
-- Main entry point and task coordinator
-- Reads JSON task files from `examples/`
-- Manages experiment lifecycle: deploy → benchmark → cleanup
-- Supports both OME and Docker modes
+The autotuner follows a **three-tier architecture**:
 
-**Controllers** (`src/controllers/`)
-- All controllers implement `BaseModelController` abstract interface
-- **OMEController**: Deploys InferenceServices via Kubernetes CRDs
-- **DockerController**: Manages Docker containers directly (GPU-enabled)
-- **BenchmarkController**: Kubernetes BenchmarkJob CRD execution
-- **DirectBenchmarkController**: Direct genai-bench CLI execution (supports both modes)
+1. **Presentation Layer**: React frontend (`frontend/`) + FastAPI REST API (`src/web/`)
+2. **Business Logic Layer**: Orchestrator (`src/orchestrator.py`) + Controllers (`src/controllers/`)
+3. **Deployment Layer**: Kubernetes/OME or Docker containers
 
-**Key Design Pattern**: Strategy pattern for deployment modes
-- Docker mode: `DockerController` + `DirectBenchmarkController` (no kubectl)
-- OME mode: `OMEController` + `BenchmarkController` OR `DirectBenchmarkController`
+### Core Design Patterns
 
-### Data Flow
+**Strategy Pattern for Deployment Modes:**
+- Controllers implement `BaseModelController` abstract interface
+- **OMEController** + **BenchmarkController**: Kubernetes InferenceService via CRDs
+- **DockerController** + **DirectBenchmarkController**: Standalone Docker containers
+- Controllers are selected at runtime via `deployment_mode` parameter
 
+**Async Task Queue Architecture:**
+- FastAPI accepts task creation requests synchronously
+- Task immediately enqueued to ARQ (Redis-backed queue)
+- ARQ worker (`src/web/workers/autotuner_worker.py`) processes tasks in background
+- Database tracks task/experiment status in real-time
+- Frontend polls for updates (WebSocket support TODO)
+
+**Experiment Lifecycle:**
 ```
-Task JSON → Orchestrator → Parameter Grid → For each config:
-  1. Controller.deploy_inference_service()
-  2. Controller.wait_for_ready()
-  3. BenchmarkController.run_benchmark()
-  4. Parse metrics & calculate objective score
-  5. Controller.delete_inference_service()
-→ Find best configuration → Save results/
+Task Created → Enqueued → Worker Picks Up → For Each Parameter Combination:
+  1. Create Experiment Record (status: PENDING)
+  2. Deploy Inference Service (status: DEPLOYING)
+  3. Wait for Service Ready
+  4. Run Benchmark (genai-bench CLI or K8s BenchmarkJob)
+  5. Parse Metrics & Calculate Objective Score
+  6. Update Experiment (status: SUCCESS/FAILED)
+  7. Cleanup Inference Service
+→ Mark Best Experiment → Complete Task
 ```
 
-## Running the Autotuner
+## Running the System
 
-### Docker Mode (Recommended for Development)
+### Development Commands
+
+**Backend (API + Worker):**
 ```bash
-# Quick test (no Kubernetes needed)
+# Start both web server and ARQ worker together
+./scripts/start_dev.sh
+
+# Or start them separately:
+cd src && python web/server.py              # Web server at http://localhost:8000
+./scripts/start_worker.sh                    # ARQ worker
+```
+
+**Frontend (React UI):**
+```bash
+cd frontend
+npm install                     # First time only
+npm run dev                     # Development server at http://localhost:5173
+npm run build                   # Production build
+npm run type-check              # TypeScript type checking
+npm run format                  # Prettier formatting
+```
+
+**CLI (Direct Execution):**
+```bash
+# Docker mode (standalone, no K8s required)
 python src/run_autotuner.py examples/docker_task.json --mode docker --direct
 
-# With verbose genai-bench output
-python src/run_autotuner.py examples/docker_task.json --mode docker --direct --verbose
-
-# Custom model path
-python src/run_autotuner.py examples/docker_task.json --mode docker --direct --model-path /data/models
-```
-
-**Note:** Docker containers are automatically removed after they stop for easy cleanup.
-
-### OME Mode (Production)
-```bash
-# Using Kubernetes BenchmarkJob CRD
-python src/run_autotuner.py examples/simple_task.json --mode ome
-
-# Using direct genai-bench CLI (faster, more reliable)
+# OME mode (Kubernetes + OME operator)
 python src/run_autotuner.py examples/simple_task.json --mode ome --direct
 
-# Custom kubeconfig
-python src/run_autotuner.py examples/simple_task.json --mode ome --kubeconfig ~/.kube/config
+# With verbose genai-bench output for debugging
+python src/run_autotuner.py examples/docker_task.json --mode docker --direct --verbose
+```
+
+### Worker Management
+
+**CRITICAL**: After editing any code in `src/orchestrator.py`, `src/controllers/`, or `src/web/workers/`, you **must restart the ARQ worker** for changes to take effect:
+
+```bash
+# Find and kill existing worker
+ps aux | grep arq
+kill <PID>
+
+# Restart worker
+./scripts/start_worker.sh
+```
+
+The web server (`src/web/server.py`) has hot-reload enabled, but ARQ workers do not.
+
+### Database Location
+
+All user data stored in XDG-compliant location:
+```
+~/.local/share/inference-autotuner/
+├── autotuner.db          # SQLite database (tasks, experiments, metrics)
+└── logs/
+    └── task_<id>.log     # Per-task execution logs
 ```
 
 ## Task Configuration
 
-Task JSON files define experiments. Key fields:
+Task JSON defines experiments. Critical fields:
 
 ```json
 {
   "task_name": "unique-identifier",
-  "model": {"id_or_path": "model-id-or-path", "namespace": "k8s-namespace-or-label"},
-  "base_runtime": "sglang" or "vllm",
-  "runtime_image_tag": "v0.5.2-cu126",  // Optional: Docker image tag (Docker mode only)
+  "model": {
+    "id_or_path": "llama-3-2-1b-instruct",  // Directory in /mnt/data/models/ OR HuggingFace ID
+    "namespace": "autotuner"                 // K8s namespace OR Docker label
+  },
+  "base_runtime": "sglang",                  // Runtime engine: "sglang" or "vllm"
+  "runtime_image_tag": "v0.5.2-cu126",       // Docker mode only: image version
   "parameters": {
-    "tp-size": [1, 2],
+    "tp-size": [1, 2, 4],                    // Simple format (recommended)
     "mem-fraction-static": [0.7, 0.8, 0.9],
     "schedule-policy": ["lpm", "fcfs"]
   },
   "optimization": {
     "strategy": "grid_search",
-    "objective": "minimize_latency",
+    "objective": "minimize_latency",         // or "maximize_throughput"
     "max_iterations": 10,
     "timeout_per_iteration": 600
   },
   "benchmark": {
     "task": "text-to-text",
-    "model_name": "display-name",  // Auto-filled from model.id_or_path if using web UI
-    "model_tokenizer": "HuggingFace/model-id",  // Auto-filled if empty in web UI
-    "traffic_scenarios": ["D(100,100)"],
-    "num_concurrency": [1, 4],
-    "additional_params": {"temperature": 0.0}
+    "model_name": "Llama-3.2-1B-Instruct",   // Display name (auto-filled in UI)
+    "model_tokenizer": "meta-llama/Llama-3.2-1B-Instruct",  // HF tokenizer ID
+    "traffic_scenarios": ["D(100,100)"],     // genai-bench traffic pattern
+    "num_concurrency": [1, 4, 8],
+    "additional_params": {"temperature": 0.0}  // Must be correct types (float not string)
   }
 }
 ```
 
-**Model Configuration**:
-- `model.id_or_path`: Can be either:
-  - **Local path**: Directory name in `/mnt/data/models/` (e.g., `llama-3-2-1b-instruct`)
-  - **HuggingFace ID**: Full model ID (e.g., `meta-llama/Llama-3.2-1B-Instruct`)
-- `model.namespace`: Kubernetes namespace (OME mode) or label (Docker mode)
-
-**Benchmark Auto-Fill** (Web UI only):
-- `benchmark.model_name`: Editable field, auto-filled with last segment of `model.id_or_path` (e.g., "meta-llama/Llama-3.2-1B-Instruct" → "Llama-3.2-1B-Instruct")
-- `benchmark.model_tokenizer`: Editable field, auto-filled with full `model.id_or_path` if left empty (linked to Model ID/Path field)
-
-**Parameters Format**:
-- **Simple format** (recommended): `"param-name": [value1, value2, ...]`
-  - Use actual runtime parameter names (e.g., `tp-size`, `mem-fraction-static`)
-  - Supports arbitrary engine-specific parameters
-  - Values as direct array
-- **Legacy format** (backward compatible): `"param_name": {"type": "choice", "values": [...]}`
-  - Structured with explicit type specification
-
-**Important Notes**:
-- Parameter names should use the exact CLI flag format (e.g., `tp-size` not `tp_size`)
-- The `--` prefix is added automatically if not present
-- All parameters are passed directly to the runtime engine
-- `additional_params` values must be correct types (float 0.0, not string "0.0")
-- **Docker mode only**: Use `runtime_image_tag` to specify Docker image version (e.g., "v0.5.2-cu126", "latest")
-  - If not specified, defaults to hardcoded version in DockerController
-  - Example: `"runtime_image_tag": "v0.5.3-cu126"` will use `lmsysorg/sglang:v0.5.3-cu126`
-  - Images are automatically pulled with progress logging if not cached locally
-  - First run with new image may take 5-10 minutes (SGLang images are ~5-10GB)
-
-## Installation & Setup
-
-### Dependencies
-```bash
-pip install -r requirements.txt
-# Installs: kubernetes, pyyaml, jinja2, docker, requests
-```
-
-### For Docker Mode
-```bash
-# 1. Verify Docker GPU access
-docker run --rm --gpus all nvidia/cuda:12.1.0-base-ubuntu22.04 nvidia-smi
-
-# 2. Download model
-mkdir -p /mnt/data/models
-huggingface-cli download meta-llama/Llama-3.2-1B-Instruct \
-  --local-dir /mnt/data/models/llama-3-2-1b-instruct
-
-# 3. Install genai-bench
-pip install genai-bench
-```
-
-### For OME Mode
-```bash
-# 1. Install OME (full Kubernetes setup)
-./install.sh --install-ome
-
-# 2. Verify OME installation
-kubectl get pods -n ome
-kubectl get crd | grep ome.io
-
-# 3. Apply model/runtime resources
-kubectl apply -f config/examples/
-```
+**Parameter Format Notes:**
+- Use exact CLI flag format: `tp-size` not `tp_size` (hyphens not underscores)
+- The `--` prefix is added automatically
+- Simple format: `"param-name": [val1, val2]` (recommended)
+- Legacy format: `"param_name": {"type": "choice", "values": [...]}` (backward compatible)
 
 ## Critical Implementation Details
 
 ### Docker Mode Specifics
 
-**GPU Access**: Docker SDK requires:
-- Command as list (not string): `command_str.split()`
-- DeviceRequest with device_ids: `docker.types.DeviceRequest(device_ids=['0'], capabilities=[['gpu']])`
-- Do NOT set `CUDA_VISIBLE_DEVICES` env var (conflicts with device_requests)
+**GPU Access** (src/controllers/docker_controller.py):
+- Command must be a **list**, not string: `command_str.split()`
+- Use `docker.types.DeviceRequest(device_ids=['0'], capabilities=[['gpu']])`
+- **DO NOT** set `CUDA_VISIBLE_DEVICES` env var (conflicts with `device_requests`)
 
-**Port Management**: Auto-allocates ports 8000-8100 to avoid conflicts between experiments
+**Port Management:**
+- Auto-allocates ports 8000-8100 to avoid conflicts
+- Each experiment uses unique port
 
-**Container Lifecycle**: Containers are manually removed after cleanup
-- Container logs are retrieved before removal and saved to task log file
-- Logs preserved at `~/.local/share/inference-autotuner/logs/task_{task_id}.log`
-- Containers are stopped and removed during cleanup phase
+**Container Lifecycle:**
+- Containers created with `auto_remove=True` (cleanup on stop)
+- Logs retrieved before removal, saved to `~/.local/share/inference-autotuner/logs/task_<id>.log`
 - Check running containers: `docker ps`
 
-**Model Path**: Maps host path to `/model` inside container
-- Task JSON `model.name` → `/mnt/data/models/{name}` → mounted as `/model`
+**Model Path Mapping:**
+```
+Task JSON "model.id_or_path" → /mnt/data/models/{id_or_path} → mounted as /model in container
+```
 
 ### OME Mode Specifics
 
-**Templates**: Uses Jinja2 templates in `config/`
-- Labels must be strings: `"{{ experiment_id }}"` not `{{ experiment_id }}`
-- Environment variables: `$(ENV_VAR)` syntax for K8s expansion
+**Kubernetes Templates** (src/templates/):
+- Uses Jinja2 for InferenceService/BenchmarkJob YAML generation
+- Labels must be **strings**: `"{{ experiment_id }}"` not `{{ experiment_id }}`
+- Environment variables use K8s syntax: `$(ENV_VAR)`
 
-**Benchmark Modes**:
-1. **BenchmarkJob CRD**: Uses OME's native job runner (requires working Docker image)
-2. **Direct CLI**: Uses local genai-bench with `kubectl port-forward` (recommended)
+**Benchmark Execution Modes:**
+1. **BenchmarkJob CRD** (`BenchmarkController`): Native OME job runner (requires genai-bench Docker image)
+2. **Direct CLI** (`DirectBenchmarkController`): Local genai-bench + `kubectl port-forward` (recommended)
 
 ### Benchmark Execution
 
-**DirectBenchmarkController** has two modes:
-- **Docker mode**: Direct URL passed via `endpoint_url` parameter (skips port-forward)
-- **OME mode**: Automatic `kubectl port-forward` setup if `endpoint_url=None`
+**DirectBenchmarkController** (src/controllers/direct_benchmark_controller.py):
+- **Docker mode**: Direct URL via `endpoint_url` parameter
+- **OME mode**: Automatic `kubectl port-forward` if `endpoint_url=None`
+- Use `--verbose` flag for real-time genai-bench output (debugging)
 
-**Verbose Output**: Use `--verbose` flag to stream genai-bench output in real-time
-- Useful for debugging connection issues
-- Shows progress during long benchmarks (~4 minutes per experiment)
+### Web API Architecture
+
+**Database Models** (src/web/db/models.py):
+- `Task`: Top-level tuning task with config, status, timing
+- `Experiment`: Individual parameter combination trial linked to task
+- Status enums: `PENDING → RUNNING → COMPLETED/FAILED`
+
+**Key Routes** (src/web/routes/):
+- `POST /api/tasks/`: Create task (synchronous, returns immediately)
+- `POST /api/tasks/{id}/start`: Enqueue task to ARQ worker
+- `GET /api/tasks/{id}`: Get task status and timing
+- `GET /api/experiments/task/{id}`: Get all experiments for task with metrics
+
+**ARQ Worker Configuration** (src/web/workers/autotuner_worker.py):
+- `max_jobs = 5`: Maximum concurrent autotuning tasks
+- `job_timeout = 7200`: 2 hours per task
+- Logs redirected to both file and console via `StreamToLogger` class
+- **CRITICAL**: Worker must be restarted after code changes
 
 ## Common Issues
 
 ### Docker Mode
-1. **"No accelerator available"**: Command format issue - ensure command is split into list
-2. **Model not found**: Check `/mnt/data/models/` path matches task JSON `model.name`
-3. **Port conflicts**: Autotuner auto-allocates, but check for existing services on 8000-8100
+1. **"No accelerator available"**: Command not split into list properly
+2. **Model not found**: Path mismatch between task JSON and `/mnt/data/models/`
+3. **Port already in use**: Check existing services on ports 8000-8100
 
 ### OME Mode
 1. **InferenceService not ready**: Check `kubectl describe inferenceservice -n autotuner`
-2. **GPU resources**: Minikube Docker driver cannot access GPUs (use `--driver=none`)
-3. **BenchmarkJob fails**: Use `--direct` mode to bypass genai-bench image issues
+2. **GPU resources unavailable**: Minikube Docker driver doesn't support GPUs (use `--driver=none`)
+3. **BenchmarkJob fails**: Use `--direct` mode to bypass Docker image issues
 
 ### Both Modes
-1. **genai-bench parameter errors**: Ensure `additional_params` uses correct types (floats, not strings)
-2. **Missing API key**: genai-bench requires `--api-key dummy` even for local servers
-3. **Network unreachable**: genai-bench tries to fetch tokenizer from HuggingFace - use offline mode or proxy
+1. **genai-bench type errors**: `additional_params` must use correct types (float 0.0, not string "0.0")
+2. **Missing API key error**: genai-bench requires `--api-key dummy` even for local servers
+3. **Network unreachable**: genai-bench fetches tokenizer from HuggingFace - use proxy if needed
+
+### Web API
+1. **Task stuck in RUNNING**: Check ARQ worker logs at `logs/worker.log`
+2. **Worker not processing tasks**: Verify Redis is running (`docker ps | grep redis`)
+3. **Changes not taking effect**: Restart ARQ worker after code modifications
 
 ## Development Workflow
 
-1. **Test with Docker mode first**: Faster iteration, no Kubernetes overhead
-   ```bash
-   python src/run_autotuner.py examples/docker_task.json --mode docker --direct --verbose
-   ```
+1. **Start services**: `./scripts/start_dev.sh` (backend) + `cd frontend && npm run dev` (frontend)
+2. **Make code changes**: Edit files in `src/` or `frontend/src/`
+3. **Restart ARQ worker** if changes affect `src/orchestrator.py`, `src/controllers/`, or `src/web/workers/`
+4. **Test with Docker mode first**: Faster iteration than OME mode
+5. **Check logs**: Worker logs at `logs/worker.log`, task logs at `~/.local/share/inference-autotuner/logs/task_<id>.log`
+6. **View results**: Database at `~/.local/share/inference-autotuner/autotuner.db`
 
-2. **Reduce workload for testing**: Edit task JSON to reduce experiments
-   ```json
-   "max_iterations": 2,
-   "max_requests_per_iteration": 10
-   ```
+### Testing Shortcuts
 
-3. **Monitor GPU usage**: `nvidia-smi` to check memory allocation
-   - Llama-3.2-1B requires ~3GB GPU memory with `mem_frac=0.7`
+**Reduce experiment count** for faster testing:
+```json
+{
+  "parameters": {
+    "tp-size": [1],                    // Single value instead of [1, 2, 4]
+    "mem-fraction-static": [0.85]
+  },
+  "optimization": {
+    "max_iterations": 1                // Limit iterations
+  },
+  "benchmark": {
+    "num_concurrency": [1]             // Single concurrency level
+  }
+}
+```
 
-4. **Check results**: Results saved to `results/{task_name}_results.json`
-
-5. **Inspect benchmark outputs**: `benchmark_results/{task_name}-exp{id}/`
+**Monitor GPU usage**: `watch -n 1 nvidia-smi` (Llama-3.2-1B requires ~3GB GPU memory)
 
 ## Project Structure
 
 ```
-src/
-  run_autotuner.py           # Main orchestrator
-  controllers/
-    base_controller.py       # Abstract interface
-    docker_controller.py     # Docker deployment
-    ome_controller.py        # Kubernetes/OME deployment
-    direct_benchmark_controller.py  # genai-bench CLI execution
-    benchmark_controller.py  # K8s BenchmarkJob CRD
-  utils/
-    optimizer.py             # Parameter grid generation
+inference-autotuner/
+├── src/                           # Backend Python code
+│   ├── run_autotuner.py           # CLI entry point
+│   ├── orchestrator.py            # Core experiment coordination logic
+│   ├── controllers/               # Deployment strategy implementations
+│   │   ├── base_controller.py     # Abstract interface
+│   │   ├── docker_controller.py   # Docker deployment
+│   │   ├── ome_controller.py      # Kubernetes/OME deployment
+│   │   ├── direct_benchmark_controller.py  # genai-bench CLI execution
+│   │   └── benchmark_controller.py         # K8s BenchmarkJob CRD
+│   ├── utils/
+│   │   └── optimizer.py           # Parameter grid generation
+│   ├── templates/                 # Jinja2 templates for K8s resources
+│   └── web/                       # FastAPI web application
+│       ├── app.py                 # FastAPI app instance
+│       ├── server.py              # Development server (hot reload enabled)
+│       ├── config.py              # Settings (env vars, paths)
+│       ├── routes/                # API endpoints
+│       │   ├── tasks.py           # Task CRUD + start
+│       │   ├── experiments.py     # Experiment queries
+│       │   ├── docker.py          # Docker-specific endpoints
+│       │   └── system.py          # Health checks
+│       ├── db/                    # Database layer
+│       │   ├── models.py          # SQLAlchemy ORM models
+│       │   └── session.py         # Database connection management
+│       ├── schemas/               # Pydantic request/response schemas
+│       └── workers/               # ARQ background task workers
+│           ├── autotuner_worker.py  # Main task execution logic
+│           └── client.py          # ARQ client for enqueuing
+├── frontend/                      # React UI
+│   ├── src/
+│   │   ├── components/            # React components
+│   │   ├── api/                   # API client (axios)
+│   │   ├── types/                 # TypeScript interfaces
+│   │   └── main.tsx               # App entry point
+│   └── package.json               # npm dependencies
+├── examples/                      # Task JSON configurations
+│   ├── docker_task.json           # Docker mode example
+│   └── simple_task.json           # OME mode example
+├── config/                        # Kubernetes resources (OME mode)
+├── scripts/                       # Helper scripts
+│   ├── start_dev.sh               # Start web + worker together
+│   └── start_worker.sh            # Start ARQ worker only
+├── docs/                          # Documentation
+├── requirements.txt               # Python dependencies
+└── install.sh                     # Installation script (with optional OME setup)
+```
 
-examples/                    # Task JSON files
-  docker_task.json          # Docker mode example
-  simple_task.json          # OME mode example
+## Environment Variables
 
-config/                      # K8s resource templates (OME mode)
-results/                     # Experiment results (JSON)
-benchmark_results/           # genai-bench outputs
-docs/                        # Detailed documentation
+Configuration via `.env` file or environment (see `src/web/config.py`):
+
+```bash
+# Database
+DATABASE_URL=sqlite+aiosqlite:////home/user/.local/share/inference-autotuner/autotuner.db
+
+# Redis (for ARQ)
+REDIS_HOST=localhost
+REDIS_PORT=6379
+REDIS_DB=0
+
+# Docker mode
+DOCKER_MODEL_PATH=/mnt/data/models
+
+# Network proxy (for HuggingFace downloads)
+HTTP_PROXY=http://172.17.0.1:1081
+HTTPS_PROXY=http://172.17.0.1:1081
+HF_TOKEN=<your-token>            # Optional: for gated models
 ```
 
 ## Documentation
 
-- `README.md`: Installation and usage
+- `README.md`: Installation and usage overview
 - `docs/DOCKER_MODE.md`: Docker deployment guide
 - `docs/OME_INSTALLATION.md`: Kubernetes/OME setup
+- `docs/TROUBLESHOOTING.md`: Common issues and solutions
 - `docs/GENAI_BENCH_LOGS.md`: Viewing benchmark logs
-- `agentlog.md`: Development history and troubleshooting notes
+- `agentlog.md`: Development history and debugging notes
 
 ## Meta-Instructions
 
-**Important constraints to remember**:
-1. Kubernetes Dashboard runs on port 8443 - avoid conflicts
-1. Update `agentlog.md` when mini-milestones are accomplished
-1. Place new .md documents in `./docs/`
-1. Look up `docs/TROUBLESHOOTING.md` for reference when encountering issues, and maintain it when resolved a new issue
-1. Restart ARQ worker process after editing relevant code files
-1. Following further instuctions in `CLAUDE.local.md` if present
+**Critical constraints**:
+1. **Kubernetes Dashboard on port 8443** - do not use this port
+2. **Update `agentlog.md`** when mini-milestones are accomplished
+3. **Place new .md docs in `./docs/`**
+4. **Consult `docs/TROUBLESHOOTING.md`** when encountering issues, maintain it when resolving new issues
+5. **Restart ARQ worker** after editing relevant code files
+6. **Follow `CLAUDE.local.md`** if present for further local instructions

@@ -540,7 +540,7 @@ function TaskDetailModal({ task, onClose }: { task: Task; onClose: () => void })
 						</h3>
 						<div className="bg-gray-50 rounded-lg p-4">
 							<pre className="text-sm text-gray-900 overflow-x-auto">
-								{JSON.stringify(task.model_config, null, 2)}
+								{JSON.stringify(task.model, null, 2)}
 							</pre>
 						</div>
 					</div>
@@ -564,7 +564,7 @@ function TaskDetailModal({ task, onClose }: { task: Task; onClose: () => void })
 						</h3>
 						<div className="bg-gray-50 rounded-lg p-4">
 							<pre className="text-sm text-gray-900 overflow-x-auto">
-								{JSON.stringify(task.optimization_config, null, 2)}
+								{JSON.stringify(task.optimization, null, 2)}
 							</pre>
 						</div>
 					</div>
@@ -576,7 +576,7 @@ function TaskDetailModal({ task, onClose }: { task: Task; onClose: () => void })
 						</h3>
 						<div className="bg-gray-50 rounded-lg p-4">
 							<pre className="text-sm text-gray-900 overflow-x-auto">
-								{JSON.stringify(task.benchmark_config, null, 2)}
+								{JSON.stringify(task.benchmark, null, 2)}
 							</pre>
 						</div>
 					</div>

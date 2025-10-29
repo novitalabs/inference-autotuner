@@ -5,12 +5,12 @@ export interface Task {
 	task_name: string;
 	description: string | null;
 	status: TaskStatus;
-	model_config: Record<string, any>;
+	model: Record<string, any>;  // API returns as "model", not "model_config"
 	base_runtime: string;
 	runtime_image_tag: string | null;
 	parameters: Record<string, any>;
-	optimization_config: Record<string, any>;
-	benchmark_config: Record<string, any>;
+	optimization: Record<string, any>;  // API returns as "optimization", not "optimization_config"
+	benchmark: Record<string, any>;  // API returns as "benchmark", not "benchmark_config"
 	deployment_mode: string;
 	total_experiments: number;
 	successful_experiments: number;

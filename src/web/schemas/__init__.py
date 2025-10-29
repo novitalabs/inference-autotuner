@@ -53,18 +53,18 @@ class TaskUpdate(BaseModel):
 class TaskResponse(BaseModel):
 	"""Schema for task response."""
 
-	model_config = {"from_attributes": True}
+	model_config = {"from_attributes": True, "populate_by_name": True}
 
 	id: int
 	task_name: str
 	description: Optional[str]
 	status: TaskStatusEnum
-	model: Dict[str, Any] = Field(alias="model_config")
+	model: Dict[str, Any] = Field(alias="model_config", serialization_alias="model")
 	base_runtime: str
 	runtime_image_tag: Optional[str]
 	parameters: Dict[str, Any]
-	optimization: Dict[str, Any] = Field(alias="optimization_config")
-	benchmark: Dict[str, Any] = Field(alias="benchmark_config")
+	optimization: Dict[str, Any] = Field(alias="optimization_config", serialization_alias="optimization")
+	benchmark: Dict[str, Any] = Field(alias="benchmark_config", serialization_alias="benchmark")
 	deployment_mode: str
 	total_experiments: int
 	successful_experiments: int
@@ -87,6 +87,7 @@ class TaskListResponse(BaseModel):
 	base_runtime: str
 	total_experiments: int
 	successful_experiments: int
+	best_experiment_id: Optional[int]
 	created_at: datetime
 	elapsed_time: Optional[float]
 
