@@ -284,4 +284,5 @@ docs/                        # Detailed documentation
 1. Update `agentlog.md` when mini-milestones are accomplished
 1. Place new .md documents in `./docs/`
 1. Look up `docs/TROUBLESHOOTING.md` for reference when encountering issues, and maintain it when resolved a new issue
+1. Restart ARQ worker process after editing relevant code files
 1. Following further instuctions in `CLAUDE.local.md` if present

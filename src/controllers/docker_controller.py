@@ -22,11 +22,15 @@ from .base_controller import BaseModelController
 class DockerController(BaseModelController):
 	"""Controller for managing standalone Docker container deployments."""
 
-	def __init__(self, model_base_path: str = "/mnt/data/models"):
+	def __init__(self, model_base_path: str = "/mnt/data/models", http_proxy: str = "", https_proxy: str = "", no_proxy: str = "", hf_token: str = ""):
 		"""Initialize the Docker controller.
 
 		Args:
 		    model_base_path: Base path where models are stored on the host
+		    http_proxy: HTTP proxy URL (optional)
+		    https_proxy: HTTPS proxy URL (optional)
+		    no_proxy: Comma-separated list of hosts to bypass proxy (optional)
+		    hf_token: HuggingFace access token for gated models (optional)
 
 		Note:
 		    Container logs are retrieved before deletion and saved to task log file.
@@ -45,6 +49,19 @@ class DockerController(BaseModelController):
 
 		self.model_base_path = Path(model_base_path)
 		self.containers = {}  # Track containers by service_id
+
+		# Store proxy settings
+		self.http_proxy = http_proxy
+		self.https_proxy = https_proxy
+		self.no_proxy = no_proxy
+
+		# Store HuggingFace token
+		self.hf_token = hf_token
+
+		if self.http_proxy or self.https_proxy:
+			print(f"[Docker] Proxy configured - HTTP: {self.http_proxy or 'None'}, HTTPS: {self.https_proxy or 'None'}")
+			if self.no_proxy:
+				print(f"[Docker] No proxy for: {self.no_proxy}")
 
 	def deploy_inference_service(
 		self,
@@ -166,6 +183,37 @@ class DockerController(BaseModelController):
 			# Check if image exists locally, pull if not
 			self._ensure_image_available(runtime_config["image"])
 
+			# Prepare environment variables
+			env_vars = {
+				"MODEL_PATH": model_identifier,
+				"HF_HOME": "/root/.cache/huggingface"  # Cache directory for downloaded models
+				# Note: Don't set CUDA_VISIBLE_DEVICES as it conflicts with device_requests
+			}
+
+			# Add proxy settings if configured
+			if self.http_proxy:
+				env_vars["HTTP_PROXY"] = self.http_proxy
+				env_vars["http_proxy"] = self.http_proxy
+			if self.https_proxy:
+				env_vars["HTTPS_PROXY"] = self.https_proxy
+				env_vars["https_proxy"] = self.https_proxy
+			if self.no_proxy:
+				env_vars["NO_PROXY"] = self.no_proxy
+				env_vars["no_proxy"] = self.no_proxy
+
+			# Add HuggingFace token if configured
+			if self.hf_token:
+				env_vars["HF_TOKEN"] = self.hf_token
+				env_vars["HUGGING_FACE_HUB_TOKEN"] = self.hf_token  # Alternative name some libraries use
+
+			# Debug: Print env vars being passed to container
+			print(f"[Docker] Environment variables to be set in container:")
+			for key, value in env_vars.items():
+				if "proxy" in key.lower() or "token" in key.lower():
+					# Mask token value for security
+					display_value = "***" if "token" in key.lower() and value else value
+					print(f"[Docker]   {key}={display_value}")
+
 			# Create and start container
 			container = self.client.containers.run(
 				image=runtime_config["image"],
@@ -175,11 +223,7 @@ class DockerController(BaseModelController):
 				device_requests=[docker.types.DeviceRequest(device_ids=gpu_devices, capabilities=[["gpu"]])],
 				ports={"8080/tcp": host_port},
 				volumes=volumes,  # Use conditional volumes (empty for HuggingFace models)
-				environment={
-					"MODEL_PATH": model_identifier,
-					"HF_HOME": "/root/.cache/huggingface"  # Cache directory for downloaded models
-					# Note: Don't set CUDA_VISIBLE_DEVICES as it conflicts with device_requests
-				},
+				environment=env_vars,
 				shm_size="16g",  # Shared memory for multi-process inference
 				remove=False,  # Don't auto-remove - we need to retrieve logs first
 			)
@@ -193,6 +237,20 @@ class DockerController(BaseModelController):
 
 			print(f"[Docker] Container '{container_name}' started (ID: {container.short_id})")
 			print(f"[Docker] Service URL: http://localhost:{host_port}")
+
+			# Verify proxy settings in container - inspect via Docker API
+			try:
+				container.reload()  # Refresh container info
+				container_env = container.attrs.get('Config', {}).get('Env', [])
+				proxy_env = [env for env in container_env if 'proxy' in env.lower()]
+				if proxy_env:
+					print(f"[Docker] Proxy environment variables in container (from Docker API):")
+					for env in proxy_env:
+						print(f"[Docker]   {env}")
+				else:
+					print(f"[Docker] No proxy environment variables found in container (via Docker API)")
+			except Exception as e:
+				print(f"[Docker] Could not inspect container environment: {e}")
 
 			return service_id
 

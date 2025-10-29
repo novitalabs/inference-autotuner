@@ -17,7 +17,11 @@ def get_default_database_url() -> str:
 class Settings(BaseSettings):
 	"""Application settings."""
 
-	model_config = SettingsConfigDict(env_file=".env", case_sensitive=False)
+	model_config = SettingsConfigDict(
+		env_file=str(Path(__file__).parent.parent.parent / ".env"),
+		env_file_encoding='utf-8',
+		case_sensitive=False
+	)
 
 	# Application
 	app_name: str = "LLM Inference Autotuner API"
@@ -45,6 +49,14 @@ class Settings(BaseSettings):
 	# Autotuner
 	docker_model_path: str = "/mnt/data/models"
 	deployment_mode: str = "docker"
+
+	# Proxy settings (optional)
+	http_proxy: str = Field(default="", description="HTTP proxy URL (e.g., http://proxy.example.com:8080)")
+	https_proxy: str = Field(default="", description="HTTPS proxy URL")
+	no_proxy: str = Field(default="localhost,127.0.0.1", description="Comma-separated list of hosts to bypass proxy")
+
+	# HuggingFace Token (optional, required for gated models)
+	hf_token: str = Field(default="", description="HuggingFace access token for downloading gated models")
 
 
 @lru_cache()

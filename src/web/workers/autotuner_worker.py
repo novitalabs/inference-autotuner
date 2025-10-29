@@ -65,13 +65,15 @@ def setup_task_logging(task_id: int):
 	logger = logging.getLogger(f"task_{task_id}")
 	logger.setLevel(logging.DEBUG)
 	logger.handlers.clear()  # Remove any existing handlers
+	logger.propagate = False  # CRITICAL: Don't propagate to parent loggers to avoid recursion
 
 	# Create file handler
 	file_handler = logging.FileHandler(log_file, mode="a")
 	file_handler.setLevel(logging.DEBUG)
 
-	# Create console handler (still print to stdout for worker monitoring)
-	console_handler = logging.StreamHandler(sys.stdout)
+	# Create console handler - IMPORTANT: Use sys.__stdout__ (the true original)
+	# sys.__stdout__ is saved by Python at startup and is never redirected
+	console_handler = logging.StreamHandler(sys.__stdout__)
 	console_handler.setLevel(logging.INFO)
 
 	# Create formatter
@@ -147,6 +149,10 @@ async def run_autotuning_task(ctx: Dict[str, Any], task_id: int) -> Dict[str, An
 				use_direct_benchmark=True,
 				docker_model_path=settings.docker_model_path,
 				verbose=False,
+				http_proxy=settings.http_proxy,
+				https_proxy=settings.https_proxy,
+				no_proxy=settings.no_proxy,
+				hf_token=settings.hf_token,
 			)
 
 			# Run experiments

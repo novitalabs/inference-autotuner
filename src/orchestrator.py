@@ -30,6 +30,10 @@ class AutotunerOrchestrator:
 		use_direct_benchmark: bool = False,
 		docker_model_path: str = "/mnt/data/models",
 		verbose: bool = False,
+		http_proxy: str = "",
+		https_proxy: str = "",
+		no_proxy: str = "",
+		hf_token: str = "",
 	):
 		"""Initialize the orchestrator.
 
@@ -39,6 +43,9 @@ class AutotunerOrchestrator:
 		    use_direct_benchmark: If True, use direct genai-bench CLI instead of K8s BenchmarkJob
 		    docker_model_path: Base path for models in Docker mode
 		    verbose: If True, stream genai-bench output in real-time
+		    http_proxy: HTTP proxy URL for containers (optional)
+		    https_proxy: HTTPS proxy URL for containers (optional)
+		    no_proxy: Comma-separated list of hosts to bypass proxy (optional)
 		"""
 		self.deployment_mode = deployment_mode.lower()
 		self.use_direct_benchmark = use_direct_benchmark
@@ -46,7 +53,13 @@ class AutotunerOrchestrator:
 		# Initialize model deployment controller based on mode
 		if self.deployment_mode == "docker":
 			print("[Config] Deployment mode: Standalone Docker")
-			self.model_controller = DockerController(model_base_path=docker_model_path)
+			self.model_controller = DockerController(
+				model_base_path=docker_model_path,
+				http_proxy=http_proxy,
+				https_proxy=https_proxy,
+				no_proxy=no_proxy,
+				hf_token=hf_token
+			)
 			# Docker mode always uses direct benchmark (no K8s)
 			self.use_direct_benchmark = True
 			self.benchmark_controller = DirectBenchmarkController(verbose=verbose)
