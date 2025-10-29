@@ -95,6 +95,11 @@ class ApiClient {
 		return data;
 	}
 
+	async updateTask(id: number, task: TaskCreate): Promise<Task> {
+		const { data} = await this.client.put(`/tasks/${id}`, task);
+		return data;
+	}
+
 	async startTask(id: number): Promise<{ status: string; message: string; job_id: string }> {
 		const { data } = await this.client.post(`/tasks/${id}/start`);
 		return data;
@@ -110,7 +115,7 @@ class ApiClient {
 		return data;
 	}
 
-	async updateTask(id: number, updates: { description?: string }): Promise<Task> {
+	async patchTask(id: number, updates: { description?: string }): Promise<Task> {
 		const { data } = await this.client.patch(`/tasks/${id}`, updates);
 		return data;
 	}

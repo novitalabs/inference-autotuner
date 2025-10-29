@@ -111,6 +111,52 @@ async def update_task(task_id: int, task_update: TaskUpdate, db: AsyncSession = 
 	return task
 
 
+@router.put("/{task_id}", response_model=TaskResponse)
+async def replace_task(task_id: int, task_data: TaskCreate, db: AsyncSession = Depends(get_db)):
+	"""Replace task configuration (for editing)."""
+	result = await db.execute(select(Task).where(Task.id == task_id))
+	task = result.scalar_one_or_none()
+
+	if not task:
+		raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Task {task_id} not found")
+
+	# Check if new task name conflicts with another task (not this one)
+	if task_data.task_name != task.task_name:
+		result = await db.execute(select(Task).where(Task.task_name == task_data.task_name))
+		existing_task = result.scalar_one_or_none()
+
+		if existing_task:
+			raise HTTPException(
+				status_code=status.HTTP_400_BAD_REQUEST,
+				detail=f"Task '{task_data.task_name}' already exists"
+			)
+
+	# Only allow editing if task is not running
+	if task.status == TaskStatus.RUNNING:
+		raise HTTPException(
+			status_code=status.HTTP_400_BAD_REQUEST,
+			detail="Cannot edit a running task"
+		)
+
+	# Update all fields
+	task.task_name = task_data.task_name
+	task.description = task_data.description
+	task.model_config = task_data.model
+	task.base_runtime = task_data.base_runtime
+	task.runtime_image_tag = task_data.runtime_image_tag
+	task.parameters = task_data.parameters
+	task.optimization_config = task_data.optimization
+	task.benchmark_config = task_data.benchmark
+	task.deployment_mode = task_data.deployment_mode
+	# Keep status and timestamps
+
+	# Explicitly mark as modified and commit
+	db.add(task)
+	await db.commit()
+	await db.refresh(task)
+	return task
+
+
 @router.delete("/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_task(task_id: int, db: AsyncSession = Depends(get_db)):
 	"""Delete task."""

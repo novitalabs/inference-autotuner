@@ -147,15 +147,13 @@ export default function NewTask() {
 
   const createTaskMutation = useMutation({
     mutationFn: async (data: TaskFormData) => {
-      // Create new task
-      const newTask = await apiClient.createTask(data);
-      
-      // If editing, delete old task after successful creation
       if (originalTask) {
-        await apiClient.deleteTask(originalTask.id);
+        // Update existing task
+        return await apiClient.updateTask(originalTask.id, data);
+      } else {
+        // Create new task
+        return await apiClient.createTask(data);
       }
-      
-      return newTask;
     },
     onSuccess: (response) => {
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
