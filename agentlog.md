@@ -10628,3 +10628,334 @@ The changes demonstrate good error handling, proper lifecycle management, and at
 </details>
 
 ---
+
+## Environment Variables and Proxy Configuration
+
+> Add support for environment variables (.env file) including proxy settings and HuggingFace token for Docker containers.
+
+<details>
+<summary>Implemented .env configuration with proxy support and HF token for containers</summary>
+
+### Session Overview
+
+Added comprehensive environment variable support to allow Docker containers to access external networks through proxies and authenticate with HuggingFace for gated models. The implementation provides a clean way to configure deployment settings without hardcoding sensitive information.
+
+### Problem Statement
+
+**Use Case:** Users need Docker containers to:
+1. Access HuggingFace through corporate proxies
+2. Download gated models (e.g., Llama) requiring authentication
+3. Configure deployment settings without modifying code
+
+**Challenges:**
+- Proxy settings needed in container environment (not just host)
+- HuggingFace token must be securely passed to containers
+- Configuration should be optional and flexible
+- Need .env file support for sensitive credentials
+
+### Solution Architecture
+
+**Configuration Flow:**
+```
+.env file → Settings (Pydantic) → Orchestrator → DockerController → Container Environment
+```
+
+**Key Design Decisions:**
+1. **Pydantic Settings:** Use `BaseSettings` for automatic .env loading
+2. **Optional Fields:** All proxy/token settings are optional with sensible defaults
+3. **Pass-through Pattern:** Settings flow from web config → orchestrator → controller
+4. **Environment Variables:** Both uppercase and lowercase variants for compatibility
+5. **Security:** Token values masked in logs, .env excluded from git
+
+### Implementation Details
+
+#### 1. Environment File Template
+
+**Created:** `.env.example` (33 lines)
+
+**Sections:**
+- Database configuration
+- Redis settings
+- Docker model path
+- Deployment mode
+- **Proxy settings** (HTTP_PROXY, HTTPS_PROXY, NO_PROXY)
+- **HuggingFace token** (HF_TOKEN)
+
+**Example proxy config:**
+```bash
+HTTP_PROXY=http://172.17.0.1:1081
+HTTPS_PROXY=http://172.17.0.1:1081
+NO_PROXY=localhost,127.0.0.1,.local
+```
+
+**Example HF token:**
+```bash
+HF_TOKEN=hf_your_token_here
+```
+
+#### 2. Settings Configuration
+
+**Modified:** `src/web/config.py`
+
+**Changes:**
+- Line 20-23: Updated `model_config` to use project root `.env` file
+  ```python
+  model_config = SettingsConfigDict(
+      env_file=str(Path(__file__).parent.parent.parent / ".env"),
+      env_file_encoding='utf-8',
+      case_sensitive=False
+  )
+  ```
+- Lines 53-58: Added proxy settings fields (http_proxy, https_proxy, no_proxy)
+- Line 59: Added HF token field with security description
+
+**Key Points:**
+- All new fields use `Field(default="")` for optional configuration
+- `case_sensitive=False` allows flexible env var naming
+- `.env` loaded from project root automatically
+
+#### 3. DockerController Enhancement
+
+**Modified:** `src/controllers/docker_controller.py`
+
+**Changes:**
+
+**Constructor (lines 25-64):**
+- Added parameters: `http_proxy`, `https_proxy`, `no_proxy`, `hf_token`
+- Store settings as instance variables
+- Print proxy configuration on initialization
+
+**Container Deployment (lines 186-250):**
+
+1. **Environment Variables (lines 186-215):**
+   ```python
+   env_vars = {
+       "MODEL_PATH": model_identifier,
+       "HF_HOME": "/root/.cache/huggingface"
+   }
+
+   # Add both uppercase and lowercase variants
+   if self.http_proxy:
+       env_vars["HTTP_PROXY"] = self.http_proxy
+       env_vars["http_proxy"] = self.http_proxy
+   # ... (similarly for HTTPS_PROXY, NO_PROXY)
+
+   if self.hf_token:
+       env_vars["HF_TOKEN"] = self.hf_token
+       env_vars["HUGGING_FACE_HUB_TOKEN"] = self.hf_token
+   ```
+
+2. **Debug Logging (lines 209-215):**
+   - Print all environment variables before container creation
+   - Mask token values with "***" for security
+
+3. **Container Creation (line 226):**
+   - Changed from hardcoded `environment={}` to `environment=env_vars`
+
+4. **Verification (lines 241-253):**
+   - Use Docker API to inspect actual container environment
+   - Verify proxy settings were applied correctly
+   - Print proxy variables found in container
+
+**Why Both Case Variants?**
+- Some tools only check lowercase (curl, wget)
+- Some tools only check uppercase (Python requests)
+- Providing both ensures compatibility
+
+#### 4. Orchestrator Updates
+
+**Modified:** `src/orchestrator.py`
+
+**Changes:**
+- Lines 33-36: Added proxy/token parameters to `__init__()`
+- Lines 46-49: Added parameter documentation
+- Lines 56-62: Pass settings to DockerController constructor
+  ```python
+  self.model_controller = DockerController(
+      model_base_path=docker_model_path,
+      http_proxy=http_proxy,
+      https_proxy=https_proxy,
+      no_proxy=no_proxy,
+      hf_token=hf_token
+  )
+  ```
+
+#### 5. Worker Integration
+
+**Modified:** `src/web/workers/autotuner_worker.py`
+
+**Changes:**
+- Lines 152-155: Pass settings to orchestrator
+  ```python
+  orchestrator = AutotunerOrchestrator(
+      deployment_mode=settings.deployment_mode,
+      docker_model_path=settings.docker_model_path,
+      http_proxy=settings.http_proxy,
+      https_proxy=settings.https_proxy,
+      no_proxy=settings.no_proxy,
+      hf_token=settings.hf_token,
+  )
+  ```
+
+**Logger Fix (lines 68-76):**
+- Changed console handler to use `sys.__stdout__` instead of `sys.stdout`
+- **Critical:** Prevents recursion from stdout redirection
+- `sys.__stdout__` is the original stream saved at Python startup
+- Added `logger.propagate = False` to prevent parent logger recursion
+
+#### 6. Git Configuration
+
+**Modified:** `.gitignore`
+
+**Added:**
+```
+.env
+```
+
+**Security:** Prevents accidental commit of sensitive credentials
+
+### Testing & Verification
+
+**Debug Output Examples:**
+
+1. **Controller Initialization:**
+   ```
+   [Docker] Proxy configured - HTTP: http://172.17.0.1:1081, HTTPS: http://172.17.0.1:1081
+   [Docker] No proxy for: localhost,127.0.0.1,.local
+   ```
+
+2. **Container Environment:**
+   ```
+   [Docker] Environment variables to be set in container:
+   [Docker]   MODEL_PATH=/model
+   [Docker]   HF_HOME=/root/.cache/huggingface
+   [Docker]   HTTP_PROXY=http://172.17.0.1:1081
+   [Docker]   http_proxy=http://172.17.0.1:1081
+   [Docker]   HTTPS_PROXY=http://172.17.0.1:1081
+   [Docker]   https_proxy=http://172.17.0.1:1081
+   [Docker]   NO_PROXY=localhost,127.0.0.1,.local
+   [Docker]   no_proxy=localhost,127.0.0.1,.local
+   [Docker]   HF_TOKEN=***
+   [Docker]   HUGGING_FACE_HUB_TOKEN=***
+   ```
+
+3. **Docker API Verification:**
+   ```
+   [Docker] Proxy environment variables in container (from Docker API):
+   [Docker]   HTTP_PROXY=http://172.17.0.1:1081
+   [Docker]   http_proxy=http://172.17.0.1:1081
+   [Docker]   HTTPS_PROXY=http://172.17.0.1:1081
+   [Docker]   https_proxy=http://172.17.0.1:1081
+   ```
+
+### Usage Instructions
+
+**Setup:**
+```bash
+# 1. Copy example file
+cp .env.example .env
+
+# 2. Edit with your settings
+nano .env
+
+# 3. Configure proxy (if needed)
+HTTP_PROXY=http://proxy.example.com:8080
+HTTPS_PROXY=http://proxy.example.com:8080
+
+# 4. Add HF token (if using gated models)
+HF_TOKEN=hf_xxxxxxxxxxxxx
+
+# 5. Restart services to pick up changes
+pkill -f "arq src.web.workers.settings.WorkerSettings"
+pkill -f "uvicorn src.web.main:app"
+```
+
+**Verification:**
+- Check controller logs for proxy configuration messages
+- Container logs should show successful HuggingFace downloads
+- No "connection refused" or "407 Proxy Authentication Required" errors
+
+### Technical Considerations
+
+**Environment Variable Naming:**
+- Standard convention: uppercase for system-wide settings
+- Many CLI tools (curl, wget) also check lowercase
+- Python libraries vary in preference
+- **Solution:** Set both variants for maximum compatibility
+
+**Security Best Practices:**
+1. Never commit `.env` to version control
+2. Use `.env.example` as template without real credentials
+3. Mask token values in all log output
+4. Use Field descriptions to document sensitivity
+
+**Docker Environment Inheritance:**
+- Container environment is isolated from host
+- Must explicitly pass environment variables
+- Host proxy settings do NOT automatically propagate
+- Each container gets independent environment
+
+**HuggingFace Integration:**
+- `HF_TOKEN`: Standard token environment variable
+- `HUGGING_FACE_HUB_TOKEN`: Alternative name for compatibility
+- `HF_HOME`: Cache directory for downloaded models
+- Token enables access to gated models (Llama, etc.)
+
+### Files Modified
+
+1. `.env.example` - Created (configuration template)
+2. `.gitignore` - Updated (exclude .env)
+3. `src/web/config.py` - Enhanced Settings class
+4. `src/controllers/docker_controller.py` - Container environment setup
+5. `src/orchestrator.py` - Parameter pass-through
+6. `src/web/workers/autotuner_worker.py` - Settings integration + logger fix
+7. `CLAUDE.md` - Updated meta-instructions (line 286)
+
+### Benefits
+
+1. **Flexibility:** Configure deployment without code changes
+2. **Security:** Credentials in .env file, not version control
+3. **Compatibility:** Both case variants for environment variables
+4. **Debuggability:** Extensive logging for troubleshooting
+5. **Verification:** Docker API inspection confirms settings applied
+6. **Documentation:** Comprehensive .env.example with examples
+
+### Documentation Updates
+
+**CLAUDE.md** (line 286):
+- Added: "Restart ARQ worker process after editing relevant code files"
+- Critical for picking up configuration changes
+
+### Lessons Learned
+
+1. **Case Sensitivity:** Environment variables need both cases for universal compatibility
+2. **Verification:** Always inspect container environment via Docker API to confirm settings
+3. **Security:** Mask sensitive values in all logs, not just console output
+4. **Pass-through:** Complex configurations need clear parameter flow through layers
+5. **Logger Fix:** `sys.__stdout__` is safer than `sys.stdout` for logging to avoid recursion
+6. **Pydantic Best Practice:** Use `Field(default="")` for optional sensitive settings
+
+### Future Considerations
+
+**Potential Enhancements:**
+- Support `.env` per-task overrides
+- Proxy authentication (username/password in URL)
+- Certificate verification settings for HTTPS proxies
+- Environment variable validation/testing endpoint
+- Support for multiple HF tokens (per-model)
+
+### Conclusion
+
+Successfully implemented comprehensive environment variable support with:
+- Clean configuration via .env file
+- Secure credential handling
+- Proxy support for external network access
+- HuggingFace authentication for gated models
+- Extensive debug logging and verification
+- Proper security practices (gitignore, masking)
+
+The implementation follows best practices for configuration management, provides clear debugging output, and maintains security by keeping credentials out of code and version control. The pass-through architecture cleanly flows settings from configuration → orchestrator → controller → container environment.
+
+</details>
+
+---
