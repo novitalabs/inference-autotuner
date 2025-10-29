@@ -200,9 +200,10 @@ export default function NewTask() {
       }
     }
 
-    // Parse traffic scenarios
+    // Parse traffic scenarios - split by comma but respect parentheses
+    // D(100,100), D(200,200) should become ["D(100,100)", "D(200,200)"]
     const trafficScenariosList = trafficScenarios
-      .split(',')
+      .split(/,\s*(?![^()]*\))/)  // Split on comma not inside parentheses
       .map((s) => s.trim())
       .filter(Boolean);
 

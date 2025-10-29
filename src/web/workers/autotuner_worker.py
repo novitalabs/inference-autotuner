@@ -225,6 +225,8 @@ async def run_autotuning_task(ctx: Dict[str, Any], task_id: int) -> Dict[str, An
 					await db.commit()
 
 			# Update task with final results
+			# Refresh task object to ensure it's properly tracked by the session
+			await db.refresh(task)
 			task.status = TaskStatus.COMPLETED
 			task.completed_at = datetime.utcnow()
 			task.best_experiment_id = best_experiment_id
@@ -235,6 +237,7 @@ async def run_autotuning_task(ctx: Dict[str, Any], task_id: int) -> Dict[str, An
 				logger.info(f"[ARQ Worker] Task completed in {elapsed:.2f}s - Best experiment: {best_experiment_id}")
 
 			await db.commit()
+			await db.refresh(task)  # Ensure changes are reflected
 
 			logger.info(
 				f"[ARQ Worker] Task finished: {task.task_name} - {task.successful_experiments}/{total_experiments} successful"

@@ -127,8 +127,14 @@ class DockerController(BaseModelController):
 			print(f"[Docker] Unsupported runtime: {runtime_name}")
 			return None
 
-		# Build command with model identifier
-		command_str = runtime_config["command"].format(model_path=model_identifier)
+		# Determine host port (avoid conflicts) - needed for both bridge and host networking
+		host_port = self._find_available_port(8000, 8100)
+		if not host_port:
+			print(f"[Docker] Could not find available port in range 8000-8100")
+			return None
+
+		# Build command with model identifier and host port
+		command_str = runtime_config["command"].format(model_path=model_identifier, port=host_port)
 
 		# Add all parameters as command-line arguments
 		for param_name, param_value in parameters.items():
@@ -174,12 +180,6 @@ class DockerController(BaseModelController):
 			except NotFound:
 				pass
 
-			# Determine host port (avoid conflicts)
-			host_port = self._find_available_port(8000, 8100)
-			if not host_port:
-				print("[Docker] No available ports in range 8000-8100")
-				return None
-
 			# Check if image exists locally, pull if not
 			self._ensure_image_available(runtime_config["image"])
 
@@ -214,17 +214,18 @@ class DockerController(BaseModelController):
 					display_value = "***" if "token" in key.lower() and value else value
 					print(f"[Docker]   {key}={display_value}")
 
-			# Create and start container
+			# Create and start container with host networking
 			container = self.client.containers.run(
 				image=runtime_config["image"],
 				name=container_name,
 				command=command_list,
 				detach=True,
 				device_requests=[docker.types.DeviceRequest(device_ids=gpu_devices, capabilities=[["gpu"]])],
-				ports={"8080/tcp": host_port},
 				volumes=volumes,  # Use conditional volumes (empty for HuggingFace models)
 				environment=env_vars,
 				shm_size="16g",  # Shared memory for multi-process inference
+				ipc_mode="host",  # Use host IPC namespace for shared memory
+				network_mode="host",  # Use host network for better performance and compatibility
 				remove=False,  # Don't auto-remove - we need to retrieve logs first
 			)
 
@@ -504,11 +505,11 @@ class DockerController(BaseModelController):
 		runtime_configs = {
 			"sglang": {
 				"image": "lmsysorg/sglang:v0.5.2-cu126",
-				"command": "python3 -m sglang.launch_server --model-path {model_path} --host 0.0.0.0 --port 8080",
+				"command": "python3 -m sglang.launch_server --model-path {model_path} --host 0.0.0.0 --port {port}",
 			},
 			"vllm": {
 				"image": "vllm/vllm-openai:latest",
-				"command": "python3 -m vllm.entrypoints.openai.api_server --model {model_path} --host 0.0.0.0 --port 8080",
+				"command": "python3 -m vllm.entrypoints.openai.api_server --model {model_path} --host 0.0.0.0 --port {port}",
 			},
 		}
 
