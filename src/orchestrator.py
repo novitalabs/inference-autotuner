@@ -17,7 +17,7 @@ from controllers.ome_controller import OMEController
 from controllers.docker_controller import DockerController
 from controllers.benchmark_controller import BenchmarkController
 from controllers.direct_benchmark_controller import DirectBenchmarkController
-from utils.optimizer import generate_parameter_grid, calculate_objective_score
+from utils.optimizer import generate_parameter_grid, calculate_objective_score, create_optimization_strategy
 
 
 class AutotunerOrchestrator:
@@ -262,7 +262,7 @@ class AutotunerOrchestrator:
 		return container_logs
 
 	def run_task(self, task: Dict[str, Any]) -> Dict[str, Any]:
-		"""Run a complete autotuning task.
+		"""Run a complete autotuning task using optimization strategy.
 
 		Args:
 		    task: Task configuration dictionary
@@ -275,22 +275,58 @@ class AutotunerOrchestrator:
 		if "description" in task:
 			print(f"Description: {task['description']}")
 
-		# Generate parameter grid
-		param_grid = generate_parameter_grid(task["parameters"])
-		print(f"\nGenerated parameter grid with {len(param_grid)} combinations:")
-		for i, params in enumerate(param_grid):
-			print(f"  {i+1}. {params}")
+		# Create optimization strategy
+		optimization_config = task.get("optimization", {})
+		strategy_name = optimization_config.get("strategy", "grid_search")
+		objective = optimization_config.get("objective", "minimize_latency")
 
-		# Limit by max_iterations
-		max_iterations = task["optimization"].get("max_iterations", len(param_grid))
-		param_grid = param_grid[:max_iterations]
-		print(f"\nWill run {len(param_grid)} experiments (limited by max_iterations)")
+		print(f"\nOptimization strategy: {strategy_name}")
+		print(f"Objective: {objective}")
 
-		# Run experiments
+		try:
+			strategy = create_optimization_strategy(optimization_config, task["parameters"])
+		except Exception as e:
+			print(f"Error creating optimization strategy: {e}")
+			raise
+
+		# Run experiments using strategy
 		start_time = time.time()
-		for i, parameters in enumerate(param_grid, start=1):
-			result = self.run_experiment(task, i, parameters)
+		iteration = 0
+		max_iterations = optimization_config.get("max_iterations", 100)
+
+		print(f"\nStarting optimization (max {max_iterations} iterations)...")
+
+		while not strategy.should_stop():
+			iteration += 1
+
+			# Get next parameter suggestion from strategy
+			parameters = strategy.suggest_parameters()
+			if parameters is None:
+				print(f"[Orchestrator] Strategy has no more suggestions")
+				break
+
+			# Run experiment
+			print(f"\n{'='*80}")
+			print(f"Experiment {iteration}")
+			print(f"{'='*80}")
+			result = self.run_experiment(task, iteration, parameters)
 			self.results.append(result)
+
+			# Update strategy with result
+			if result["status"] == "success":
+				strategy.tell_result(
+					parameters=parameters,
+					objective_score=result["objective_score"],
+					metrics=result.get("metrics", {})
+				)
+			else:
+				# For failed experiments, report worst possible score
+				worst_score = float("inf") if "minimize" in objective else float("-inf")
+				strategy.tell_result(
+					parameters=parameters,
+					objective_score=worst_score,
+					metrics={}
+				)
 
 		elapsed = time.time() - start_time
 
@@ -301,19 +337,21 @@ class AutotunerOrchestrator:
 			print(f"\n{'='*80}")
 			print(f"AUTOTUNING COMPLETE")
 			print(f"{'='*80}")
+			print(f"Strategy: {strategy_name}")
 			print(f"Total experiments: {len(self.results)}")
 			print(f"Successful: {len(successful_results)}")
 			print(f"Failed: {len(self.results) - len(successful_results)}")
 			print(f"Total time: {elapsed:.1f}s")
 			print(f"\nBest configuration:")
 			print(f"  Parameters: {best_result['parameters']}")
-			print(f"  Score: {best_result['objective_score']}")
+			print(f"  Score: {best_result['objective_score']:.4f}")
 		else:
 			best_result = None
 			print("\nNo successful experiments!")
 
 		return {
 			"task_name": task_name,
+			"strategy": strategy_name,
 			"total_experiments": len(self.results),
 			"successful_experiments": len(successful_results),
 			"elapsed_time": elapsed,

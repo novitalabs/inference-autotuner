@@ -22,7 +22,7 @@ import io
 from src.web.config import get_settings
 from src.web.db.models import Task, Experiment, TaskStatus, ExperimentStatus
 from src.orchestrator import AutotunerOrchestrator
-from src.utils.optimizer import generate_parameter_grid, calculate_objective_score
+from src.utils.optimizer import generate_parameter_grid, calculate_objective_score, create_optimization_strategy
 
 settings = get_settings()
 
@@ -135,13 +135,33 @@ async def run_autotuning_task(ctx: Dict[str, Any], task_id: int) -> Dict[str, An
 				"benchmark": task.benchmark_config,
 			}
 
-			# Generate parameter grid
-			param_grid = generate_parameter_grid(task.parameters)
-			total_experiments = len(param_grid)
+			# Create optimization strategy
+			optimization_config = task.optimization_config or {}
+			strategy_name = optimization_config.get("strategy", "grid_search")
+			max_iterations = optimization_config.get("max_iterations", 100)
+
+			logger.info(f"[ARQ Worker] Optimization strategy: {strategy_name}")
+			logger.info(f"[ARQ Worker] Max iterations: {max_iterations}")
+
+			try:
+				strategy = create_optimization_strategy(optimization_config, task.parameters)
+			except Exception as e:
+				logger.error(f"[ARQ Worker] Failed to create optimization strategy: {e}")
+				raise
+
+			# Set initial total_experiments (may be less for grid search, unknown for Bayesian)
+			if strategy_name == "grid_search":
+				# Grid search knows total upfront
+				param_grid = generate_parameter_grid(task.parameters)
+				total_experiments = min(len(param_grid), max_iterations)
+			else:
+				# Bayesian/random: use max_iterations as upper bound
+				total_experiments = max_iterations
+
 			task.total_experiments = total_experiments
 			await db.commit()
 
-			logger.info(f"[ARQ Worker] Generated {total_experiments} parameter combinations")
+			logger.info(f"[ARQ Worker] Expected experiments: {total_experiments}")
 
 			# Create orchestrator
 			orchestrator = AutotunerOrchestrator(
@@ -155,17 +175,26 @@ async def run_autotuning_task(ctx: Dict[str, Any], task_id: int) -> Dict[str, An
 				hf_token=settings.hf_token,
 			)
 
-			# Run experiments
+			# Run experiments using strategy
 			best_score = float("inf")
 			best_experiment_id = None
+			iteration = 0
 
-			for idx, params in enumerate(param_grid, 1):
-				logger.info(f"[ARQ Worker] Running experiment {idx}/{total_experiments} with params: {params}")
+			while not strategy.should_stop():
+				iteration += 1
+
+				# Get next parameter suggestion
+				params = strategy.suggest_parameters()
+				if params is None:
+					logger.info(f"[ARQ Worker] Strategy has no more suggestions")
+					break
+
+				logger.info(f"[ARQ Worker] Running experiment {iteration} with params: {params}")
 
 				# Create experiment record
 				db_experiment = Experiment(
 					task_id=task_id,
-					experiment_id=idx,
+					experiment_id=iteration,
 					parameters=params,
 					status=ExperimentStatus.PENDING,
 				)
@@ -178,22 +207,22 @@ async def run_autotuning_task(ctx: Dict[str, Any], task_id: int) -> Dict[str, An
 				db_experiment.started_at = datetime.utcnow()
 				await db.commit()
 
-				logger.info(f"[Experiment {idx}] Status: DEPLOYING")
+				logger.info(f"[Experiment {iteration}] Status: DEPLOYING")
 
 				# Run experiment using orchestrator
 				try:
-					result = orchestrator.run_experiment(task_config, idx, params)
+					result = orchestrator.run_experiment(task_config, iteration, params)
 
-					logger.info(f"[Experiment {idx}] Status: {result['status'].upper()}")
+					logger.info(f"[Experiment {iteration}] Status: {result['status'].upper()}")
 					if result.get("metrics"):
-						logger.info(f"[Experiment {idx}] Metrics: {result['metrics']}")
+						logger.info(f"[Experiment {iteration}] Metrics: {result['metrics']}")
 
 					# Save container logs if available (Docker mode)
 					if result.get("container_logs"):
-						logger.info(f"[Experiment {idx}] ========== Container Logs ==========")
+						logger.info(f"[Experiment {iteration}] ========== Container Logs ==========")
 						for line in result["container_logs"].splitlines():
-							logger.info(f"[Experiment {idx}] {line}")
-						logger.info(f"[Experiment {idx}] ========== End Container Logs ==========")
+							logger.info(f"[Experiment {iteration}] {line}")
+						logger.info(f"[Experiment {iteration}] ========== End Container Logs ==========")
 
 					# Update experiment with results
 					db_experiment.status = (
@@ -206,23 +235,55 @@ async def run_autotuning_task(ctx: Dict[str, Any], task_id: int) -> Dict[str, An
 					if db_experiment.started_at:
 						elapsed = (db_experiment.completed_at - db_experiment.started_at).total_seconds()
 						db_experiment.elapsed_time = elapsed
-						logger.info(f"[Experiment {idx}] Completed in {elapsed:.2f}s")
+						logger.info(f"[Experiment {iteration}] Completed in {elapsed:.2f}s")
 
-					# Check if this is the best experiment
-					if result["status"] == "success" and result.get("objective_score") is not None:
+					# Update strategy with result
+					if result["status"] == "success":
 						task.successful_experiments += 1
-						if result["objective_score"] < best_score:
-							best_score = result["objective_score"]
+						objective_score = result.get("objective_score")
+
+						# Tell strategy about the result
+						strategy.tell_result(
+							parameters=params,
+							objective_score=objective_score,
+							metrics=result.get("metrics", {})
+						)
+
+						# Check if this is the best experiment
+						if objective_score is not None and objective_score < best_score:
+							best_score = objective_score
 							best_experiment_id = db_experiment.id
-							logger.info(f"[Experiment {idx}] New best score: {best_score:.4f}")
+							logger.info(f"[Experiment {iteration}] New best score: {best_score:.4f}")
+					else:
+						# Tell strategy about failed experiment (worst score)
+						objective_name = optimization_config.get("objective", "minimize_latency")
+						worst_score = float("inf") if "minimize" in objective_name else float("-inf")
+						strategy.tell_result(
+							parameters=params,
+							objective_score=worst_score,
+							metrics={}
+						)
 
 					await db.commit()
 
 				except Exception as e:
-					logger.error(f"[Experiment {idx}] Failed: {e}", exc_info=True)
+					logger.error(f"[Experiment {iteration}] Failed: {e}", exc_info=True)
 					db_experiment.status = ExperimentStatus.FAILED
 					db_experiment.error_message = str(e)
+					db_experiment.completed_at = datetime.utcnow()
 					await db.commit()
+
+					# Tell strategy about failed experiment
+					objective_name = optimization_config.get("objective", "minimize_latency")
+					worst_score = float("inf") if "minimize" in objective_name else float("-inf")
+					strategy.tell_result(
+						parameters=params,
+						objective_score=worst_score,
+						metrics={}
+					)
+
+			# Update task total_experiments with actual count
+			task.total_experiments = iteration
 
 			# Update task with final results
 			# Refresh task object to ensure it's properly tracked by the session

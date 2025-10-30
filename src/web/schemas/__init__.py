@@ -28,6 +28,14 @@ class ExperimentStatusEnum(str, Enum):
 	FAILED = "failed"
 
 
+class OptimizationStrategyEnum(str, Enum):
+	"""Optimization strategy enum."""
+
+	GRID_SEARCH = "grid_search"
+	BAYESIAN = "bayesian"
+	RANDOM = "random"
+
+
 # Task schemas
 class TaskCreate(BaseModel):
 	"""Schema for creating a task."""
