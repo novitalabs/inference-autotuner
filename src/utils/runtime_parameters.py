@@ -401,34 +401,161 @@ VLLM_ONLY_PARAMETERS: Set[str] = VLLM_PARAMETERS - SGLANG_PARAMETERS
 # Commonly tuned parameters for optimization (subset of all parameters)
 # These are the parameters most frequently used in autotuning experiments
 COMMONLY_TUNED_SGLANG: List[str] = [
+    # Parallelism
     "tensor-parallel-size",
+    "pipeline-parallel-size",
+    "data-parallel-size",
+
+    # Memory Management
     "mem-fraction-static",
-    "schedule-policy",
-    "max-running-requests",
     "max-total-tokens",
-    "chunked-prefill-size",
-    "max-prefill-tokens",
-    "dtype",
-    "kv-cache-dtype",
-    "quantization",
-    "enable-mixed-chunk",
+    "page-size",
+    "cpu-offload-gb",
+    "hybrid-kvcache-ratio",
+
+    # Scheduling & Request Management
+    "schedule-policy",
     "schedule-conservativeness",
+    "max-running-requests",
+    "max-queued-requests",
+    "max-prefill-tokens",
+
+    # Chunked Prefill
+    "chunked-prefill-size",
+    "enable-mixed-chunk",
+    "max-micro-batch-size",
+
+    # CUDA Graphs
     "cuda-graph-max-bs",
+    "cuda-graph-bs",
+    "disable-cuda-graph",
+    "disable-cuda-graph-padding",
+
+    # KV Cache
+    "kv-cache-dtype",
+    "disable-radix-cache",
+    "enable-hierarchical-cache",
+    "hicache-ratio",
+
+    # Data Types & Quantization
+    "dtype",
+    "quantization",
+    "quantization-param-path",
+
+    # Attention Backends
+    "attention-backend",
+    "prefill-attention-backend",
+    "decode-attention-backend",
+
+    # Model Loading
+    "load-format",
+    "context-length",
+
+    # LoRA
+    "enable-lora",
+    "max-loras-per-batch",
+    "max-lora-rank",
+
+    # Speculative Decoding
+    "speculative-algorithm",
+    "speculative-num-steps",
+    "speculative-num-draft-tokens",
+
+    # MOE
+    "enable-ep-moe",
+    "enable-deepep-moe",
+    "moe-runner-backend",
+    "expert-parallel-size",
+
+    # Performance Optimizations
+    "enable-torch-compile",
+    "disable-custom-all-reduce",
+    "enable-flashinfer-cutlass-moe",
+    "disable-overlap-schedule",
+    "enable-two-batch-overlap",
+    "sampling-backend",
+    "grammar-backend",
 ]
 
 COMMONLY_TUNED_VLLM: List[str] = [
+    # Parallelism
     "tensor-parallel-size",
+    "pipeline-parallel-size",
+    "data-parallel-size",
+
+    # Memory Management
     "gpu-memory-utilization",
+    "swap-space",
+    "block-size",
+    "cpu-offload-gb",
+    "num-gpu-blocks-override",
+
+    # Scheduling & Request Management
+    "scheduling-policy",
     "max-num-seqs",
     "max-num-batched-tokens",
     "max-model-len",
-    "dtype",
-    "kv-cache-dtype",
-    "quantization",
+    "scheduler-delay-factor",
+    "preemption-mode",
+    "num-scheduler-steps",
+
+    # Chunked Prefill
     "enable-chunked-prefill",
-    "block-size",
-    "swap-space",
-    "scheduling-policy",
+    "max-num-partial-prefills",
+    "max-long-partial-prefills",
+    "long-prefill-token-threshold",
+
+    # CUDA Graphs
+    "cuda-graph-sizes",
+    "enforce-eager",
+    "max-seq-len-to-capture",
+
+    # KV Cache
+    "kv-cache-dtype",
+    "enable-prefix-caching",
+    "prefix-caching-hash-algo",
+    "calculate-kv-scales",
+    "disable-hybrid-kv-cache-manager",
+
+    # Data Types & Quantization
+    "dtype",
+    "quantization",
+    "override-attention-dtype",
+
+    # Model Loading
+    "load-format",
+    "max-parallel-loading-workers",
+
+    # LoRA
+    "enable-lora",
+    "enable-lora-bias",
+    "max-loras",
+    "max-lora-rank",
+    "fully-sharded-loras",
+
+    # Speculative Decoding
+    "speculative-config",
+    "num-lookahead-slots",
+
+    # Expert Parallel (MOE)
+    "enable-expert-parallel",
+    "enable-eplb",
+    "num-redundant-experts",
+
+    # Performance Optimizations
+    "disable-custom-all-reduce",
+    "multi-step-stream-outputs",
+    "async-scheduling",
+    "distributed-executor-backend",
+    "guided-decoding-backend",
+
+    # Sliding Window & Cascade Attention
+    "disable-sliding-window",
+    "disable-cascade-attn",
+
+    # Data Parallel
+    "data-parallel-hybrid-lb",
+    "data-parallel-backend",
 ]
 
 
