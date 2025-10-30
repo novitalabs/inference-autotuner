@@ -14039,3 +14039,743 @@ The preset system now provides maximum flexibility while maintaining visual cues
 
 ---
 
+
+## Add Runtime Property to Presets
+
+> Add a property of runtime for preset, options include sglang, vllm.
+
+<details>
+<summary>Added runtime field to presets to tag them for specific inference runtimes or mark as universal</summary>
+
+### Motivation
+Presets should be able to specify which runtime (SGLang or vLLM) they are designed for, as different runtimes have different parameters and optimal configurations. This allows users to filter and identify which presets are compatible with their chosen runtime.
+
+### Backend Implementation
+
+**1. Database Schema** (`src/web/db/models.py`):
+```python
+class ParameterPreset(Base):
+    # ... existing fields ...
+    runtime = Column(String(50), index=True)  # Runtime: sglang, vllm, or None for universal
+    
+    def to_dict(self):
+        return {
+            # ... other fields ...
+            "runtime": self.runtime,
+            # ...
+        }
+```
+
+**2. Database Migration** (`migrations/add_runtime_to_presets.sql`):
+```sql
+-- Add runtime column to parameter_presets table
+ALTER TABLE parameter_presets ADD COLUMN runtime VARCHAR(50);
+
+-- Create index on runtime column for efficient filtering
+CREATE INDEX idx_parameter_presets_runtime ON parameter_presets(runtime);
+```
+
+**3. Pydantic Schemas** (`src/web/schemas/preset.py`):
+```python
+from typing import Literal
+
+class PresetBase(BaseModel):
+    name: str = Field(...)
+    description: Optional[str] = Field(None)
+    category: Optional[str] = Field(None)
+    runtime: Optional[Literal["sglang", "vllm"]] = Field(
+        None, 
+        description="Target runtime (sglang, vllm, or None for universal)"
+    )
+    parameters: Dict[str, Any] = Field(...)
+    metadata: Optional[Dict[str, Any]] = Field(None)
+
+class PresetUpdate(BaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=255)
+    description: Optional[str] = None
+    category: Optional[str] = None
+    runtime: Optional[Literal["sglang", "vllm"]] = None  # Added
+    parameters: Optional[Dict[str, Any]] = None
+    metadata: Optional[Dict[str, Any]] = None
+```
+
+**4. API Routes** (`src/web/routes/presets.py`):
+```python
+# In create_preset function (line 90):
+db_preset = ParameterPreset(
+    name=preset.name,
+    description=preset.description,
+    category=preset.category,
+    runtime=preset.runtime,  # Added
+    parameters=preset.parameters,
+    preset_metadata=preset.metadata,
+    is_system=False
+)
+
+# In update_preset function (lines 142-143):
+if preset.runtime is not None:
+    db_preset.runtime = preset.runtime
+```
+
+**5. System Presets** (`src/web/db/seed_presets.py`):
+```python
+SYSTEM_PRESETS = [
+    {
+        "name": "Memory Efficient",
+        "description": "Optimized for low memory usage, suitable for small GPUs",
+        "category": "memory",
+        "runtime": "sglang",  # Added
+        "is_system": True,
+        "parameters": { ... }
+    },
+    # All 4 system presets tagged with "runtime": "sglang"
+]
+```
+
+### Frontend Implementation
+
+**1. TypeScript Types** (`frontend/src/types/preset.ts`):
+```typescript
+export type Runtime = 'sglang' | 'vllm';
+
+export interface Preset {
+  id: number;
+  name: string;
+  description?: string;
+  category?: string;
+  runtime?: Runtime;  // Added - Optional: sglang, vllm, or undefined for universal
+  is_system: boolean;
+  parameters: ParameterMap;
+  metadata?: PresetMetadata;
+  created_at: string;
+  updated_at?: string;
+}
+
+export interface PresetCreate {
+  name: string;
+  description?: string;
+  category?: string;
+  runtime?: Runtime;  // Added
+  parameters: ParameterMap;
+  metadata?: PresetMetadata;
+}
+
+export interface PresetUpdate {
+  name?: string;
+  description?: string;
+  category?: string;
+  runtime?: Runtime;  // Added
+  parameters?: ParameterMap;
+  metadata?: PresetMetadata;
+}
+```
+
+**2. Presets Table** (`frontend/src/pages/Presets.tsx`):
+```typescript
+// Added Runtime column header (line 149):
+<th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+  Runtime
+</th>
+
+// Added runtime cell with color-coded badges (lines 182-194):
+<td className="px-6 py-4 whitespace-nowrap">
+  {preset.runtime ? (
+    <span className={`px-2 py-1 text-xs rounded ${
+      preset.runtime === 'sglang'
+        ? 'bg-green-100 text-green-800'
+        : 'bg-purple-100 text-purple-800'
+    }`}>
+      {preset.runtime}
+    </span>
+  ) : (
+    <span className="text-xs text-gray-400">universal</span>
+  )}
+</td>
+```
+
+**3. Preset Edit Modal** (`frontend/src/components/PresetEditModal.tsx`):
+```typescript
+// State variable (line 25):
+const [runtime, setRuntime] = useState<'sglang' | 'vllm' | ''>(preset.runtime || '');
+
+// Runtime selector dropdown (lines 181-197):
+<div>
+  <label className="block text-sm font-medium text-gray-700 mb-1">
+    Runtime
+  </label>
+  <select
+    value={runtime}
+    onChange={(e) => setRuntime(e.target.value as 'sglang' | 'vllm' | '')}
+    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+  >
+    <option value="">Universal (all runtimes)</option>
+    <option value="sglang">SGLang</option>
+    <option value="vllm">vLLM</option>
+  </select>
+  <p className="text-xs text-gray-500 mt-1">
+    Select the target runtime for this preset, or leave as universal
+  </p>
+</div>
+
+// Update data (line 98):
+const updateData = {
+  name: name !== preset.name ? name : undefined,
+  description: description !== preset.description ? description : undefined,
+  category: category !== preset.category ? category : undefined,
+  runtime: (runtime || undefined) !== preset.runtime ? (runtime || undefined) : undefined,
+  parameters: JSON.stringify(parsedParams) !== JSON.stringify(preset.parameters) ? parsedParams : undefined,
+};
+```
+
+### Testing Results
+
+**API Response Verification**:
+```bash
+curl http://localhost:8000/api/presets/1
+# Response includes: "runtime": null (for existing presets before migration)
+```
+
+**Create vLLM Preset**:
+```bash
+curl -X POST http://localhost:8000/api/presets/ \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "vLLM Optimized",
+    "description": "Optimized for vLLM runtime",
+    "category": "performance",
+    "runtime": "vllm",
+    "parameters": {
+      "tensor-parallel-size": [1, 2, 4],
+      "gpu-memory-utilization": [0.9]
+    }
+  }'
+# Response: HTTP 201
+# Result: Created preset id: 7 with runtime="vllm"
+```
+
+**Update System Preset Runtime**:
+```bash
+curl -X PUT http://localhost:8000/api/presets/1 \
+  -H "Content-Type: application/json" \
+  -d '{"runtime": "sglang"}'
+# Response: HTTP 200
+# Result: Preset id: 1 now has runtime="sglang"
+```
+
+**Verify Updates**:
+```bash
+# Check created vLLM preset
+curl http://localhost:8000/api/presets/7
+# Response: "runtime": "vllm" ✅
+
+# Check updated system preset
+curl http://localhost:8000/api/presets/1
+# Response: "runtime": "sglang" ✅
+```
+
+### UI Visual Design
+
+**Runtime Badges in Table**:
+- **SGLang**: Green badge (`bg-green-100 text-green-800`)
+- **vLLM**: Purple badge (`bg-purple-100 text-purple-800`)
+- **Universal**: Gray text (`text-gray-400`)
+
+**Modal Dropdown**:
+- Default option: "Universal (all runtimes)"
+- SGLang option
+- vLLM option
+- Helper text explains the purpose
+
+### Files Modified
+
+```
+Backend (6 files):
+- src/web/db/models.py - Added runtime column to ParameterPreset model
+- migrations/add_runtime_to_presets.sql - Database migration script (new file)
+- src/web/schemas/preset.py - Added runtime field with Literal type validation
+- src/web/routes/presets.py - Handle runtime in create/update endpoints
+- src/web/db/seed_presets.py - Tagged all system presets with runtime="sglang"
+
+Frontend (3 files):
+- frontend/src/types/preset.ts - Added Runtime type and runtime fields
+- frontend/src/pages/Presets.tsx - Added Runtime column with color-coded badges
+- frontend/src/components/PresetEditModal.tsx - Added runtime selector dropdown
+
+Database:
+- Applied migration to add runtime column with index
+```
+
+### Key Features
+
+1. **Optional Field**: Runtime is optional - presets without a runtime value are considered "universal"
+2. **Type Safety**: Backend uses Pydantic `Literal["sglang", "vllm"]` for validation
+3. **Visual Distinction**: Color-coded badges help users quickly identify preset runtimes
+4. **Backward Compatible**: Existing presets without runtime continue to work
+5. **Indexed Column**: Database index on runtime for efficient filtering (future use)
+
+### Future Enhancements
+
+- Filter presets by runtime in UI
+- Show runtime-specific parameter suggestions when creating presets
+- Validate parameter names against runtime-specific allowed parameters
+- Runtime-aware preset recommendations in task creation
+
+</details>
+
+---
+
+## Runtime Parameter Registry Implementation
+
+> Investigate all api server arguments for vllm & sglang, and add them as a candidate parameter name list in different runtime.
+
+<details>
+<summary>Built comprehensive parameter registry by extracting all CLI arguments from Docker images and created API endpoints with frontend integration</summary>
+
+### Motivation
+Users need guidance on which parameters are available for each runtime (SGLang vs vLLM) and which parameters are commonly used in optimization experiments. A centralized parameter registry helps users:
+1. Discover valid parameter names
+2. Avoid typos in parameter configuration
+3. Get suggestions for commonly tuned parameters
+4. Understand parameter compatibility across runtimes
+
+### Parameter Extraction Process
+
+**Method**: Direct extraction from official Docker images
+```bash
+# SGLang v0.5.2 parameters
+docker run --rm lmsysorg/sglang:v0.5.2-cu126 \
+  python3 -m sglang.launch_server --help
+
+# vLLM v0.10.0 parameters
+docker run --rm vllm/vllm-openai:v0.10.0 --help
+```
+
+**Results**:
+- **SGLang**: 210 parameters extracted
+- **vLLM**: 158 parameters extracted
+- **Common**: 27 parameters shared between both runtimes
+- **SGLang-only**: 183 parameters
+- **vLLM-only**: 131 parameters
+
+### Backend Implementation
+
+**1. Parameter Registry Module** (`src/utils/runtime_parameters.py` - new file):
+
+```python
+"""
+Runtime Parameter Registry
+
+Comprehensive lists of valid command-line parameters for different inference runtimes.
+Parameters extracted from Docker image help outputs.
+"""
+
+# SGLang Server Parameters (v0.5.2)
+SGLANG_PARAMETERS: Set[str] = {
+    "tensor-parallel-size",
+    "mem-fraction-static",
+    "schedule-policy",
+    "max-running-requests",
+    "max-total-tokens",
+    # ... 210 parameters total
+}
+
+# vLLM Server Parameters (v0.10.0)
+VLLM_PARAMETERS: Set[str] = {
+    "tensor-parallel-size",
+    "gpu-memory-utilization",
+    "max-num-seqs",
+    "max-num-batched-tokens",
+    # ... 158 parameters total
+}
+
+# Commonly tuned parameters for optimization
+COMMONLY_TUNED_SGLANG: List[str] = [
+    "tensor-parallel-size",
+    "mem-fraction-static",
+    "schedule-policy",
+    "max-running-requests",
+    "max-total-tokens",
+    "chunked-prefill-size",
+    "max-prefill-tokens",
+    "dtype",
+    "kv-cache-dtype",
+    "quantization",
+    "enable-mixed-chunk",
+    "schedule-conservativeness",
+    "cuda-graph-max-bs",
+]
+
+COMMONLY_TUNED_VLLM: List[str] = [
+    "tensor-parallel-size",
+    "gpu-memory-utilization",
+    "max-num-seqs",
+    "max-num-batched-tokens",
+    "max-model-len",
+    "dtype",
+    "kv-cache-dtype",
+    "quantization",
+    "enable-chunked-prefill",
+    "block-size",
+    "swap-space",
+    "scheduling-policy",
+]
+
+# Utility functions
+def get_parameters_for_runtime(runtime: str) -> Set[str]:
+    """Get all valid parameters for a given runtime."""
+    # ...
+
+def get_commonly_tuned_parameters(runtime: str) -> List[str]:
+    """Get commonly tuned parameters for optimization."""
+    # ...
+
+def validate_parameter(runtime: str, parameter: str) -> bool:
+    """Check if a parameter is valid for a given runtime."""
+    # ...
+
+def get_parameter_compatibility() -> Dict[str, List[str]]:
+    """Get parameter compatibility information."""
+    return {
+        "common": sorted(list(COMMON_PARAMETERS)),
+        "sglang_only": sorted(list(SGLANG_ONLY_PARAMETERS)),
+        "vllm_only": sorted(list(VLLM_ONLY_PARAMETERS)),
+    }
+```
+
+**2. API Routes** (`src/web/routes/runtime_params.py` - new file):
+
+```python
+"""API routes for runtime parameter information."""
+
+from fastapi import APIRouter, HTTPException, Query
+from utils.runtime_parameters import (
+    get_parameters_for_runtime,
+    get_commonly_tuned_parameters,
+    validate_parameter,
+    get_parameter_compatibility,
+)
+
+router = APIRouter(prefix="/api/runtime-params", tags=["runtime-parameters"])
+
+@router.get("/", response_model=Dict[str, int])
+async def get_parameter_counts():
+    """Get counts of parameters for each runtime."""
+    return {
+        "sglang_count": len(SGLANG_PARAMETERS),
+        "vllm_count": len(VLLM_PARAMETERS),
+        "common_count": len(COMMON_PARAMETERS),
+    }
+
+@router.get("/{runtime}", response_model=ParameterListResponse)
+async def get_runtime_parameters(
+    runtime: str,
+    commonly_tuned_only: bool = Query(False)
+):
+    """Get all valid parameters for a specific runtime."""
+    # ...
+
+@router.get("/{runtime}/commonly-tuned", response_model=CommonlyTunedResponse)
+async def get_commonly_tuned(runtime: str):
+    """Get commonly tuned parameters for optimization experiments."""
+    # ...
+
+@router.get("/compatibility", response_model=ParameterCompatibilityResponse)
+async def get_compatibility():
+    """Get parameter compatibility information across runtimes."""
+    # ...
+
+@router.post("/validate", response_model=ParameterValidationResponse)
+async def validate_runtime_parameter(request: ParameterValidationRequest):
+    """Validate if a parameter is valid for a given runtime."""
+    # ...
+```
+
+**3. Router Registration** (`src/web/app.py`):
+```python
+from web.routes import tasks, experiments, system, docker, presets, runtime_params
+
+app.include_router(runtime_params.router)
+```
+
+### Frontend Implementation
+
+**1. Runtime Parameters Service** (`frontend/src/services/runtimeParamsService.ts` - new file):
+
+```typescript
+/**
+ * Service for runtime parameter information
+ */
+import axios from 'axios';
+
+const API_BASE = 'http://localhost:8000';
+
+export interface ParameterListResponse {
+  runtime: string;
+  count: number;
+  parameters: string[];
+}
+
+export interface CommonlyTunedResponse {
+  runtime: string;
+  parameters: string[];
+}
+
+export const runtimeParamsService = {
+  async getCounts(): Promise<ParameterCounts> {
+    const response = await axios.get(`${API_BASE}/api/runtime-params/`);
+    return response.data;
+  },
+
+  async getParameters(
+    runtime: 'sglang' | 'vllm',
+    commonlyTunedOnly: boolean = false
+  ): Promise<ParameterListResponse> {
+    const response = await axios.get(
+      `${API_BASE}/api/runtime-params/${runtime}`,
+      { params: { commonly_tuned_only: commonlyTunedOnly } }
+    );
+    return response.data;
+  },
+
+  async getCommonlyTuned(runtime: 'sglang' | 'vllm'): Promise<CommonlyTunedResponse> {
+    const response = await axios.get(
+      `${API_BASE}/api/runtime-params/${runtime}/commonly-tuned`
+    );
+    return response.data;
+  },
+
+  async getCompatibility(): Promise<ParameterCompatibilityResponse> {
+    const response = await axios.get(`${API_BASE}/api/runtime-params/compatibility`);
+    return response.data;
+  },
+
+  async validateParameter(runtime: 'sglang' | 'vllm', parameter: string): Promise<boolean> {
+    const response = await axios.post(`${API_BASE}/api/runtime-params/validate`, {
+      runtime,
+      parameter,
+    });
+    return response.data.is_valid;
+  },
+};
+```
+
+**2. Enhanced Preset Edit Modal** (`frontend/src/components/PresetEditModal.tsx`):
+
+```typescript
+import { runtimeParamsService } from '../services/runtimeParamsService';
+
+export default function PresetEditModal({ preset, onClose }: PresetEditModalProps) {
+  const [runtime, setRuntime] = useState<'sglang' | 'vllm' | ''>(preset.runtime || '');
+  const [showSuggestions, setShowSuggestions] = useState(false);
+
+  // Fetch commonly tuned parameters for the selected runtime
+  const { data: commonlyTuned } = useQuery({
+    queryKey: ['commonly-tuned', runtime],
+    queryFn: () => runtime ? runtimeParamsService.getCommonlyTuned(runtime as 'sglang' | 'vllm') : Promise.resolve(null),
+    enabled: !!runtime,
+  });
+
+  return (
+    <div className="modal">
+      {/* ... existing form fields ... */}
+      
+      {/* Parameters Section */}
+      <div>
+        <div className="flex justify-between items-center mb-3">
+          <label>Parameters</label>
+          <div className="flex gap-2">
+            {runtime && commonlyTuned && (
+              <button
+                type="button"
+                onClick={() => setShowSuggestions(!showSuggestions)}
+                className="px-3 py-1 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 text-sm"
+              >
+                {showSuggestions ? 'Hide' : 'Show'} Suggestions
+              </button>
+            )}
+            <button type="button" onClick={addParameter}>
+              Add Parameter
+            </button>
+          </div>
+        </div>
+
+        {/* Commonly tuned parameters suggestions */}
+        {showSuggestions && runtime && commonlyTuned && (
+          <div className="mb-3 p-3 bg-blue-50 border border-blue-200 rounded-md">
+            <p className="text-sm font-medium text-blue-900 mb-2">
+              Commonly tuned parameters for {runtime.toUpperCase()}:
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {commonlyTuned.parameters.map((param) => (
+                <button
+                  key={param}
+                  type="button"
+                  onClick={() => {
+                    if (!parameters.some(p => p.name === param)) {
+                      setParameters([...parameters, { name: param, values: '' }]);
+                    }
+                  }}
+                  className="px-2 py-1 bg-white border border-blue-300 text-blue-700 rounded text-xs hover:bg-blue-100"
+                  disabled={parameters.some(p => p.name === param)}
+                >
+                  {param}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-blue-600 mt-2">
+              Click a parameter to add it to your preset
+            </p>
+          </div>
+        )}
+        
+        {/* Parameter input rows */}
+        {/* ... existing parameter inputs ... */}
+      </div>
+    </div>
+  );
+}
+```
+
+**3. Type Fixes** (`frontend/src/services/presetService.ts`):
+```typescript
+// Fixed duplicate Preset interface definition
+// Before: Local interface definition missing runtime field
+// After: Import from types file
+import type { Preset, MergeResult, MergeStrategy } from '../types/preset';
+```
+
+### API Endpoints
+
+**All Endpoints Tested and Working**:
+
+```bash
+# Get parameter counts
+curl http://localhost:8000/api/runtime-params/
+# Response: {"sglang_count": 210, "vllm_count": 158, "common_count": 27}
+
+# Get all SGLang parameters
+curl http://localhost:8000/api/runtime-params/sglang
+# Response: {"runtime": "sglang", "count": 210, "parameters": [...]}
+
+# Get commonly tuned SGLang parameters
+curl http://localhost:8000/api/runtime-params/sglang/commonly-tuned
+# Response: {"runtime": "sglang", "parameters": ["tensor-parallel-size", ...]}
+
+# Get commonly tuned vLLM parameters
+curl http://localhost:8000/api/runtime-params/vllm/commonly-tuned
+# Response: {"runtime": "vllm", "parameters": ["tensor-parallel-size", ...]}
+
+# Get compatibility information
+curl http://localhost:8000/api/runtime-params/compatibility
+# Response: {
+#   "common": ["api-key", "chat-template", ...],
+#   "sglang_only": ["allow-auto-truncate", ...],
+#   "vllm_only": ["additional-config", ...],
+#   "stats": {"common_count": 27, "sglang_only_count": 183, ...}
+# }
+
+# Validate parameter
+curl -X POST http://localhost:8000/api/runtime-params/validate \
+  -d '{"runtime": "sglang", "parameter": "tensor-parallel-size"}'
+# Response: {"runtime": "sglang", "parameter": "tensor-parallel-size", "is_valid": true}
+```
+
+### Parameter Statistics
+
+**SGLang (210 parameters)**:
+- 13 commonly tuned for optimization
+- 183 unique to SGLang (not in vLLM)
+- Examples: `mem-fraction-static`, `schedule-policy`, `enable-mixed-chunk`
+
+**vLLM (158 parameters)**:
+- 12 commonly tuned for optimization
+- 131 unique to vLLM (not in SGLang)
+- Examples: `gpu-memory-utilization`, `max-num-seqs`, `max-num-batched-tokens`
+
+**Common (27 parameters)**:
+- Shared between both runtimes
+- Examples: `tensor-parallel-size`, `dtype`, `kv-cache-dtype`, `quantization`
+
+### User Experience
+
+**Workflow**:
+1. User opens preset edit modal
+2. User selects runtime (sglang or vllm) from dropdown
+3. "Show Suggestions" button appears dynamically
+4. User clicks "Show Suggestions"
+5. Blue info box displays commonly tuned parameters as clickable chips
+6. User clicks parameter chip to add it to preset
+7. Parameter name is pre-filled, user only needs to add values
+8. Disabled chips indicate parameters already in the preset
+
+**UI Visual Design**:
+- Suggestions box: Blue background (`bg-blue-50`)
+- Parameter chips: White with blue border (`bg-white border-blue-300 text-blue-700`)
+- Hover effect: Light blue (`hover:bg-blue-100`)
+- Disabled state: Grayed out for parameters already added
+- Helper text: Explains how to use the suggestions
+
+### Bug Fixes
+
+**Issue**: TypeScript errors about missing `runtime` property
+**Root Cause**: Duplicate `Preset` interface in `presetService.ts` without runtime field
+**Fix**: Removed local interface, imported from `types/preset.ts` instead
+
+```typescript
+// Before (presetService.ts):
+export interface Preset {
+  id: number;
+  name: string;
+  // ... missing runtime field
+}
+
+// After (presetService.ts):
+import type { Preset, MergeResult, MergeStrategy } from '../types/preset';
+// Now uses centralized type with runtime field
+```
+
+### Files Created/Modified
+
+```
+Backend (3 new files + 1 modified):
++ src/utils/runtime_parameters.py - Parameter registry with 210 SGLang + 158 vLLM params
++ src/web/routes/runtime_params.py - 5 API endpoints for parameter info
+- src/web/app.py - Registered runtime_params router
+
+Frontend (2 new files + 2 modified):
++ frontend/src/services/runtimeParamsService.ts - TypeScript client for parameter API
+- frontend/src/services/presetService.ts - Fixed duplicate Preset interface
+- frontend/src/components/PresetEditModal.tsx - Added suggestions UI
+- frontend/src/components/PresetSelector.tsx - Removed unused Preset import
+```
+
+### TypeScript Type Checking
+
+```bash
+npm run type-check
+# Result: ✅ No errors (all type issues resolved)
+```
+
+### Future Enhancements
+
+1. **Parameter Descriptions**: Add human-readable descriptions for each parameter
+2. **Parameter Types**: Include expected value types (int, float, bool, enum)
+3. **Value Validation**: Validate parameter values against expected types/ranges
+4. **Autocomplete**: Add autocomplete for parameter names in task creation
+5. **Runtime Filtering**: Filter presets by runtime in the UI
+6. **Smart Defaults**: Suggest default values for commonly tuned parameters
+7. **Parameter Dependencies**: Indicate which parameters work together or conflict
+
+### Testing Coverage
+
+- ✅ API endpoints (all 5 endpoints tested)
+- ✅ Parameter extraction (validated against Docker images)
+- ✅ TypeScript types (type-check passes)
+- ✅ Frontend service (imports and interfaces correct)
+- ✅ UI component (suggestions display correctly)
+- ✅ URL routing (fixed double `/api` prefix bug)
+
+</details>
+
+---
+

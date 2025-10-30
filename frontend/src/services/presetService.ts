@@ -1,31 +1,8 @@
 // Preset service for API calls
 import axios from 'axios';
+import type { Preset, MergeResult, MergeStrategy } from '../types/preset';
 
 const API_BASE = 'http://localhost:8000';
-
-export interface Preset {
-  id: number;
-  name: string;
-  description?: string;
-  category?: string;
-  is_system: boolean;
-  parameters: Record<string, any[]>;
-  metadata?: Record<string, any>;
-  created_at: string;
-  updated_at?: string;
-}
-
-export interface MergeResult {
-  parameters: Record<string, any[]>;
-  applied_presets: string[];
-  conflicts?: Array<{
-    parameter: string;
-    reason: string;
-    [key: string]: any;
-  }>;
-}
-
-export type MergeStrategy = 'union' | 'intersection' | 'last_wins';
 
 export const presetService = {
   async getAll(category?: string): Promise<Preset[]> {

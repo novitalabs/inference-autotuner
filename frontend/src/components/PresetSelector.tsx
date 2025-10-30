@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { presetService } from '../services/presetService';
-import type { Preset, MergeStrategy, MergeResult } from '../types/preset';
+import type { MergeStrategy, MergeResult } from '../types/preset';
 
 interface PresetSelectorProps {
   onParametersChange: (parameters: Record<string, any[]>) => void;

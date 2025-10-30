@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 from web.config import get_settings
 from web.db.session import init_db, get_db
 from web.db.seed_presets import seed_system_presets
-from web.routes import tasks, experiments, system, docker, presets
+from web.routes import tasks, experiments, system, docker, presets, runtime_params
 
 
 @asynccontextmanager
@@ -54,6 +54,7 @@ app.include_router(experiments.router, prefix="/api/experiments", tags=["experim
 app.include_router(system.router, prefix="/api/system", tags=["system"])
 app.include_router(docker.router, prefix="/api/docker", tags=["docker"])
 app.include_router(presets.router)
+app.include_router(runtime_params.router)
 
 
 @app.get("/")

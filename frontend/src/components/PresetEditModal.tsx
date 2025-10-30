@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import { presetService } from '../services/presetService';
+import { runtimeParamsService } from '../services/runtimeParamsService';
 import toast from 'react-hot-toast';
 import type { Preset } from '../types/preset';
 
@@ -22,6 +23,14 @@ export default function PresetEditModal({ preset, onClose }: PresetEditModalProp
   const [description, setDescription] = useState(preset.description || '');
   const [category, setCategory] = useState(preset.category || '');
   const [runtime, setRuntime] = useState<'sglang' | 'vllm' | ''>(preset.runtime || '');
+  const [showSuggestions, setShowSuggestions] = useState(false);
+
+  // Fetch commonly tuned parameters for the selected runtime
+  const { data: commonlyTuned } = useQuery({
+    queryKey: ['commonly-tuned', runtime],
+    queryFn: () => runtime ? runtimeParamsService.getCommonlyTuned(runtime as 'sglang' | 'vllm') : Promise.resolve(null),
+    enabled: !!runtime,
+  });
   const [parameters, setParameters] = useState<ParamField[]>([]);
 
   // Initialize parameters from preset
@@ -203,14 +212,55 @@ export default function PresetEditModal({ preset, onClose }: PresetEditModalProp
               <label className="block text-sm font-medium text-gray-700">
                 Parameters
               </label>
-              <button
-                type="button"
-                onClick={addParameter}
-                className="px-3 py-1 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm"
-              >
-                Add Parameter
-              </button>
+              <div className="flex gap-2">
+                {runtime && commonlyTuned && (
+                  <button
+                    type="button"
+                    onClick={() => setShowSuggestions(!showSuggestions)}
+                    className="px-3 py-1 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 text-sm"
+                  >
+                    {showSuggestions ? 'Hide' : 'Show'} Suggestions
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={addParameter}
+                  className="px-3 py-1 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm"
+                >
+                  Add Parameter
+                </button>
+              </div>
             </div>
+
+            {/* Commonly tuned parameters suggestions */}
+            {showSuggestions && runtime && commonlyTuned && (
+              <div className="mb-3 p-3 bg-blue-50 border border-blue-200 rounded-md">
+                <p className="text-sm font-medium text-blue-900 mb-2">
+                  Commonly tuned parameters for {runtime.toUpperCase()}:
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {commonlyTuned.parameters.map((param) => (
+                    <button
+                      key={param}
+                      type="button"
+                      onClick={() => {
+                        // Add parameter if not already in the list
+                        if (!parameters.some(p => p.name === param)) {
+                          setParameters([...parameters, { name: param, values: '' }]);
+                        }
+                      }}
+                      className="px-2 py-1 bg-white border border-blue-300 text-blue-700 rounded text-xs hover:bg-blue-100"
+                      disabled={parameters.some(p => p.name === param)}
+                    >
+                      {param}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-xs text-blue-600 mt-2">
+                  Click a parameter to add it to your preset
+                </p>
+              </div>
+            )}
 
             <div className="space-y-3">
               {parameters.map((param, index) => (
