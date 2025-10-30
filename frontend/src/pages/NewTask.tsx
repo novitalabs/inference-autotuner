@@ -5,6 +5,7 @@ import toast from 'react-hot-toast';
 import { navigateTo } from '../components/Layout';
 import { getEditingTaskId } from '../utils/editTaskStore';
 import type { Task } from '../types/api';
+import PresetSelector from '../components/PresetSelector';
 
 interface TaskFormData {
   task_name: string;
@@ -128,6 +129,7 @@ export default function NewTask() {
     { name: 'tp-size', values: '1' },
     { name: 'mem-fraction-static', values: '0.7, 0.8' },
   ]);
+  const [usePresets, setUsePresets] = useState(false);
 
   // Optimization
   const [strategy, setStrategy] = useState('grid_search');
@@ -193,6 +195,24 @@ export default function NewTask() {
     const newParams = [...parameters];
     newParams[index][field] = value;
     setParameters(newParams);
+  };
+
+  const handlePresetParametersChange = (presetParams: Record<string, any[]>) => {
+    // Convert preset parameters to ParamField format
+    const paramFields: ParamField[] = Object.entries(presetParams).map(([name, values]) => ({
+      name,
+      values: values.join(', ')
+    }));
+
+    if (paramFields.length > 0) {
+      setParameters(paramFields);
+    } else {
+      // Reset to default when no presets selected
+      setParameters([
+        { name: 'tp-size', values: '1' },
+        { name: 'mem-fraction-static', values: '0.7, 0.8' },
+      ]);
+    }
   };
 
   const parseNumberArray = (str: string): number[] => {
@@ -386,14 +406,36 @@ export default function NewTask() {
         <div className="bg-white shadow-sm rounded-lg p-6">
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-xl font-semibold">Parameters to Tune</h2>
-            <button
-              type="button"
-              onClick={addParameter}
-              className="px-3 py-1 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm"
-            >
-              Add Parameter
-            </button>
+            <div className="flex items-center gap-4">
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={usePresets}
+                  onChange={(e) => setUsePresets(e.target.checked)}
+                  className="rounded"
+                />
+                <span className="text-gray-700">Use Parameter Presets</span>
+              </label>
+              <button
+                type="button"
+                onClick={addParameter}
+                className="px-3 py-1 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm"
+              >
+                Add Parameter
+              </button>
+            </div>
           </div>
+
+          {/* Preset Selector */}
+          {usePresets && (
+            <div className="mb-6">
+              <PresetSelector
+                onParametersChange={handlePresetParametersChange}
+                className="mb-4"
+              />
+            </div>
+          )}
+
           <div className="space-y-3">
             {parameters.map((param, index) => (
               <div key={index} className="flex gap-3 items-start">
@@ -427,7 +469,9 @@ export default function NewTask() {
             ))}
           </div>
           <p className="text-sm text-gray-500 mt-2">
-            Enter parameter values as comma-separated numbers (e.g., 0.7, 0.8, 0.9)
+            {usePresets
+              ? "Parameters from presets are pre-filled below. You can still edit them manually."
+              : "Enter parameter values as comma-separated numbers (e.g., 0.7, 0.8, 0.9)"}
           </p>
         </div>
 

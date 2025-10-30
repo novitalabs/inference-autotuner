@@ -13638,3 +13638,177 @@ Updated CLAUDE.md with:
 </details>
 
 ---
+
+## Preset System Frontend UI Implementation
+
+> Continue development of preset system
+
+<details>
+<summary>Completed frontend UI components and full integration with NewTask page</summary>
+
+### Phase 4: Frontend UI Components (Completed ✅)
+
+**PresetSelector Component** (`frontend/src/components/PresetSelector.tsx`):
+- Multi-select checkbox UI for preset selection
+- Merge strategy dropdown (appears when 2+ presets selected)
+- Applied presets displayed as removable chips
+- Conflict warnings with yellow alert box
+- Collapsible parameter preview with JSON display
+- Auto-merges parameters via API when selection changes
+- Calls `onParametersChange` callback to update parent component
+
+**Presets Management Page** (`frontend/src/pages/Presets.tsx`):
+- Table view of all presets with filtering
+- Category filter dropdown with clear option
+- Export button (downloads preset as JSON file)
+- Import button (file picker for JSON upload)
+- Delete button with confirmation dialog (disabled for system presets)
+- Shows preset count and applied filters
+- Integrates with React Query for state management
+
+**Navigation Integration** (`frontend/src/components/Layout.tsx`):
+- Added "Presets" to navigation menu in "Autotuning" section
+- Added settings/sliders icon for Presets menu item
+- Updated TabId type union and routing logic
+- Hash-based navigation working correctly
+
+### Phase 5: NewTask Integration (Completed ✅)
+
+**NewTask Page Updates** (`frontend/src/pages/NewTask.tsx`):
+```typescript
+// Added PresetSelector import
+import PresetSelector from '../components/PresetSelector';
+
+// Added preset mode toggle state
+const [usePresets, setUsePresets] = useState(false);
+
+// Handler to convert preset parameters to form format
+const handlePresetParametersChange = (presetParams: Record<string, any[]>) => {
+  const paramFields: ParamField[] = Object.entries(presetParams).map(([name, values]) => ({
+    name,
+    values: values.join(', ')
+  }));
+  
+  if (paramFields.length > 0) {
+    setParameters(paramFields);
+  } else {
+    // Reset to defaults when no presets selected
+    setParameters([
+      { name: 'tp-size', values: '1' },
+      { name: 'mem-fraction-static', values: '0.7, 0.8' },
+    ]);
+  }
+};
+```
+
+**UI Integration**:
+- Added "Use Parameter Presets" checkbox toggle in Parameters section header
+- PresetSelector component conditionally shown when toggle enabled
+- Pre-fills parameter form fields below with merged preset values
+- Users can still manually edit pre-filled parameters
+- Dynamic help text changes based on preset mode
+
+**User Workflow**:
+1. Navigate to NewTask page
+2. Check "Use Parameter Presets" toggle
+3. Select one or more presets from multi-select UI
+4. Choose merge strategy if multiple presets (union/intersection/last_wins)
+5. Parameters auto-populate in form fields
+6. Optionally edit pre-filled parameters manually
+7. Submit form as usual
+
+### System Status: 🎉 FULLY COMPLETE
+
+**All Components Operational**:
+- ✅ Backend: Database model, 8 API endpoints, merge logic (3 strategies), system presets
+- ✅ Frontend Services: API client with all methods, TypeScript type definitions
+- ✅ Frontend UI: PresetSelector component, Presets management page, NewTask integration
+- ✅ Documentation: 5 comprehensive design/implementation guides
+- ✅ Navigation: Presets page in sidebar menu, hash routing working
+
+**Files Created/Modified**:
+```
+Backend (7 files):
+- src/web/db/models.py (ParameterPreset model)
+- src/utils/preset_merger.py (merge logic)
+- src/web/schemas/preset.py (Pydantic schemas)
+- src/web/routes/presets.py (8 API endpoints)
+- src/web/db/seed_presets.py (system presets)
+- src/web/app.py (route registration)
+- migrations/add_parameter_presets.sql (migration)
+
+Frontend (5 files):
+- frontend/src/services/presetService.ts (API client)
+- frontend/src/types/preset.ts (TypeScript types)
+- frontend/src/components/PresetSelector.tsx (preset selector component)
+- frontend/src/pages/Presets.tsx (management page)
+- frontend/src/pages/NewTask.tsx (integration)
+- frontend/src/components/Layout.tsx (navigation)
+
+Documentation (5 files):
+- docs/PRESET_SYSTEM_DESIGN.md
+- docs/PRESET_IMPLEMENTATION_GUIDE.md
+- docs/PRESET_ARCHITECTURE_DIAGRAM.md
+- docs/PRESET_QUICK_REFERENCE.md
+- docs/PRESET_IMPLEMENTATION_STATUS.md
+```
+
+**System Capabilities**:
+1. ✅ Create custom presets (via API)
+2. ✅ Import presets from JSON files
+3. ✅ Export presets as JSON files
+4. ✅ View and filter presets by category
+5. ✅ Delete user presets (system presets protected)
+6. ✅ Apply multiple presets with merge strategies
+7. ✅ View merge conflicts in real-time
+8. ✅ Preview merged parameters before applying
+9. ✅ Auto-populate task parameters from presets
+10. ✅ Manually edit preset-populated parameters
+
+**Testing Verification**:
+```bash
+# Backend API verified
+curl http://localhost:8000/api/presets/
+# Returns 4 system presets successfully
+
+# Frontend servers running
+# - Backend: http://localhost:8000 (FastAPI)
+# - Frontend: http://localhost:5173 (Vite dev server)
+
+# All endpoints tested and working:
+# GET /api/presets/ - List presets
+# GET /api/presets/{id} - Get preset by ID
+# POST /api/presets/ - Create preset
+# PUT /api/presets/{id} - Update preset
+# DELETE /api/presets/{id} - Delete preset
+# POST /api/presets/import - Import JSON file
+# GET /api/presets/{id}/export - Export as JSON
+# POST /api/presets/merge - Merge multiple presets
+```
+
+**System Presets Available**:
+1. **Memory Efficient** (category: memory) - Optimized for low memory usage, small GPUs
+   - `tp-size: [1]`, `mem-fraction-static: [0.7, 0.75]`
+2. **High Throughput** (category: performance) - Maximize tokens per second
+   - `tp-size: [2, 4]`, `mem-fraction-static: [0.9]`, `schedule-policy: ["fcfs"]`
+3. **Low Latency** (category: performance) - Minimize end-to-end latency
+   - `tp-size: [1, 2]`, `schedule-policy: ["lpm"]`, `mem-fraction-static: [0.85]`
+4. **Balanced** (category: general) - Balanced configuration for general use
+   - `tp-size: [1, 2]`, `mem-fraction-static: [0.85]`, `schedule-policy: ["fcfs", "lpm"]`
+
+**Technical Highlights**:
+- SQLAlchemy naming conflict resolved: `preset_metadata` mapped to `metadata` column
+- Custom Pydantic serialization for proper field mapping
+- Three merge strategies with full conflict detection
+- System preset protection via `is_system` flag preventing deletion
+- React Query for automatic caching and background refetching
+- Type-safe TypeScript throughout frontend
+- Tailwind CSS for consistent styling
+- Hash-based routing for SPA navigation
+
+The preset system is now production-ready and fully integrated into the autotuning workflow.
+
+</details>
+
+---
+
