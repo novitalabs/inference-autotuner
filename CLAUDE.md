@@ -53,6 +53,23 @@ Task Created → Enqueued → Worker Picks Up → For Each Parameter Combination
 
 ## Running the System
 
+### Quick Start (Full Stack)
+
+For complete development environment with UI:
+
+```bash
+# Terminal 1: Start backend (API + Worker)
+./scripts/start_dev.sh
+
+# Terminal 2: Start frontend
+cd frontend && npm run dev
+```
+
+Then access:
+- **Frontend UI**: http://localhost:5173
+- **Backend API**: http://localhost:8000
+- **API Docs**: http://localhost:8000/docs
+
 ### Development Commands
 
 **Backend (API + Worker):**
@@ -73,7 +90,17 @@ npm run dev                     # Development server at http://localhost:5173
 npm run build                   # Production build
 npm run type-check              # TypeScript type checking
 npm run format                  # Prettier formatting
+npm run format:check            # Check formatting without changes
+npm run lint                    # ESLint checking
 ```
+
+**Frontend Features (Implemented):**
+- Task creation wizard with JSON editor and form validation
+- Task list with status tracking and filtering
+- Experiment results table with metrics visualization
+- Real-time log viewer for task execution
+- Docker container monitoring (Docker mode)
+- Recharts-based performance graphs
 
 **CLI (Direct Execution):**
 ```bash
@@ -213,6 +240,37 @@ Task JSON "model.id_or_path" → /mnt/data/models/{id_or_path} → mounted as /m
 - Logs redirected to both file and console via `StreamToLogger` class
 - **CRITICAL**: Worker must be restarted after code changes
 
+### Frontend Architecture
+
+**Tech Stack:**
+- **React 18** with TypeScript
+- **Vite** for build tooling and hot module replacement
+- **React Router** for navigation (Dashboard, Tasks, Experiments, Containers)
+- **TanStack Query** (React Query) for API state management and caching
+- **Axios** for HTTP client
+- **Recharts** for metrics visualization
+- **Tailwind CSS** for styling
+- **React Hot Toast** for notifications
+
+**Key Pages** (frontend/src/pages/):
+- `Dashboard.tsx`: Overview and system status
+- `Tasks.tsx`: Task list with create/start/monitor capabilities
+- `NewTask.tsx`: Task creation wizard with form builder
+- `Experiments.tsx`: Experiment results and metrics
+- `Containers.tsx`: Docker container monitoring (Docker mode only)
+
+**Components** (frontend/src/components/):
+- `Layout.tsx`: Main layout with navigation
+- `TaskResults.tsx`: Results visualization with graphs
+- `LogViewer.tsx`: Real-time log streaming and viewing
+
+**API Integration Pattern:**
+- Uses TanStack Query (React Query) for server state management
+- Automatic caching, refetching, and background updates
+- API client in `services/` wraps Axios calls
+- Type-safe with TypeScript interfaces from `types/`
+- Polling-based updates (WebSocket migration planned)
+
 ## Common Issues
 
 ### Docker Mode
@@ -235,14 +293,42 @@ Task JSON "model.id_or_path" → /mnt/data/models/{id_or_path} → mounted as /m
 2. **Worker not processing tasks**: Verify Redis is running (`docker ps | grep redis`)
 3. **Changes not taking effect**: Restart ARQ worker after code modifications
 
+### Frontend
+1. **CORS errors**: Ensure backend is running on port 8000 (frontend expects this)
+2. **API connection failed**: Check that `./scripts/start_dev.sh` is running
+3. **Build errors**: Run `npm run type-check` to verify TypeScript issues
+4. **Styling issues**: Ensure Tailwind CSS is configured (`npm run build` to rebuild)
+5. **Hot reload not working**: Restart Vite dev server with `npm run dev`
+
 ## Development Workflow
 
-1. **Start services**: `./scripts/start_dev.sh` (backend) + `cd frontend && npm run dev` (frontend)
-2. **Make code changes**: Edit files in `src/` or `frontend/src/`
-3. **Restart ARQ worker** if changes affect `src/orchestrator.py`, `src/controllers/`, or `src/web/workers/`
-4. **Test with Docker mode first**: Faster iteration than OME mode
-5. **Check logs**: Worker logs at `logs/worker.log`, task logs at `~/.local/share/inference-autotuner/logs/task_<id>.log`
-6. **View results**: Database at `~/.local/share/inference-autotuner/autotuner.db`
+### Full Stack Development
+
+1. **Start backend services**: `./scripts/start_dev.sh`
+   - Starts both web server (port 8000) and ARQ worker
+   - Web server has hot-reload enabled
+   - Worker logs to `logs/worker.log`
+
+2. **Start frontend** (separate terminal): `cd frontend && npm run dev`
+   - Development server on port 5173 with hot module replacement
+   - TypeScript checking: `npm run type-check`
+   - Format code: `npm run format`
+
+3. **Make code changes**:
+   - **Backend Python** (`src/`): Web server auto-reloads
+   - **Worker/Controller changes**: Restart ARQ worker (see Worker Management section)
+   - **Frontend** (`frontend/src/`): Vite provides instant HMR
+
+4. **Testing strategy**:
+   - Test with **Docker mode first**: Faster iteration than OME mode
+   - Use single parameter values to reduce experiment count
+   - Monitor logs: `tail -f logs/worker.log`
+
+5. **Debugging**:
+   - Backend API: Check `logs/worker.log` and web server console
+   - Frontend: Browser DevTools + React Query DevTools
+   - Task execution: `~/.local/share/inference-autotuner/logs/task_<id>.log`
+   - Database inspection: `sqlite3 ~/.local/share/inference-autotuner/autotuner.db`
 
 ### Testing Shortcuts
 
@@ -299,10 +385,25 @@ inference-autotuner/
 ├── frontend/                      # React UI
 │   ├── src/
 │   │   ├── components/            # React components
-│   │   ├── api/                   # API client (axios)
+│   │   │   ├── Layout.tsx         # Main layout with navigation
+│   │   │   ├── TaskResults.tsx    # Results visualization
+│   │   │   └── LogViewer.tsx      # Log streaming viewer
+│   │   ├── pages/                 # Page components
+│   │   │   ├── Dashboard.tsx      # System overview
+│   │   │   ├── Tasks.tsx          # Task management
+│   │   │   ├── NewTask.tsx        # Task creation wizard
+│   │   │   ├── Experiments.tsx    # Experiment results
+│   │   │   └── Containers.tsx     # Docker monitoring (Docker mode)
+│   │   ├── services/              # API client services
 │   │   ├── types/                 # TypeScript interfaces
+│   │   ├── utils/                 # Helper functions
+│   │   ├── styles/                # CSS styles
+│   │   ├── App.tsx                # Root component
 │   │   └── main.tsx               # App entry point
-│   └── package.json               # npm dependencies
+│   ├── package.json               # npm dependencies
+│   ├── vite.config.ts             # Vite configuration
+│   ├── tailwind.config.js         # Tailwind CSS config
+│   └── tsconfig.json              # TypeScript config
 ├── examples/                      # Task JSON configurations
 │   ├── docker_task.json           # Docker mode example
 │   └── simple_task.json           # OME mode example
@@ -350,8 +451,16 @@ HF_TOKEN=<your-token>            # Optional: for gated models
 
 **Critical constraints**:
 1. **Kubernetes Dashboard on port 8443** - do not use this port
-2. **Update `agentlog.md`** when mini-milestones are accomplished
-3. **Place new .md docs in `./docs/`**
-4. **Consult `docs/TROUBLESHOOTING.md`** when encountering issues, maintain it when resolving new issues
-5. **Restart ARQ worker** after editing relevant code files
-6. **Follow `CLAUDE.local.md`** if present for further local instructions
+2. **Frontend dev server on port 5173** - Vite default, proxies API to port 8000
+3. **Update `agentlog.md`** when mini-milestones are accomplished
+4. **Place new .md docs in `./docs/`**
+5. **Consult `docs/TROUBLESHOOTING.md`** when encountering issues, maintain it when resolving new issues
+6. **Restart ARQ worker** after editing relevant code files
+7. **Follow `CLAUDE.local.md`** if present for further local instructions
+
+**Current implementation status**:
+- ✅ **React frontend is fully implemented** (Dashboard, Tasks, Experiments, Container monitoring)
+- ✅ REST API with background processing
+- ✅ Docker and OME deployment modes
+- ⏳ WebSocket support for real-time updates (TODO)
+- ⏳ Bayesian optimization (currently grid search only)

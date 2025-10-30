@@ -13502,3 +13502,61 @@ Successfully diagnosed and fixed a **two-part issue**:
 </details>
 
 ---
+
+
+## 2025/10/30
+
+
+> Design a preset system for engine parameters, features includes edit, import/export.
+> When the parameters used for task create/edit panel, user can apply multiple paramter presets, and automatically merge parameters for every apply.
+
+
+<details>
+<summary>Complete Design Documentation</sumary>
+
+Created comprehensive design documentation for the parameter preset system:
+
+1. **System Design** (`docs/PRESET_SYSTEM_DESIGN.md`):
+   - Database schema with SQLAlchemy models
+   - Full API endpoint specification
+   - Three merge strategies: Union, Intersection, Last Wins
+   - Import/export JSON format
+   - Frontend component architecture
+   - System preset templates
+
+2. **Implementation Guide** (`docs/PRESET_IMPLEMENTATION_GUIDE.md`):
+   - 5-day phased implementation plan
+   - Step-by-step backend setup
+   - Step-by-step frontend setup
+   - Testing checklist
+   - Troubleshooting guide
+   - Verification checklist
+
+3. **Architecture Diagrams** (`docs/PRESET_ARCHITECTURE_DIAGRAM.md`):
+   - System overview diagram
+   - Data flow visualizations
+   - Component hierarchy
+   - Database schema visualization
+   - Merge strategy comparisons
+   - API request/response examples
+
+**Key Features Designed**:
+- ✅ Preset CRUD operations with database persistence
+- ✅ Multi-preset application with intelligent merging
+- ✅ Three merge strategies (union, intersection, last_wins)
+- ✅ Conflict detection and warnings
+- ✅ Import/export via JSON files
+- ✅ System presets (Memory Efficient, High Throughput, Low Latency, Balanced)
+- ✅ Category-based organization
+- ✅ Integration with NewTask/EditTask pages
+- ✅ Live parameter preview
+- ✅ Type-safe TypeScript implementation
+
+**Technical Architecture**:
+- Backend: FastAPI routes + SQLAlchemy ORM + PresetMerger utility
+- Frontend: React + TypeScript + TanStack Query + PresetSelector component
+- Database: SQLite with indexed `parameter_presets` table
+- API: RESTful endpoints with Pydantic validation
+
+Ready for implementation following the detailed guides.
+</details>
