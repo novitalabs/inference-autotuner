@@ -105,7 +105,7 @@ async def update_preset(
 	preset: PresetUpdate,
 	db: AsyncSession = Depends(get_db)
 ):
-	"""Update an existing preset. System presets cannot be modified."""
+	"""Update an existing preset (including system presets)."""
 	result = await db.execute(
 		select(ParameterPreset).where(ParameterPreset.id == preset_id)
 	)
@@ -115,12 +115,6 @@ async def update_preset(
 		raise HTTPException(
 			status_code=status.HTTP_404_NOT_FOUND,
 			detail=f"Preset with id {preset_id} not found"
-		)
-
-	if db_preset.is_system:
-		raise HTTPException(
-			status_code=status.HTTP_403_FORBIDDEN,
-			detail="System presets cannot be modified"
 		)
 
 	# Update fields
@@ -166,7 +160,7 @@ async def update_preset(
 
 @router.delete("/{preset_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_preset(preset_id: int, db: AsyncSession = Depends(get_db)):
-	"""Delete a preset. System presets cannot be deleted."""
+	"""Delete a preset (including system presets)."""
 	result = await db.execute(
 		select(ParameterPreset).where(ParameterPreset.id == preset_id)
 	)
@@ -176,12 +170,6 @@ async def delete_preset(preset_id: int, db: AsyncSession = Depends(get_db)):
 		raise HTTPException(
 			status_code=status.HTTP_404_NOT_FOUND,
 			detail=f"Preset with id {preset_id} not found"
-		)
-
-	if preset.is_system:
-		raise HTTPException(
-			status_code=status.HTTP_403_FORBIDDEN,
-			detail="System presets cannot be deleted"
 		)
 
 	await db.execute(delete(ParameterPreset).where(ParameterPreset.id == preset_id))

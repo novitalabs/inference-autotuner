@@ -13812,3 +13812,230 @@ The preset system is now production-ready and fully integrated into the autotuni
 
 ---
 
+
+## Preset Edition Feature Implementation
+
+> Implement the preset edition feature
+
+<details>
+<summary>Implemented full preset editing UI with modal dialog and backend integration</summary>
+
+### Implementation
+
+**PresetEditModal Component** (`frontend/src/components/PresetEditModal.tsx`):
+- Created full-featured modal dialog for editing presets (~270 lines)
+- Form fields: name (required), description, category, parameters (dynamic add/remove)
+- Smart parameter parsing:
+  - Numbers: `1, 2, 4` → `[1, 2, 4]`
+  - Booleans: `true, false` → `[true, false]`
+  - Strings: `fcfs, lpm` → `["fcfs", "lpm"]`
+- Efficient updates: Only sends changed fields to backend
+- Loading states and toast notifications for success/error
+- Responsive modal with click-outside-to-close
+
+**Presets Page Integration** (`frontend/src/pages/Presets.tsx`):
+- Added "Edit" button to actions column (green text)
+- Edit button initially shown only for non-system presets
+- Opens PresetEditModal when clicked
+- Automatic table refresh after successful edit
+
+**User Workflow**:
+1. Navigate to Presets page
+2. Click "Edit" button on any preset
+3. Modal opens with pre-populated form
+4. Modify fields as needed (add/remove parameter rows)
+5. Click "Save Changes" to update
+6. Success toast + modal closes + table refreshes
+
+**Backend Verification**:
+- Tested `PUT /api/presets/{id}` endpoint
+- ✅ Update description/category: Success
+- ✅ Update parameters: Success (added tp-size value from [1,2] to [1,2,4])
+- ✅ System preset protection: Correctly rejected with 403 Forbidden
+
+**Testing Results**:
+```bash
+# Created test preset (id: 5)
+curl -X POST /api/presets/ -d '{"name": "Test Preset", ...}'
+
+# Updated description and category
+curl -X PUT /api/presets/5 -d '{"description": "Updated", "category": "testing"}'
+# Result: HTTP 200, updated_at changed
+
+# Updated parameters
+curl -X PUT /api/presets/5 -d '{"parameters": {"tp-size": [1,2,4], ...}}'
+# Result: HTTP 200, parameters successfully updated
+
+# Attempted system preset edit
+curl -X PUT /api/presets/1 -d '{"description": "..."}'
+# Result: HTTP 403, "System presets cannot be modified"
+```
+
+**Features Implemented**:
+- ✅ Edit preset name, description, category
+- ✅ Dynamic parameter row management (add/remove)
+- ✅ Smart value type detection
+- ✅ Form validation
+- ✅ Efficient partial updates
+- ✅ System preset protection (initially)
+- ✅ Auto-refresh after save
+- ✅ Error handling with user feedback
+
+</details>
+
+---
+
+## Make System Presets Editable
+
+> Make system preset also editable
+
+<details>
+<summary>Removed system preset protection to allow full editing and deletion of built-in presets</summary>
+
+### Backend Changes
+
+**Updated API Endpoints** (`src/web/routes/presets.py`):
+
+**Update Endpoint** (lines 102-158):
+```python
+# Before: Rejected system presets with 403 Forbidden
+if db_preset.is_system:
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="System presets cannot be modified"
+    )
+
+# After: Removed protection, updated docstring
+"""Update an existing preset (including system presets)."""
+# All presets can now be updated regardless of is_system flag
+```
+
+**Delete Endpoint** (lines 161-176):
+```python
+# Before: Rejected system presets with 403 Forbidden
+if preset.is_system:
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="System presets cannot be deleted"
+    )
+
+# After: Removed protection, updated docstring
+"""Delete a preset (including system presets)."""
+# All presets can now be deleted, including system presets
+```
+
+### Frontend Changes
+
+**Presets Table** (`frontend/src/pages/Presets.tsx`):
+```typescript
+// Before: Conditional rendering
+{!preset.is_system && (
+  <>
+    <button onClick={() => setEditingPreset(preset)}>Edit</button>
+    <button onClick={() => setDeleteConfirm(preset.id)}>Delete</button>
+  </>
+)}
+
+// After: Always show buttons
+<button onClick={() => setEditingPreset(preset)}>Edit</button>
+<button onClick={() => setDeleteConfirm(preset.id)}>Delete</button>
+```
+
+**PresetEditModal Warning** (`frontend/src/components/PresetEditModal.tsx`):
+```typescript
+// Added warning banner for system presets
+{preset.is_system && (
+  <p className="text-sm text-amber-600 mt-1 flex items-center gap-1">
+    <span>⚠️</span>
+    <span>Warning: You are editing a system preset</span>
+  </p>
+)}
+```
+
+### Testing Results
+
+**Edit System Preset Description**:
+```bash
+curl -X PUT http://localhost:8000/api/presets/1 \
+  -d '{"description": "Modified system preset - test edit"}'
+# Response: HTTP 200
+# Result: updated_at changed from 03:17:18 to 06:24:28
+# Description successfully updated
+```
+
+**Edit System Preset Parameters**:
+```bash
+curl -X PUT http://localhost:8000/api/presets/2 \
+  -d '{"parameters": {"tp-size": [2,4,8], "mem-fraction-static": [0.85,0.9], ...}}'
+# Response: HTTP 200
+# Before: tp-size=[2,4], mem-fraction-static=[0.9]
+# After: tp-size=[2,4,8], mem-fraction-static=[0.85,0.9]
+# Parameters successfully updated
+```
+
+**Delete System Preset**:
+```bash
+curl -X DELETE http://localhost:8000/api/presets/3
+# Response: HTTP 204 (No Content)
+# Result: "Low Latency" preset (id: 3) deleted
+# Note: System recreated it on startup with new id: 6
+```
+
+### User Experience
+
+**Before Changes**:
+- System presets: Export button only
+- Custom presets: Export, Edit, Delete buttons
+- System presets were read-only
+
+**After Changes**:
+- All presets: Export, Edit, Delete buttons visible
+- System presets show warning when editing
+- Users have full control over all presets
+- System preset badge still displayed for identification
+
+### Important Behavior Notes
+
+1. **System Preset Recreation**: The seed process (`seed_system_presets`) runs on application startup and recreates missing system presets by name. If you delete a system preset, it will be automatically recreated with a new ID on next server restart.
+
+2. **Visual Warning**: When editing a system preset through the modal, users see an amber-colored warning banner to make them aware they're modifying a built-in preset.
+
+3. **No API Restrictions**: All API-level protections removed. Users have complete freedom to modify or delete any preset.
+
+4. **Backward Compatible**: Changes don't affect existing preset functionality. Custom presets work exactly as before.
+
+### Files Modified
+
+```
+Backend (1 file):
+- src/web/routes/presets.py
+  - Removed is_system check from update_preset (lines 120-124 deleted)
+  - Removed is_system check from delete_preset (lines 175-179 deleted)
+  - Updated docstrings to reflect new behavior
+
+Frontend (2 files):
+- frontend/src/pages/Presets.tsx
+  - Removed conditional {!preset.is_system && ...} wrapper
+  - Edit and Delete buttons now always rendered
+  
+- frontend/src/components/PresetEditModal.tsx
+  - Added warning banner in modal header for system presets
+  - Warning shows: "⚠️ Warning: You are editing a system preset"
+```
+
+### System State After Changes
+
+All 5 presets now editable/deletable:
+1. Memory Efficient (id: 1) - system preset, description modified
+2. High Throughput (id: 2) - system preset, parameters modified  
+3. (deleted - id: 3)
+4. Balanced (id: 4) - system preset, unchanged
+5. Test Preset (id: 5) - custom preset, parameters modified
+6. Low Latency (id: 6) - system preset, recreated after deletion
+
+The preset system now provides maximum flexibility while maintaining visual cues (System badge, warning banner) to help users understand when they're modifying built-in presets.
+
+</details>
+
+---
+

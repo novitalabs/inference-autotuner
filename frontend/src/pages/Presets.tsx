@@ -3,11 +3,13 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { presetService } from '../services/presetService';
 import toast from 'react-hot-toast';
 import type { Preset } from '../types/preset';
+import PresetEditModal from '../components/PresetEditModal';
 
 export default function Presets() {
   const queryClient = useQueryClient();
   const [selectedCategory, setSelectedCategory] = useState<string>('');
   const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
+  const [editingPreset, setEditingPreset] = useState<Preset | null>(null);
 
   // Fetch presets
   const { data: presets = [], isLoading } = useQuery({
@@ -188,33 +190,36 @@ export default function Presets() {
                       >
                         Export
                       </button>
-                      {!preset.is_system && (
-                        <>
-                          {deleteConfirm === preset.id ? (
-                            <div className="flex gap-2">
-                              <button
-                                onClick={() => deleteMutation.mutate(preset.id)}
-                                className="text-red-600 hover:text-red-800 font-medium"
-                              >
-                                Confirm
-                              </button>
-                              <button
-                                onClick={() => setDeleteConfirm(null)}
-                                className="text-gray-600 hover:text-gray-800"
-                              >
-                                Cancel
-                              </button>
-                            </div>
-                          ) : (
-                            <button
-                              onClick={() => setDeleteConfirm(preset.id)}
-                              className="text-red-600 hover:text-red-800"
-                              title="Delete"
-                            >
-                              Delete
-                            </button>
-                          )}
-                        </>
+                      <button
+                        onClick={() => setEditingPreset(preset)}
+                        className="text-green-600 hover:text-green-800"
+                        title="Edit"
+                      >
+                        Edit
+                      </button>
+                      {deleteConfirm === preset.id ? (
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => deleteMutation.mutate(preset.id)}
+                            className="text-red-600 hover:text-red-800 font-medium"
+                          >
+                            Confirm
+                          </button>
+                          <button
+                            onClick={() => setDeleteConfirm(null)}
+                            className="text-gray-600 hover:text-gray-800"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setDeleteConfirm(preset.id)}
+                          className="text-red-600 hover:text-red-800"
+                          title="Delete"
+                        >
+                          Delete
+                        </button>
                       )}
                     </div>
                   </td>
@@ -230,6 +235,14 @@ export default function Presets() {
         Showing {presets.length} preset{presets.length !== 1 ? 's' : ''}
         {selectedCategory && ` in category "${selectedCategory}"`}
       </div>
+
+      {/* Edit Modal */}
+      {editingPreset && (
+        <PresetEditModal
+          preset={editingPreset}
+          onClose={() => setEditingPreset(null)}
+        />
+      )}
     </div>
   );
 }
