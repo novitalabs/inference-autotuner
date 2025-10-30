@@ -21,6 +21,7 @@ export default function PresetEditModal({ preset, onClose }: PresetEditModalProp
   const [name, setName] = useState(preset.name);
   const [description, setDescription] = useState(preset.description || '');
   const [category, setCategory] = useState(preset.category || '');
+  const [runtime, setRuntime] = useState<'sglang' | 'vllm' | ''>(preset.runtime || '');
   const [parameters, setParameters] = useState<ParamField[]>([]);
 
   // Initialize parameters from preset
@@ -94,6 +95,7 @@ export default function PresetEditModal({ preset, onClose }: PresetEditModalProp
       name: name !== preset.name ? name : undefined,
       description: description !== preset.description ? description : undefined,
       category: category !== preset.category ? category : undefined,
+      runtime: (runtime || undefined) !== preset.runtime ? (runtime || undefined) : undefined,
       parameters: JSON.stringify(parsedParams) !== JSON.stringify(preset.parameters) ? parsedParams : undefined,
     };
 
@@ -174,6 +176,24 @@ export default function PresetEditModal({ preset, onClose }: PresetEditModalProp
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 placeholder="e.g., performance, memory, general"
               />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Runtime
+              </label>
+              <select
+                value={runtime}
+                onChange={(e) => setRuntime(e.target.value as 'sglang' | 'vllm' | '')}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">Universal (all runtimes)</option>
+                <option value="sglang">SGLang</option>
+                <option value="vllm">vLLM</option>
+              </select>
+              <p className="text-xs text-gray-500 mt-1">
+                Select the target runtime for this preset, or leave as universal
+              </p>
             </div>
           </div>
 

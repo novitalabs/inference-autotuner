@@ -13,6 +13,7 @@ SYSTEM_PRESETS = [
 		"name": "Memory Efficient",
 		"description": "Optimized for low memory usage, suitable for small GPUs",
 		"category": "memory",
+		"runtime": "sglang",
 		"is_system": True,
 		"parameters": {
 			"tp-size": [1],
@@ -29,6 +30,7 @@ SYSTEM_PRESETS = [
 		"name": "High Throughput",
 		"description": "Maximize tokens per second for maximum performance",
 		"category": "performance",
+		"runtime": "sglang",
 		"is_system": True,
 		"parameters": {
 			"tp-size": [2, 4],
@@ -46,6 +48,7 @@ SYSTEM_PRESETS = [
 		"name": "Low Latency",
 		"description": "Minimize end-to-end latency for interactive applications",
 		"category": "performance",
+		"runtime": "sglang",
 		"is_system": True,
 		"parameters": {
 			"tp-size": [1, 2],
@@ -62,6 +65,7 @@ SYSTEM_PRESETS = [
 		"name": "Balanced",
 		"description": "Balanced configuration for general-purpose use",
 		"category": "general",
+		"runtime": "sglang",
 		"is_system": True,
 		"parameters": {
 			"tp-size": [1, 2],

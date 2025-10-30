@@ -3,7 +3,7 @@ Pydantic schemas for parameter presets.
 """
 
 from pydantic import BaseModel, Field
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Literal
 from datetime import datetime
 
 
@@ -13,6 +13,7 @@ class PresetBase(BaseModel):
 	name: str = Field(..., min_length=1, max_length=255, description="Unique preset name")
 	description: Optional[str] = Field(None, description="Preset description")
 	category: Optional[str] = Field(None, description="Preset category (e.g., performance, memory, custom)")
+	runtime: Optional[Literal["sglang", "vllm"]] = Field(None, description="Target runtime (sglang, vllm, or None for universal)")
 	parameters: Dict[str, Any] = Field(..., description="Parameter configuration")
 	metadata: Optional[Dict[str, Any]] = Field(None, description="Additional metadata")
 
@@ -28,6 +29,7 @@ class PresetUpdate(BaseModel):
 	name: Optional[str] = Field(None, min_length=1, max_length=255)
 	description: Optional[str] = None
 	category: Optional[str] = None
+	runtime: Optional[Literal["sglang", "vllm"]] = None
 	parameters: Optional[Dict[str, Any]] = None
 	metadata: Optional[Dict[str, Any]] = None
 
@@ -53,6 +55,7 @@ class PresetResponse(PresetBase):
 			"name": obj.name,
 			"description": obj.description,
 			"category": obj.category,
+			"runtime": obj.runtime,
 			"is_system": obj.is_system,
 			"parameters": obj.parameters,
 			"metadata": obj.preset_metadata,  # Map the field correctly

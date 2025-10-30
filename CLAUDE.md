@@ -455,6 +455,7 @@ HF_TOKEN=<your-token>            # Optional: for gated models
 3. **Update `agentlog.md`** when mini-milestones are accomplished
     agentlog should include both user's prompt and agent's response, agent's response should be enclosed inside a foldable `<details>`.
     The content should be summarized concisely if the original text is too redundance.
+    Fix typos in prompt text if present.
 4. **Place new .md docs in `./docs/`**
 5. **Consult `docs/TROUBLESHOOTING.md`** when encountering issues, maintain it when resolving new issues
 6. **Restart ARQ worker** after editing relevant code files

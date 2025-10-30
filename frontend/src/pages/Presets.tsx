@@ -146,6 +146,9 @@ export default function Presets() {
                   Category
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Runtime
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Parameters
                 </th>
                 <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -175,6 +178,19 @@ export default function Presets() {
                     <span className="px-2 py-1 text-xs bg-blue-100 text-blue-800 rounded">
                       {preset.category || 'uncategorized'}
                     </span>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    {preset.runtime ? (
+                      <span className={`px-2 py-1 text-xs rounded ${
+                        preset.runtime === 'sglang'
+                          ? 'bg-green-100 text-green-800'
+                          : 'bg-purple-100 text-purple-800'
+                      }`}>
+                        {preset.runtime}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-gray-400">universal</span>
+                    )}
                   </td>
                   <td className="px-6 py-4">
                     <span className="text-sm text-gray-600">

@@ -87,6 +87,7 @@ async def create_preset(preset: PresetCreate, db: AsyncSession = Depends(get_db)
 		name=preset.name,
 		description=preset.description,
 		category=preset.category,
+		runtime=preset.runtime,
 		parameters=preset.parameters,
 		preset_metadata=preset.metadata,
 		is_system=False
@@ -138,6 +139,9 @@ async def update_preset(
 
 	if preset.category is not None:
 		db_preset.category = preset.category
+
+	if preset.runtime is not None:
+		db_preset.runtime = preset.runtime
 
 	if preset.parameters is not None:
 		# Validate parameters

@@ -112,6 +112,7 @@ class ParameterPreset(Base):
 	name = Column(String(255), nullable=False, unique=True, index=True)
 	description = Column(Text)
 	category = Column(String(100), index=True)
+	runtime = Column(String(50), index=True)  # Runtime: sglang, vllm, or None for universal
 	is_system = Column(Boolean, default=False, index=True)
 	parameters = Column(JSON, nullable=False)
 	preset_metadata = Column("metadata", JSON)  # Use different Python name
@@ -125,6 +126,7 @@ class ParameterPreset(Base):
 			"name": self.name,
 			"description": self.description,
 			"category": self.category,
+			"runtime": self.runtime,
 			"is_system": self.is_system,
 			"parameters": self.parameters,
 			"metadata": self.preset_metadata,

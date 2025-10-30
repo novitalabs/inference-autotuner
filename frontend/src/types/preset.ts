@@ -1,10 +1,13 @@
 // TypeScript types for parameter presets
 
+export type Runtime = 'sglang' | 'vllm';
+
 export interface Preset {
   id: number;
   name: string;
   description?: string;
   category?: string;
+  runtime?: Runtime;  // Optional: sglang, vllm, or undefined for universal
   is_system: boolean;
   parameters: ParameterMap;
   metadata?: PresetMetadata;
@@ -20,7 +23,6 @@ export interface PresetMetadata {
   author?: string;
   tags?: string[];
   recommended_for?: string[];
-  runtime?: string;
   [key: string]: any;
 }
 
@@ -44,6 +46,7 @@ export interface PresetCreate {
   name: string;
   description?: string;
   category?: string;
+  runtime?: Runtime;
   parameters: ParameterMap;
   metadata?: PresetMetadata;
 }
@@ -52,6 +55,7 @@ export interface PresetUpdate {
   name?: string;
   description?: string;
   category?: string;
+  runtime?: Runtime;
   parameters?: ParameterMap;
   metadata?: PresetMetadata;
 }
