@@ -7,8 +7,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
 from web.config import get_settings
-from web.db.session import init_db
-from web.routes import tasks, experiments, system, docker
+from web.db.session import init_db, get_db
+from web.db.seed_presets import seed_system_presets
+from web.routes import tasks, experiments, system, docker, presets
 
 
 @asynccontextmanager
@@ -18,6 +19,12 @@ async def lifespan(app: FastAPI):
 	print("🚀 Starting LLM Inference Autotuner API...")
 	await init_db()
 	print("✅ Database initialized")
+
+	# Seed system presets
+	async for db in get_db():
+		await seed_system_presets(db)
+		break
+
 	yield
 	# Shutdown
 	print("👋 Shutting down...")
@@ -46,6 +53,7 @@ app.include_router(tasks.router, prefix="/api/tasks", tags=["tasks"])
 app.include_router(experiments.router, prefix="/api/experiments", tags=["experiments"])
 app.include_router(system.router, prefix="/api/system", tags=["system"])
 app.include_router(docker.router, prefix="/api/docker", tags=["docker"])
+app.include_router(presets.router)
 
 
 @app.get("/")

@@ -1,11 +1,12 @@
 """
-Database models for tasks and experiments.
+Database models for tasks, experiments, and parameter presets.
 """
 
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, JSON, DateTime, Float, ForeignKey, Enum as SQLEnum
+from sqlalchemy import Column, Integer, String, JSON, DateTime, Float, ForeignKey, Enum as SQLEnum, Boolean, Text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func
 import enum
 
 Base = declarative_base()
@@ -100,3 +101,33 @@ class Experiment(Base):
 
 	# Relationship
 	task = relationship("Task", back_populates="experiments", foreign_keys=[task_id])
+
+
+class ParameterPreset(Base):
+	"""Parameter preset model for reusable parameter configurations."""
+
+	__tablename__ = "parameter_presets"
+
+	id = Column(Integer, primary_key=True, autoincrement=True)
+	name = Column(String(255), nullable=False, unique=True, index=True)
+	description = Column(Text)
+	category = Column(String(100), index=True)
+	is_system = Column(Boolean, default=False, index=True)
+	parameters = Column(JSON, nullable=False)
+	preset_metadata = Column("metadata", JSON)  # Use different Python name
+	created_at = Column(DateTime(timezone=True), server_default=func.now())
+	updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
+
+	def to_dict(self):
+		"""Convert model to dictionary."""
+		return {
+			"id": self.id,
+			"name": self.name,
+			"description": self.description,
+			"category": self.category,
+			"is_system": self.is_system,
+			"parameters": self.parameters,
+			"metadata": self.preset_metadata,
+			"created_at": self.created_at.isoformat() if self.created_at else None,
+			"updated_at": self.updated_at.isoformat() if self.updated_at else None,
+		}

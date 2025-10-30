@@ -453,6 +453,8 @@ HF_TOKEN=<your-token>            # Optional: for gated models
 1. **Kubernetes Dashboard on port 8443** - do not use this port
 2. **Frontend dev server on port 5173** - Vite default, proxies API to port 8000
 3. **Update `agentlog.md`** when mini-milestones are accomplished
+    agentlog should include both user's prompt and agent's response, agent's response should be enclosed inside a foldable `<details>`.
+    The content should be summarized concisely if the original text is too redundance.
 4. **Place new .md docs in `./docs/`**
 5. **Consult `docs/TROUBLESHOOTING.md`** when encountering issues, maintain it when resolving new issues
 6. **Restart ARQ worker** after editing relevant code files
