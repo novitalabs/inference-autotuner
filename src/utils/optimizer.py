@@ -32,13 +32,20 @@ def generate_parameter_grid(parameter_spec: Dict[str, Any]) -> List[Dict[str, An
 		# Check if it's the simple format (direct list) or structured format (dict with type/values)
 		if isinstance(spec, list):
 			# Simple format: direct list of values
+			# Skip empty lists (no values to search)
+			if len(spec) == 0:
+				continue
 			param_names.append(param_name)
 			param_values.append(spec)
 		elif isinstance(spec, dict) and "type" in spec:
 			# Structured format: legacy support
 			if spec["type"] == "choice":
+				# Skip empty value lists
+				values = spec["values"]
+				if len(values) == 0:
+					continue
 				param_names.append(param_name)
-				param_values.append(spec["values"])
+				param_values.append(values)
 			else:
 				raise ValueError(f"Unsupported parameter type: {spec['type']}")
 		else:
@@ -288,6 +295,9 @@ class BayesianStrategy(OptimizationStrategy):
 		for param_name, spec in parameter_spec.items():
 			if isinstance(spec, list):
 				# Simple format: treat as categorical
+				# Skip empty lists (no values to search)
+				if len(spec) == 0:
+					continue
 				search_space[param_name] = {
 					"type": "categorical",
 					"choices": spec
@@ -298,6 +308,9 @@ class BayesianStrategy(OptimizationStrategy):
 				if param_type in ["choice", "categorical"]:
 					# Categorical parameter
 					values = spec.get("values", spec.get("choices", []))
+					# Skip empty value lists
+					if len(values) == 0:
+						continue
 					search_space[param_name] = {
 						"type": "categorical",
 						"choices": values

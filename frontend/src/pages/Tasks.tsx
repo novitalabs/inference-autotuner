@@ -299,8 +299,8 @@ export default function Tasks() {
 													</svg>
 												</button>
 
-												{/* Edit Button - Only for pending tasks */}
-											{task.status === 'pending' && (
+												{/* Edit Button - For pending, cancelled, and failed tasks */}
+											{(task.status === 'pending' || task.status === 'cancelled' || task.status === 'failed') && (
 												<button
 													onClick={() => {
 															setEditingTaskId(task.id);
