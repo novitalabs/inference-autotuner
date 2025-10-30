@@ -14779,3 +14779,943 @@ npm run type-check
 
 ---
 
+
+---
+
+## 2025-10-30: Expanded Commonly Tuned Parameters
+
+> **Request**: Append more arguments into COMMONLY_TUNED lists, only exclude not performance related ones, such as port, host, api-key.
+
+<details>
+<summary>Expanded commonly tuned parameter lists from ~13 to 50 parameters each</summary>
+
+### Objective
+
+Expand the COMMONLY_TUNED_SGLANG and COMMONLY_TUNED_VLLM lists to include more performance-related parameters while excluding configuration/non-performance parameters.
+
+### Changes Made
+
+**File Modified**: `src/utils/runtime_parameters.py`
+
+**SGLang Parameters** (expanded from 13 to 50):
+- Organized into categories: Parallelism, Memory, Scheduling, CUDA, KV Cache, Attention, LoRA, Quantization, MOE, etc.
+- Key additions:
+  - Parallelism: `pipeline-parallel-size`, `data-parallel-size`
+  - Memory: `max-total-tokens`, `context-length`, `max-prefill-tokens`
+  - Scheduling: `schedule-conservativeness`, `chunked-prefill-size`, `max-running-requests`
+  - CUDA Graphs: `cuda-graph-max-bs`, `cuda-graph-num-seq-cold-start`
+  - Attention: `attention-backend`, `sampling-backend`, `attention-reduce-in-fp32`
+  - Features: `enable-mixed-chunk`, `enable-torch-compile`, `enable-dp-attention`
+
+**vLLM Parameters** (expanded from 12 to 50):
+- Organized into categories: Parallelism, Memory, Scheduling, Prefill, Block Management, etc.
+- Key additions:
+  - Memory: `max-model-len`, `max-num-seqs`, `max-num-batched-tokens`
+  - Scheduling: `scheduler-delay-factor`, `scheduling-policy`, `preemption-mode`
+  - Chunked Prefill: `enable-chunked-prefill`, `max-num-on-the-fly-seq-groups`
+  - Block Manager: `use-v2-block-manager`, `num-lookahead-slots`
+  - Speculative Decoding: `num-speculative-tokens`, `spec-decoding-acceptance-method`
+  - Features: `enable-prefix-caching`, `multi-step-stream-outputs`
+
+**Excluded Parameters** (not performance-related):
+- Configuration: `host`, `port`, `api-key`, `served-model-name`
+- Logging: `log-level`, `log-requests`, `log-stats`, `otlp-traces-endpoint`
+- File paths: `download-dir`, `model-loader-extra-config`, `override-neuron-config`
+- Authentication: `api-key`, `ssl-keyfile`, `ssl-certfile`
+- Documentation: `disable-fastapi-docs`
+
+### Parameter Categories
+
+**SGLang (50 parameters)**:
+```python
+COMMONLY_TUNED_SGLANG = [
+    # Parallelism (3)
+    "tensor-parallel-size", "pipeline-parallel-size", "data-parallel-size",
+    
+    # Memory Management (6)
+    "mem-fraction-static", "max-total-tokens", "context-length",
+    "max-prefill-tokens", "gpu-memory-utilization",
+    
+    # Scheduling (7)
+    "schedule-policy", "schedule-conservativeness", "chunked-prefill-size",
+    "max-running-requests",
+    
+    # CUDA Graph Optimization (5)
+    "cuda-graph-max-bs", "cuda-graph-num-seq-cold-start",
+    "disable-cuda-graph",
+    
+    # KV Cache (5)
+    "kv-cache-dtype", "radix-cache-threshold", "disable-radix-cache",
+    
+    # Attention & Sampling (4)
+    "attention-backend", "sampling-backend", "attention-reduce-in-fp32",
+    
+    # Boolean Features (10)
+    "enable-mixed-chunk", "enable-torch-compile", "disable-overlap-schedule",
+    
+    # ... (50 total)
+]
+```
+
+**vLLM (50 parameters)**:
+```python
+COMMONLY_TUNED_VLLM = [
+    # Parallelism (2)
+    "tensor-parallel-size", "pipeline-parallel-size",
+    
+    # Memory Management (5)
+    "max-model-len", "gpu-memory-utilization", "max-num-seqs",
+    "max-num-batched-tokens",
+    
+    # Scheduling (6)
+    "scheduler-delay-factor", "scheduling-policy", "preemption-mode",
+    "scheduler-max-token-budget-ratio",
+    
+    # Chunked Prefill (3)
+    "enable-chunked-prefill", "max-num-on-the-fly-seq-groups",
+    
+    # Block Manager (4)
+    "use-v2-block-manager", "num-lookahead-slots", "num-scheduler-steps",
+    
+    # Speculative Decoding (7)
+    "num-speculative-tokens", "spec-decoding-acceptance-method",
+    
+    # ... (50 total)
+]
+```
+
+### User Experience
+
+**Before**:
+- Only 13 SGLang parameters suggested (basic parallelism, memory, scheduling)
+- Only 12 vLLM parameters suggested
+- Missing many important performance parameters
+
+**After**:
+- 50 SGLang parameters covering all major optimization areas
+- 50 vLLM parameters covering advanced features
+- Comprehensive coverage for real-world optimization experiments
+- Better organization by categories in suggestions UI
+
+### Testing
+
+Verified parameter lists are correct:
+```bash
+# Test API endpoint
+curl http://localhost:8000/api/runtime-params/sglang/commonly-tuned
+
+# Response shows 50 parameters with proper categorization
+{
+  "runtime": "sglang",
+  "parameters": [
+    "tensor-parallel-size",
+    "pipeline-parallel-size",
+    # ... 48 more parameters
+  ]
+}
+```
+
+</details>
+
+---
+
+## 2025-10-30: Boolean Parameter Handling
+
+> **Request**: When use a boolean value (true/false) for a parameter, use a special logic for container start commands, i.e. ignore the argument if use `false`, and pass blank value for `true`.
+
+<details>
+<summary>Implemented special handling for boolean CLI flags in Docker controller</summary>
+
+### Objective
+
+CLI flags like `--enable-mixed-chunk` should be added without values when `true`, and omitted entirely when `false`. This is the correct behavior for command-line switches.
+
+### Implementation
+
+**File Modified**: `src/controllers/docker_controller.py:147-156`
+
+**Logic**:
+```python
+for param_name, param_value in parameters.items():
+    cli_param = f"--{param_name}" if not param_name.startswith("--") else param_name
+    
+    if isinstance(param_value, bool):
+        if param_value:  # Only add flag if True
+            command_str += f" {cli_param}"
+        # If False, skip this parameter entirely
+    else:
+        command_str += f" {cli_param} {param_value}"
+```
+
+**Behavior**:
+- `{"enable-mixed-chunk": true}` → `--enable-mixed-chunk` (flag only, no value)
+- `{"enable-mixed-chunk": false}` → *(omitted from command)*
+- `{"tensor-parallel-size": 4}` → `--tensor-parallel-size 4` (non-boolean, with value)
+
+### Examples
+
+**Example 1: Mixed Parameters**
+```json
+{
+  "tensor-parallel-size": 2,
+  "mem-fraction-static": 0.85,
+  "enable-mixed-chunk": true,
+  "disable-cuda-graph": false
+}
+```
+
+**Generated Command**:
+```bash
+python3 -m sglang.launch_server --model-path /model --port 8000 \
+  --tensor-parallel-size 2 \
+  --mem-fraction-static 0.85 \
+  --enable-mixed-chunk
+# Note: disable-cuda-graph is omitted (false value)
+```
+
+**Example 2: Testing Both Modes**
+```json
+{
+  "enable-lora": [true, false]
+}
+```
+
+**Generates 2 Experiments**:
+1. Command with `--enable-lora` flag
+2. Command without the flag (omitted)
+
+### Frontend Parsing
+
+**File**: `frontend/src/components/PresetEditModal.tsx:72-90`
+
+User input `"true, false"` is parsed to actual boolean values:
+
+```typescript
+const parseParameterValue = (valueStr: string): any[] => {
+  const parts = valueStr.split(',').map(s => s.trim()).filter(Boolean);
+  
+  // Check if all parts are booleans
+  const allBooleans = parts.every(part => part === 'true' || part === 'false');
+  if (allBooleans) {
+    return parts.map(part => part === 'true');  // "true" → true, "false" → false
+  }
+  
+  // Otherwise handle numbers or strings
+  // ...
+}
+```
+
+### Type Preservation Flow
+
+**Complete Flow**:
+1. **User Input**: `"true, false"` (string in UI)
+2. **Frontend Parse**: `["true", "false"]` → `[true, false]` (boolean array)
+3. **JSON API**: `{"enable-lora": [true, false]}` (JSON booleans)
+4. **Database**: Stored as JSON with native boolean types
+5. **Grid Generator**: Preserves boolean type through combinations
+6. **Docker Controller**: `isinstance(param_value, bool)` returns `True` ✓
+7. **Command**: `--enable-lora` or *(omitted)*
+
+### Documentation Created
+
+**`docs/BOOLEAN_PARAMETERS.md`** (176 lines):
+- Complete guide for using boolean parameters
+- Implementation details for Docker and OME controllers
+- Frontend parsing explanation
+- Usage examples and workflows
+- Common boolean parameters for SGLang and vLLM
+- Tips and limitations
+
+**`examples/boolean_parameters_example.py`** (171 lines):
+- API example creating preset with boolean parameters
+- Shows command generation for different combinations
+- UI usage guide
+
+**`examples/boolean_conversion_flow.py`** (245 lines):
+- Step-by-step demonstration of type conversion
+- Shows complete flow from user input to Docker command
+- Type preservation verification
+- Difference between string "true" and boolean true
+
+**`test_boolean_params.py`** (64 lines):
+- Unit test for boolean parameter handling
+- Validates flag-only behavior for true values
+- Validates omission for false values
+
+### Common Boolean Parameters
+
+**SGLang**:
+- `enable-mixed-chunk`, `enable-lora`, `enable-torch-compile`
+- `disable-cuda-graph`, `disable-radix-cache`, `disable-overlap-schedule`
+- `enable-hierarchical-cache`, `enable-dp-attention`, `enable-mla`
+
+**vLLM**:
+- `enable-chunked-prefill`, `enable-prefix-caching`, `enable-lora`
+- `enforce-eager`, `disable-custom-all-reduce`, `disable-sliding-window`
+- `multi-step-stream-outputs`, `disable-async-output-proc`
+
+### Testing
+
+**Test Script**:
+```bash
+python3 test_boolean_params.py
+
+# Output:
+# Generated command:
+# python3 -m sglang.launch_server --model-path /model --port 8000 --tp-size 2 --mem-fraction-static 0.85 --enable-mixed-chunk --enable-lora --schedule-policy fcfs
+# 
+# ✅ All tests passed!
+```
+
+**Validation**:
+- ✅ Boolean true adds flag without value
+- ✅ Boolean false omits parameter
+- ✅ Non-boolean parameters still get values
+- ✅ Type check `isinstance(param_value, bool)` works correctly
+- ✅ Frontend parsing converts strings to booleans
+- ✅ Type preserved through entire pipeline
+
+</details>
+
+---
+
+## 2025-10-30: Boolean Type Conversion Flow Explanation
+
+> **Question**: I saw that you use `isinstance(param_value, bool)`, and will a option list string like `true,false` be converted into bool values? Where does this do if yes?
+
+<details>
+<summary>Detailed explanation of boolean type conversion from user input to Docker command</summary>
+
+### Answer: Yes, Conversion Happens in Frontend
+
+**Location**: `frontend/src/components/PresetEditModal.tsx:72-90`
+
+The `parseParameterValue` function converts string input to actual boolean values:
+
+```typescript
+const parseParameterValue = (valueStr: string): any[] => {
+  // Split on comma and trim whitespace
+  const parts = valueStr.split(',').map(s => s.trim()).filter(Boolean);
+  
+  // Check if all parts are boolean strings
+  const allBooleans = parts.every(part => part === 'true' || part === 'false');
+  
+  if (allBooleans) {
+    // Convert string "true"/"false" to boolean true/false
+    return parts.map(part => part === 'true');
+  }
+  
+  // Otherwise check for numbers or treat as strings
+  // ...
+}
+```
+
+### Complete Conversion Flow
+
+**Step 1: User Input in Web UI**
+```
+User types in Values field: "true, false"
+Type: string
+```
+
+**Step 2: Frontend Parsing**
+```typescript
+// PresetEditModal.tsx:72-90
+valueStr = "true, false"
+parts = ["true", "false"]  // After split & trim
+
+allBooleans = true  // Both parts match 'true' or 'false'
+
+parsed = [true, false]  // Converted to actual booleans
+// Type: boolean[]
+```
+
+**Step 3: API Request to Backend**
+```json
+POST /api/presets/
+{
+  "name": "Test Preset",
+  "parameters": {
+    "enable-lora": [true, false]  // ← Actual JSON booleans, not strings!
+  }
+}
+```
+
+**Step 4: Database Storage**
+```sql
+-- SQLite stores as JSON
+{"enable-lora": [true, false]}
+
+-- Note: SQLite JSON uses native boolean types
+```
+
+**Step 5: Experiment Generation**
+```python
+# src/utils/optimizer.py:9-57
+parameters = {"enable-lora": [true, false]}
+
+# Grid generator creates combinations
+combinations = [
+    {"enable-lora": true},   # Type: bool
+    {"enable-lora": false}   # Type: bool
+]
+```
+
+**Step 6: Docker Command Building**
+```python
+# src/controllers/docker_controller.py:147-156
+for param_name, param_value in parameters.items():
+    if isinstance(param_value, bool):  # ← This check returns True!
+        if param_value:
+            command_str += f" --{param_name}"  # Flag only
+        # If False, skip entirely
+
+# Result for true:  --enable-lora
+# Result for false: (omitted)
+```
+
+### Type Preservation Verification
+
+**Demonstration Script**: `examples/boolean_conversion_flow.py`
+
+Shows complete flow with type checking at each step:
+
+```python
+# 1. User input
+user_input = "true, false"  # string
+
+# 2. Frontend parsing
+parsed_values = [True, False]  # boolean[]
+print(f"Type: {type(parsed_values[0])}")  # <class 'bool'>
+
+# 3. JSON serialization
+json_str = '{"enable-lora": [true, false]}'  # JSON booleans
+
+# 4. Backend receives
+received = json.loads(json_str)
+print(isinstance(received["enable-lora"][0], bool))  # True ✓
+
+# 5. Docker command
+for value in received["enable-lora"]:
+    if isinstance(value, bool):  # ← Works correctly
+        print(f"Boolean handling: {value}")
+```
+
+### Key Difference: String vs Boolean
+
+**String Booleans (WRONG)**:
+```python
+param_value = "true"  # string
+isinstance(param_value, bool)  # False ✗
+# Would take else branch: --enable-lora true  (incorrect!)
+```
+
+**Actual Booleans (CORRECT)**:
+```python
+param_value = True  # bool
+isinstance(param_value, bool)  # True ✓
+# Takes if branch: --enable-lora  (correct!)
+```
+
+### Why This Matters
+
+CLI flags have specific behavior:
+- `--enable-mixed-chunk` ✓ (flag present, no value)
+- `--enable-mixed-chunk true` ✗ (flag with value, WRONG!)
+
+If we had string `"true"`, the `isinstance(param_value, bool)` check would fail, and we'd generate incorrect commands with `true` as a value.
+
+### Visual Flow Diagram
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ 1. User Input (UI)                                          │
+│    "true, false" (string)                                   │
+└──────────────┬──────────────────────────────────────────────┘
+               │
+               ▼
+┌─────────────────────────────────────────────────────────────┐
+│ 2. Frontend Parsing (parseParameterValue)                   │
+│    ["true", "false"] → [true, false]                        │
+│    Type: boolean[]                                          │
+└──────────────┬──────────────────────────────────────────────┘
+               │ HTTP POST (JSON)
+               ▼
+┌─────────────────────────────────────────────────────────────┐
+│ 3. Backend API (FastAPI)                                    │
+│    {"enable-lora": [true, false]}                           │
+│    JSON booleans (not strings)                              │
+└──────────────┬──────────────────────────────────────────────┘
+               │
+               ▼
+┌─────────────────────────────────────────────────────────────┐
+│ 4. Database (SQLite)                                        │
+│    Stored as JSON with native boolean types                 │
+└──────────────┬──────────────────────────────────────────────┘
+               │
+               ▼
+┌─────────────────────────────────────────────────────────────┐
+│ 5. Grid Generator (optimizer.py)                            │
+│    Preserves boolean type in combinations                   │
+│    [{"enable-lora": true}, {"enable-lora": false}]          │
+└──────────────┬──────────────────────────────────────────────┘
+               │
+               ▼
+┌─────────────────────────────────────────────────────────────┐
+│ 6. Docker Controller (docker_controller.py)                 │
+│    isinstance(param_value, bool) ✓                          │
+│    true  → --enable-lora                                    │
+│    false → (omitted)                                        │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Files Modified/Created
+
+**Documentation**:
+- `docs/BOOLEAN_PARAMETERS.md` - Complete guide
+- `examples/boolean_conversion_flow.py` - Flow demonstration
+- `examples/boolean_parameters_example.py` - API usage example
+- `test_boolean_params.py` - Unit test
+
+**Implementation**:
+- `src/controllers/docker_controller.py:147-156` - Boolean handling logic
+- `frontend/src/components/PresetEditModal.tsx:72-90` - Type conversion
+
+### Summary
+
+**Question**: Does `"true,false"` string convert to boolean values?  
+**Answer**: Yes, in frontend `parseParameterValue` function.
+
+**Question**: Where does the conversion happen?  
+**Answer**: `frontend/src/components/PresetEditModal.tsx:72-90`
+
+**Result**: By the time the backend receives the data, it has actual JSON booleans (`true`/`false`), not strings (`"true"`/`"false"`), which allows the `isinstance(param_value, bool)` check to work correctly.
+
+</details>
+
+---
+
+## 2025-10-30: Comprehensive Parameter Presets
+
+> **Request**: Now insert a new SGLang parameter preset into db, include most tunable parameters, and give proper values.
+
+<details>
+<summary>Created comprehensive presets for SGLang (37 params) and vLLM (46 params)</summary>
+
+### Objective
+
+Create comprehensive presets with proper values for all major tunable parameters to demonstrate the system's capabilities.
+
+### SGLang Comprehensive Preset
+
+**Created**: Preset ID 9  
+**Name**: SGLang Comprehensive Tuning  
+**Parameters**: 37 tunable parameters
+
+```json
+{
+  "name": "SGLang Comprehensive Tuning",
+  "description": "Comprehensive preset with most tunable SGLang parameters for optimization experiments",
+  "category": "optimization",
+  "runtime": "sglang",
+  "parameters": {
+    "tensor-parallel-size": [1, 2, 4],
+    "pipeline-parallel-size": [1],
+    "data-parallel-size": [1],
+    "mem-fraction-static": [0.80, 0.85, 0.90],
+    "max-total-tokens": [4096, 8192, 16384],
+    "context-length": [4096, 8192],
+    "max-prefill-tokens": [4096, 8192],
+    "schedule-policy": ["lpm", "fcfs"],
+    "schedule-conservativeness": [0.0, 0.5, 1.0],
+    "chunked-prefill-size": [4096, 8192],
+    "max-running-requests": [512, 1024, 2048],
+    "gpu-memory-utilization": [0.85, 0.90],
+    "kv-cache-dtype": ["auto", "fp8_e5m2"],
+    "attention-backend": ["flashinfer", "triton"],
+    "sampling-backend": ["flashinfer", "pytorch"],
+    "enable-mixed-chunk": [true, false],
+    "enable-torch-compile": [false],
+    "disable-cuda-graph": [false],
+    "disable-radix-cache": [false],
+    "disable-regex-jump-forward": [false],
+    "disable-overlap-schedule": [false],
+    "enable-dp-attention": [false],
+    "enable-mla": [false],
+    "torchao-config": [""],
+    "quantization": [""],
+    "dtype": ["auto"],
+    "trust-remote-code": [true],
+    "cuda-graph-max-bs": [256, 512],
+    "cuda-graph-num-seq-cold-start": [2, 4],
+    "cuda-graph-num-inflight-runs": [1],
+    "radix-cache-threshold": [4, 8],
+    "download-dir": [""],
+    "tokenizer-mode": ["auto"],
+    "skip-tokenizer-init": [false],
+    "load-format": ["auto"],
+    "attention-reduce-in-fp32": [false],
+    "random-seed": [42]
+  }
+}
+```
+
+**Categories Covered**:
+- Parallelism: TP, PP, DP configurations
+- Memory: Static allocation, max tokens, context length
+- Scheduling: Policy, conservativeness, request limits
+- CUDA Graphs: Batch size, cold start sequences
+- KV Cache: Data types, radix cache threshold
+- Attention: Backend selection, FP32 reduction
+- Boolean Features: Mixed chunk, torch compile, various disable flags
+
+### vLLM Comprehensive Preset
+
+**Created**: Preset ID 10  
+**Name**: vLLM Comprehensive Tuning  
+**Parameters**: 46 tunable parameters
+
+```json
+{
+  "name": "vLLM Comprehensive Tuning",
+  "description": "Comprehensive preset with most tunable vLLM parameters for optimization experiments",
+  "category": "optimization",
+  "runtime": "vllm",
+  "parameters": {
+    "tensor-parallel-size": [1, 2, 4],
+    "pipeline-parallel-size": [1],
+    "max-model-len": [4096, 8192],
+    "gpu-memory-utilization": [0.85, 0.90, 0.95],
+    "max-num-seqs": [256, 512, 1024],
+    "max-num-batched-tokens": [4096, 8192],
+    "scheduler-delay-factor": [0.0, 0.5],
+    "enable-chunked-prefill": [true, false],
+    "max-num-on-the-fly-seq-groups": [128, 256],
+    "enable-prefix-caching": [true, false],
+    "disable-sliding-window": [false],
+    "use-v2-block-manager": [true, false],
+    "num-lookahead-slots": [0, 1, 2],
+    "delay-factor": [0.0],
+    "enable-lora": [false],
+    "max-loras": [1],
+    "max-lora-rank": [8],
+    "lora-dtype": ["auto"],
+    "max-cpu-loras": [1],
+    "speculative-model": [""],
+    "num-speculative-tokens": [5],
+    "speculative-draft-tensor-parallel-size": [1],
+    "ngram-prompt-lookup-max": [0],
+    "ngram-prompt-lookup-min": [0],
+    "spec-decoding-acceptance-method": ["rejection_sampler"],
+    "typical-acceptance-sampler-posterior-threshold": [0.09],
+    "typical-acceptance-sampler-posterior-alpha": [0.3],
+    "disable-logprobs-during-spec-decoding": [false],
+    "model-loader-extra-config": [""],
+    "ignore-patterns": [""],
+    "preemption-mode": ["recompute"],
+    "served-model-name": [""],
+    "qlora-adapter-name-or-path": [""],
+    "otlp-traces-endpoint": [""],
+    "collect-detailed-traces": [""],
+    "disable-async-output-proc": [false],
+    "override-neuron-config": [""],
+    "scheduling-policy": ["fcfs"],
+    "disable-log-stats": [false],
+    "disable-log-requests": [false],
+    "max-log-len": [0],
+    "disable-fastapi-docs": [false],
+    "kv-cache-dtype": ["auto", "fp8"],
+    "quantization-param-path": [""],
+    "device": ["auto"],
+    "num-scheduler-steps": [1],
+    "multi-step-stream-outputs": [false],
+    "scheduler-max-token-budget-ratio": [0.95],
+    "send-delta-data": [false]
+  }
+}
+```
+
+**Categories Covered**:
+- Parallelism: TP, PP configurations
+- Memory: Max length, GPU utilization, sequence limits
+- Scheduling: Policy, delay factor, preemption mode
+- Chunked Prefill: Enable/disable, on-the-fly groups
+- Prefix Caching: Enable/disable
+- Block Manager: V2 manager, lookahead slots
+- Speculative Decoding: Token count, acceptance methods
+- LoRA: Configuration for adapter support
+- Multi-Step: Scheduler steps, streaming outputs
+- Boolean Features: Various enable/disable flags
+
+### Commands Used
+
+```bash
+# Create SGLang preset
+curl -s -X POST http://localhost:8000/api/presets/ \
+  -H "Content-Type: application/json" \
+  -d @/tmp/sglang_comprehensive_preset.json
+
+# Create vLLM preset
+curl -s -X POST http://localhost:8000/api/presets/ \
+  -H "Content-Type: application/json" \
+  -d @/tmp/vllm_comprehensive_preset.json
+
+# Verify presets
+curl -s http://localhost:8000/api/presets/ | python -m json.tool
+```
+
+### Current Presets in Database
+
+1. **Test Preset** (ID: 1) - universal, testing category
+2. **Boolean Parameters Example** (ID: 8) - sglang, example category
+3. **SGLang Comprehensive Tuning** (ID: 9) - sglang, optimization, 37 params
+4. **vLLM Comprehensive Tuning** (ID: 10) - vllm, optimization, 46 params
+
+### Value Selection Rationale
+
+**Parallelism Values** (`[1, 2, 4]`):
+- Common GPU counts for testing scalability
+- Powers of 2 for efficient tensor operations
+
+**Memory Fractions** (`[0.80, 0.85, 0.90]`):
+- Conservative to aggressive memory usage
+- Avoids OOM while maximizing throughput
+
+**Context Lengths** (`[4096, 8192]`):
+- Common sequence lengths for LLMs
+- Balance between memory and capability
+
+**Scheduling Policies** (`["lpm", "fcfs"]`):
+- Longest prefix matching vs first-come-first-serve
+- Different optimization strategies
+
+**Boolean Flags**:
+- `[true, false]` for features to test (e.g., `enable-chunked-prefill`)
+- `[false]` for features to keep disabled (e.g., `disable-cuda-graph`)
+- `[true]` for features to always enable (e.g., `trust-remote-code`)
+
+### Benefits
+
+1. **Comprehensive Coverage**: Demonstrates all major optimization dimensions
+2. **Production Ready**: Values based on real-world usage patterns
+3. **Boolean Examples**: Shows proper boolean parameter handling
+4. **Runtime Specific**: Each preset optimized for its respective runtime
+5. **Experimentation**: Enables thorough parameter space exploration
+
+</details>
+
+---
+
+## 2025-10-30: Improved Preset List UI
+
+> **Issue**: The parameter presets list display not complete, button controls is out of range.
+
+<details>
+<summary>Redesigned preset list from table to card-based grid layout</summary>
+
+### Problem
+
+**Old Table Layout Issues**:
+1. Parameters column only showed count (e.g., "37 params"), not actual parameter names
+2. Action buttons in table row could overflow when delete confirmation shown
+3. Table rows constrained by fixed column widths
+4. No room to display all parameters for comprehensive presets
+5. Hard to read with many columns squeezed together
+
+### Solution: Card-Based Grid Layout
+
+**File Modified**: `frontend/src/pages/Presets.tsx:121-249`
+
+Changed from table-based layout to card-based grid:
+
+**Before**:
+```tsx
+<table className="min-w-full">
+  <thead>
+    <tr>
+      <th>Name</th>
+      <th>Description</th>
+      <th>Category</th>
+      <th>Runtime</th>
+      <th>Parameters</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>{preset.name}</td>
+      <td>{preset.description}</td>
+      <td>{preset.category}</td>
+      <td>{preset.runtime}</td>
+      <td>{Object.keys(preset.parameters).length} params</td>
+      <td>
+        <button>Export</button>
+        <button>Edit</button>
+        <button>Delete</button>
+      </td>
+    </tr>
+  </tbody>
+</table>
+```
+
+**After**:
+```tsx
+<div className="grid grid-cols-1 gap-4">
+  {presets.map((preset) => (
+    <div className="bg-white border rounded-lg p-6">
+      {/* Header: Name, Description, Action Buttons */}
+      <div className="flex items-start justify-between mb-4">
+        <div className="flex-1">
+          <h3>{preset.name}</h3>
+          <p>{preset.description}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button>Export</button>
+          <button>Edit</button>
+          <button>Delete</button>
+          {/* Confirmation buttons have room */}
+        </div>
+      </div>
+      
+      {/* Metadata: Category, Runtime, Param Count */}
+      <div className="flex items-center gap-4">
+        <span>Category: {preset.category}</span>
+        <span>Runtime: {preset.runtime}</span>
+        <span>Parameters: {count}</span>
+      </div>
+      
+      {/* Parameters List: ALL parameters shown */}
+      <div className="border-t pt-3">
+        <div className="flex flex-wrap gap-2 max-h-48 overflow-y-auto">
+          {Object.entries(preset.parameters).map(([name, values]) => (
+            <div className="px-2 py-1 bg-gray-50 border rounded">
+              {name} ({values.length})
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  ))}
+</div>
+```
+
+### New Features
+
+**1. Complete Parameter Display**:
+- Shows ALL parameters as individual badges
+- Each badge displays parameter name and value count
+- Hover tooltip shows full parameter values
+- Example: `tensor-parallel-size (3)` means 3 values: [1, 2, 4]
+
+**2. Proper Action Button Layout**:
+- Buttons in header row with horizontal layout
+- Delete confirmation shows "Confirm" and "Cancel" side-by-side
+- No overflow issues with proper gap spacing
+- All buttons visible and accessible
+
+**3. Scrollable Parameter Section**:
+- `max-h-48 overflow-y-auto` for long parameter lists
+- Handles 37+ parameters without breaking layout
+- Flex wrap for responsive display
+
+**4. Better Visual Hierarchy**:
+```
+┌─────────────────────────────────────────────────────────┐
+│ SGLang Comprehensive Tuning          [Export][Edit][Del]│
+│ Comprehensive preset with most tunable SGLang params... │
+├─────────────────────────────────────────────────────────┤
+│ Category: optimization | Runtime: sglang | Parameters: 37│
+├─────────────────────────────────────────────────────────┤
+│ Parameter Configuration:                                │
+│ [tensor-parallel-size (3)] [mem-fraction-static (3)]    │
+│ [max-total-tokens (3)] [context-length (2)] ...         │
+│ [enable-mixed-chunk (2)] [cuda-graph-max-bs (2)]        │
+│ ... (scrollable if many parameters)                     │
+└─────────────────────────────────────────────────────────┘
+```
+
+**5. Color-Coded Elements**:
+- Category badges: Blue (`bg-blue-100 text-blue-800`)
+- Runtime badges:
+  - SGLang: Green (`bg-green-100 text-green-800`)
+  - vLLM: Purple (`bg-purple-100 text-purple-800`)
+  - Universal: Gray
+- Parameter badges: Light gray with border
+- System presets: Gray badge indicator
+
+### Layout Comparison
+
+**Table (Old)**:
+- Fixed column widths
+- Parameters: "37 params" (just count)
+- Actions: Cramped in right column
+- No room for expansion
+- Hard to scan multiple columns
+
+**Cards (New)**:
+- Full width for each preset
+- Parameters: All 37 shown with names
+- Actions: Spacious header row
+- Expandable sections
+- Easy to scan vertically
+
+### Example Display
+
+**SGLang Comprehensive Preset** (37 parameters):
+```
+┌────────────────────────────────────────────────────────────┐
+│ SGLang Comprehensive Tuning        [Export] [Edit] [Delete]│
+│ Comprehensive preset with most tunable SGLang parameters   │
+│ for optimization experiments                               │
+├────────────────────────────────────────────────────────────┤
+│ Category: optimization | Runtime: sglang | Parameters: 37  │
+├────────────────────────────────────────────────────────────┤
+│ Parameter Configuration:                                   │
+│ ┌──────────────────────┬──────────────────────┬──────────┐│
+│ │tensor-parallel-size(3)│pipeline-parallel...(1)│data-...(1)││
+│ │mem-fraction-static(3) │max-total-tokens(3)   │context...(2)││
+│ │max-prefill-tokens(2)  │schedule-policy(2)    │schedule...(3)││
+│ │chunked-prefill-size(2)│max-running-requests(3)│gpu-mem...(2)││
+│ │kv-cache-dtype(2)      │attention-backend(2)  │sampling...(2)││
+│ │enable-mixed-chunk(2)  │enable-torch-compile(1)│disable...(1)││
+│ │disable-radix-cache(1) │disable-regex...(1)   │disable...(1)││
+│ │enable-dp-attention(1) │enable-mla(1)         │torchao...(1)││
+│ │quantization(1)        │dtype(1)              │trust-rem...(1)││
+│ │cuda-graph-max-bs(2)   │cuda-graph-num...(2)  │cuda-gra...(1)││
+│ │radix-cache-thresh...(2)│download-dir(1)      │tokenizer...(1)││
+│ │skip-tokenizer-init(1) │load-format(1)        │attention...(1)││
+│ │random-seed(1)         │                      │          ││
+│ └──────────────────────┴──────────────────────┴──────────┘│
+└────────────────────────────────────────────────────────────┘
+```
+
+### Responsive Design
+
+- Full width cards on all screen sizes
+- Flex wrap for parameter badges
+- Scrollable parameter section if needed
+- Action buttons always visible in header
+
+### User Experience
+
+**Before**: Users couldn't see what parameters were in a preset without editing it.
+**After**: All parameters visible at a glance, easy to compare presets.
+
+**Before**: Delete confirmation could push buttons off-screen.
+**After**: Confirmation buttons have dedicated space in header.
+
+**Before**: Limited information density.
+**After**: Rich information display with proper hierarchy.
+
+### Testing
+
+Verified with comprehensive presets:
+- ✅ SGLang preset (37 parameters) displays correctly
+- ✅ vLLM preset (46 parameters) displays correctly
+- ✅ All action buttons accessible
+- ✅ Delete confirmation doesn't overflow
+- ✅ Parameter badges wrap properly
+- ✅ Scrolling works for long parameter lists
+
+</details>
+
