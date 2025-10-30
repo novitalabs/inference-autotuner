@@ -143,7 +143,17 @@ class DockerController(BaseModelController):
 				cli_param = f"--{param_name}"
 			else:
 				cli_param = param_name
-			command_str += f" {cli_param} {param_value}"
+
+			# Handle boolean parameters specially
+			# - If false: skip the parameter entirely (don't add to command)
+			# - If true: add parameter flag without value (e.g., --enable-mixed-chunk)
+			# - Otherwise: add parameter with value (e.g., --tp-size 4)
+			if isinstance(param_value, bool):
+				if param_value:  # Only add flag if True
+					command_str += f" {cli_param}"
+				# If False, skip this parameter entirely
+			else:
+				command_str += f" {cli_param} {param_value}"
 
 		command_list = command_str.split()
 
