@@ -16761,3 +16761,78 @@ Frontend changes take effect immediately with hot reload (`npm run dev`). No nee
 
 </details>
 
+---
+
+> Refine task list UI, insert a progress bar in experiments column by little blocks, use color on a block to denote different experiment status: pending, success, failed.
+
+<details>
+<summary>Added visual experiment progress bar with colored status blocks</summary>
+
+**Enhancement Request:**
+Replace the text-based experiment count (`3 / 12 success`) with a visual progress bar made of small colored blocks, where each block represents an experiment and its color indicates status.
+
+**Implementation:**
+
+Created new component `/root/work/inference-autotuner/frontend/src/components/ExperimentProgressBar.tsx`:
+
+**Features:**
+1. **Colored Status Blocks** - Each experiment is a small 12px × 12px block:
+   - 🔵 **Blue (deploying/benchmarking)**: Experiment is running
+   - 🟢 **Green (success)**: Experiment completed successfully
+   - 🔴 **Red (failed)**: Experiment failed
+   - ⚪ **Gray (pending)**: Experiment not started yet
+
+2. **Real-time Updates**: Auto-refreshes every 5 seconds to show latest experiment statuses
+
+3. **Interactive Tooltips**: Hover over any block to see:
+   - Experiment ID
+   - Status
+   - Parameter configuration
+
+4. **Scalability**:
+   - Shows up to 50 blocks maximum
+   - Displays "+N more" for tasks with >50 experiments
+   - Gracefully handles large parameter grids
+
+5. **Smart Display**:
+   - If experiments exist in DB → shows actual status
+   - If no experiments yet → shows placeholder pending blocks based on `total_experiments`
+
+**Visual Design:**
+```
+Before: "3 / 12 success"
+
+After:  3 / 12 success
+        [🟢][🟢][🟢][🔴][🔴][🔵][🔵][⚪][⚪][⚪][⚪][⚪]
+```
+
+**Code Changes:**
+- Created: `frontend/src/components/ExperimentProgressBar.tsx` (104 lines)
+- Modified: `frontend/src/pages/Tasks.tsx`
+  - Added import for `ExperimentProgressBar`
+  - Replaced experiments column content (line 277-283)
+
+**Status Colors Mapping:**
+```typescript
+const getBlockColor = (status: string) => {
+  switch (status) {
+    case 'pending': return 'bg-gray-300';
+    case 'deploying': return 'bg-blue-400';
+    case 'benchmarking': return 'bg-blue-500';
+    case 'success': return 'bg-green-500';
+    case 'failed': return 'bg-red-500';
+    default: return 'bg-gray-200';
+  }
+};
+```
+
+**Benefits:**
+- ✅ Visual at-a-glance progress understanding
+- ✅ Easy to spot failed experiments (red blocks)
+- ✅ See which experiments are currently running (blue blocks)
+- ✅ Better UX for monitoring long-running tasks with many experiments
+- ✅ Maintains compact table layout while showing more information
+
+**TypeScript Compilation:** ✅ Passed with no errors
+
+</details>

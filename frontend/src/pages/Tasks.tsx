@@ -4,6 +4,7 @@ import { apiClient } from "@/services/api";
 import type { Task } from "@/types/api";
 import LogViewer from "@/components/LogViewer";
 import TaskResults from "@/components/TaskResults";
+import ExperimentProgressBar from "@/components/ExperimentProgressBar";
 import { navigateTo } from "@/components/Layout";
 import { setEditingTaskId } from "@/utils/editTaskStore";
 
@@ -274,10 +275,11 @@ export default function Tasks() {
 											{task.base_runtime}
 										</td>
 										<td className="whitespace-nowrap px-3 py-4 text-sm text-gray-700">
-											<div>
-												{task.successful_experiments} /{" "}
-												{task.total_experiments} success
-											</div>
+											<ExperimentProgressBar
+												taskId={task.id}
+												totalExperiments={task.total_experiments}
+												successfulExperiments={task.successful_experiments}
+											/>
 										</td>
 										<td className="whitespace-nowrap px-3 py-4 text-sm text-gray-700">
 											{formatDuration(task.elapsed_time)}
