@@ -2,10 +2,12 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiClient } from "@/services/api";
 import type { Experiment, Task } from "@/types/api";
+import ExperimentLogViewer from "@/components/ExperimentLogViewer";
 
 export default function Experiments() {
 	const [selectedTaskId, setSelectedTaskId] = useState<number | "all">("all");
 	const [selectedExperiment, setSelectedExperiment] = useState<Experiment | null>(null);
+	const [logViewerExperiment, setLogViewerExperiment] = useState<Experiment | null>(null);
 
 	// Fetch all tasks for the filter dropdown
 	const { data: tasks = [] } = useQuery({
@@ -201,14 +203,25 @@ export default function Experiments() {
 												).toLocaleDateString()}
 											</td>
 											<td className="relative whitespace-nowrap py-4 pl-3 pr-4 text-right text-sm">
-												<button
-													onClick={() =>
-														setSelectedExperiment(experiment)
-													}
-													className="text-blue-600 hover:text-blue-900"
-												>
-													View Details
-												</button>
+												<div className="flex items-center justify-end gap-2">
+													<button
+														onClick={() => setLogViewerExperiment(experiment)}
+														className="p-1.5 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded transition-colors"
+														title="View Logs"
+													>
+														<svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+															<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+														</svg>
+													</button>
+													<button
+														onClick={() =>
+															setSelectedExperiment(experiment)
+														}
+														className="text-blue-600 hover:text-blue-900"
+													>
+														View Details
+													</button>
+												</div>
 											</td>
 										</tr>
 									);
@@ -371,6 +384,15 @@ export default function Experiments() {
 						</div>
 					</div>
 				</div>
+			)}
+
+			{/* Log Viewer Modal */}
+			{logViewerExperiment && (
+				<ExperimentLogViewer
+					taskId={logViewerExperiment.task_id}
+					experimentId={logViewerExperiment.experiment_id}
+					onClose={() => setLogViewerExperiment(null)}
+				/>
 			)}
 		</div>
 	);

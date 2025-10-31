@@ -16836,3 +16836,103 @@ const getBlockColor = (status: string) => {
 **TypeScript Compilation:** ✅ Passed with no errors
 
 </details>
+
+---
+
+> Add a log viewer for every record in the experiments list
+
+<details>
+<summary>Added per-experiment log viewer to Experiments page</summary>
+
+**Enhancement Request:**
+Add ability to view logs for individual experiments from the experiments list.
+
+**Challenge:**
+Experiment-specific logs are not stored in separate files. All experiment logs are written to the task log file with an `[Experiment N]` prefix (e.g., `[Experiment 3]`).
+
+**Solution:**
+Created a log viewer component that fetches the task log and filters it to show only lines for the specific experiment.
+
+**Implementation:**
+
+**1. Created ExperimentLogViewer Component** (`frontend/src/components/ExperimentLogViewer.tsx`):
+
+**Features:**
+- **Smart Filtering**: Automatically filters task logs to show only entries for the selected experiment
+- **Real-time Updates**: Auto-refreshes every 3 seconds to show latest logs
+- **Auto-scroll Option**: Toggle to automatically scroll to bottom as new logs arrive
+- **Dark Theme**: Terminal-style black background with monospace font
+- **Full-screen Modal**: Large, readable display with scroll support
+- **Empty State Handling**: Shows helpful message if no logs found for the experiment
+
+**Filtering Logic:**
+```typescript
+const filterExperimentLogs = (logs: string) => {
+  const lines = logs.split('\n');
+  const experimentPrefix = `[Experiment ${experimentId}]`;
+
+  // Filter lines that contain the experiment prefix
+  return lines.filter(line => line.includes(experimentPrefix)).join('\n');
+};
+```
+
+**2. Updated Experiments Page** (`frontend/src/pages/Experiments.tsx`):
+
+Added "View Logs" icon button next to "View Details" in the Actions column:
+- 📄 Document icon for logs
+- Hover tooltip "View Logs"
+- Opens filtered log viewer modal
+
+**UI Changes:**
+```typescript
+// Added state for log viewer
+const [logViewerExperiment, setLogViewerExperiment] = useState<Experiment | null>(null);
+
+// Added log viewer button in actions column
+<button
+  onClick={() => setLogViewerExperiment(experiment)}
+  className="p-1.5 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded"
+  title="View Logs"
+>
+  <svg><!-- Document icon --></svg>
+</button>
+
+// Added log viewer modal
+{logViewerExperiment && (
+  <ExperimentLogViewer
+    taskId={logViewerExperiment.task_id}
+    experimentId={logViewerExperiment.experiment_id}
+    onClose={() => setLogViewerExperiment(null)}
+  />
+)}
+```
+
+**Code Changes:**
+- Created: `frontend/src/components/ExperimentLogViewer.tsx` (124 lines)
+- Modified: `frontend/src/pages/Experiments.tsx`
+  - Added import for `ExperimentLogViewer`
+  - Added state: `logViewerExperiment`
+  - Modified actions column (line 205-225) to include log viewer button
+  - Added log viewer modal rendering (line 389-396)
+
+**Benefits:**
+- ✅ Quick access to experiment-specific logs without scrolling through entire task log
+- ✅ Real-time log updates during experiment execution
+- ✅ Clean, terminal-style presentation
+- ✅ No backend changes required (leverages existing task logs API)
+- ✅ Efficient filtering on frontend
+
+**Example Log Output:**
+```
+[2025-10-31 03:15:22] [INFO] [Experiment 3] Status: DEPLOYING
+[2025-10-31 03:15:45] [INFO] [Experiment 3] Status: SUCCESS
+[2025-10-31 03:15:45] [INFO] [Experiment 3] Metrics: {...}
+[2025-10-31 03:15:45] [INFO] [Experiment 3] ========== Container Logs ==========
+[2025-10-31 03:15:45] [INFO] [Experiment 3] Model loaded successfully
+[2025-10-31 03:15:45] [INFO] [Experiment 3] ========== End Container Logs ==========
+[2025-10-31 03:15:45] [INFO] [Experiment 3] Completed in 23.45s
+```
+
+**TypeScript Compilation:** ✅ Passed with no errors
+
+</details>

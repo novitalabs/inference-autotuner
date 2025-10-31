@@ -18,7 +18,7 @@ router = APIRouter()
 async def list_all_experiments(db: AsyncSession = Depends(get_db)):
 	"""List all experiments."""
 	result = await db.execute(
-		select(Experiment).order_by(Experiment.task_id, Experiment.experiment_id)
+		select(Experiment).order_by(Experiment.created_at.desc())
 	)
 	experiments = result.scalars().all()
 
@@ -41,7 +41,7 @@ async def get_experiment(experiment_id: int, db: AsyncSession = Depends(get_db))
 async def list_task_experiments(task_id: int, db: AsyncSession = Depends(get_db)):
 	"""List all experiments for a task."""
 	result = await db.execute(
-		select(Experiment).where(Experiment.task_id == task_id).order_by(Experiment.experiment_id)
+		select(Experiment).where(Experiment.task_id == task_id).order_by(Experiment.created_at.desc())
 	)
 	experiments = result.scalars().all()
 

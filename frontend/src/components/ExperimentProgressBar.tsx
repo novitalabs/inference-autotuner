@@ -44,19 +44,39 @@ export default function ExperimentProgressBar({
     return `Experiment ${exp.experiment_id}\nStatus: ${exp.status}\nParams: ${paramStr}`;
   };
 
-  // If no experiments yet, show placeholder blocks based on total_experiments
-  const displayBlocks = experiments.length > 0 ? experiments :
-    totalExperiments > 0 ? Array(totalExperiments).fill(null).map((_, i) => ({
-      id: i,
-      experiment_id: i + 1,
-      status: 'pending',
-      parameters: {}
-    } as Experiment)) : [];
+  // Combine actual experiments with planned placeholders
+  // Create a map of experiment_id -> experiment for quick lookup
+  const experimentsMap = new Map<number, Experiment>();
+  experiments.forEach(exp => {
+    experimentsMap.set(exp.experiment_id, exp);
+  });
+
+  // Build display blocks: actual experiments + planned placeholders up to totalExperiments
+  const displayBlocks: Experiment[] = [];
+  for (let i = 1; i <= totalExperiments; i++) {
+    if (experimentsMap.has(i)) {
+      // Use actual experiment
+      displayBlocks.push(experimentsMap.get(i)!);
+    } else {
+      // Create placeholder for planned experiment
+      displayBlocks.push({
+        id: -i, // Negative ID to distinguish from real experiments
+        task_id: taskId,
+        experiment_id: i,
+        status: 'pending',
+        parameters: {},
+        created_at: new Date().toISOString(),
+      } as Experiment);
+    }
+  }
+
+  // Sort by experiment_id ascending (earliest first) for display
+  const sortedBlocks = [...displayBlocks].sort((a, b) => a.experiment_id - b.experiment_id);
 
   // Limit blocks to reasonable number for display (max 50)
   const maxBlocks = 50;
-  const blocksToShow = displayBlocks.slice(0, maxBlocks);
-  const hasMore = displayBlocks.length > maxBlocks;
+  const blocksToShow = sortedBlocks.slice(0, maxBlocks);
+  const hasMore = sortedBlocks.length > maxBlocks;
 
   return (
     <div className="flex flex-col gap-1">
@@ -78,9 +98,9 @@ export default function ExperimentProgressBar({
           {hasMore && (
             <div
               className="text-xs text-gray-500 ml-1 self-center"
-              title={`${displayBlocks.length - maxBlocks} more experiments`}
+              title={`${sortedBlocks.length - maxBlocks} more experiments`}
             >
-              +{displayBlocks.length - maxBlocks}
+              +{sortedBlocks.length - maxBlocks}
             </div>
           )}
         </div>
