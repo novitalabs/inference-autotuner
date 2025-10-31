@@ -17,7 +17,7 @@ interface TaskFormData {
     id_or_path: string;
     namespace: string;
   };
-  parameters: Record<string, number[]>;
+  parameters: Record<string, any[]>;
   optimization: {
     strategy: string;
     objective: string;
@@ -222,14 +222,38 @@ export default function NewTask() {
       .filter((n) => !isNaN(n));
   };
 
+  const parseParameterArray = (str: string): any[] => {
+    // Parse comma-separated values, handling numbers, strings, and booleans
+    return str
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .map((val) => {
+        // Try to parse as number first
+        const num = parseFloat(val);
+        if (!isNaN(num)) {
+          return num;
+        }
+        // Parse boolean
+        if (val.toLowerCase() === 'true') {
+          return true;
+        }
+        if (val.toLowerCase() === 'false') {
+          return false;
+        }
+        // Keep as string
+        return val;
+      });
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
     // Parse parameters
-    const parsedParams: Record<string, number[]> = {};
+    const parsedParams: Record<string, any[]> = {};
     for (const param of parameters) {
       if (param.name && param.values) {
-        parsedParams[param.name] = parseNumberArray(param.values);
+        parsedParams[param.name] = parseParameterArray(param.values);
       }
     }
 

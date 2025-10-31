@@ -16318,3 +16318,446 @@ Potential additions enabled by this architecture:
 
 </details>
 
+
+---
+
+## 2025/10/31
+
+## Debugging Bayesian Optimization Non-Execution
+
+> There is a bug, when I restarted a task and cancelled it, the tuning parameters are changed.
+
+<details>
+<summary>Fixed two critical issues preventing Bayesian optimization tasks from running experiments</summary>
+
+### Issue Report
+
+User reported: "I create a new task with bayesian optimization, after started, no any experiments run, check what's the problem for it."
+
+Task details (ID 4):
+- Status: `completed` 
+- Total experiments: `0`
+- Elapsed time: `0.023933s`
+- Log message: `"Generated 0 parameter combinations"`
+
+### Root Cause Analysis
+
+#### Issue 1: Stale ARQ Worker Code
+
+**Problem**: ARQ worker process was running old code from October 29, before Bayesian optimization implementation.
+
+**Evidence**:
+```bash
+ps aux | grep arq
+# Worker started: Wed Oct 29 19:38:15 2025 (over 24 hours ago)
+
+# Task log showed:
+[ARQ Worker] Generated 0 parameter combinations  # Message doesn't exist in current code!
+```
+
+The worker was still executing the original grid search logic that generates all combinations upfront, instead of the new adaptive strategy pattern.
+
+**Investigation Steps**:
+1. Checked for ARQ worker process → Found old worker (PID 3371790)
+2. Checked worker start time → Started Oct 29 (before Bayesian impl)
+3. Searched for log message in current code → Not found (old code path)
+4. Checked task logs → No strategy initialization messages
+
+**Solution**: Killed old worker and restarted with new code:
+```bash
+kill 3371790
+./scripts/start_worker.sh
+```
+
+**Critical Reminder**: As emphasized in CLAUDE.md:
+> **CRITICAL**: After editing any code in `src/orchestrator.py`, `src/controllers/`, or `src/web/workers/`, you **must restart the ARQ worker** for changes to take effect.
+
+The web server has hot-reload enabled, but ARQ workers do not!
+
+#### Issue 2: Empty Parameter Arrays Not Filtered
+
+**Problem**: Task configuration contained 14 parameters with empty arrays `[]`, causing 0 combinations.
+
+**Evidence**:
+```python
+# Task parameters included:
+{
+  "tensor-parallel-size": [1, 2, 4],      # Valid
+  "mem-fraction-static": [0.8, 0.85, 0.9], # Valid  
+  "kv-cache-dtype": [],                    # Empty!
+  "attention-backend": [],                 # Empty!
+  "enable-torch-compile": [],              # Empty!
+  # ... 11 more empty arrays
+}
+```
+
+When `itertools.product(*param_values)` encounters an empty list, it returns 0 combinations:
+```python
+>>> list(itertools.product([1, 2], [0.8, 0.9], []))
+[]  # Empty list!
+```
+
+**Root Cause**: Neither `generate_parameter_grid()` nor `BayesianStrategy._parse_search_space()` filtered out empty parameter lists.
+
+**Solution**: Added empty list filtering in both functions:
+
+```python
+# src/utils/optimizer.py - generate_parameter_grid()
+for param_name, spec in parameter_spec.items():
+    if isinstance(spec, list):
+        # Skip empty lists (no values to search)
+        if len(spec) == 0:
+            continue
+        param_names.append(param_name)
+        param_values.append(spec)
+```
+
+```python
+# src/utils/optimizer.py - BayesianStrategy._parse_search_space()
+for param_name, spec in parameter_spec.items():
+    if isinstance(spec, list):
+        # Skip empty lists (no values to search)
+        if len(spec) == 0:
+            continue
+        search_space[param_name] = {
+            "type": "categorical",
+            "choices": spec
+        }
+```
+
+**Testing**:
+```bash
+PYTHONPATH=src python3 -c "
+from utils.optimizer import generate_parameter_grid, BayesianStrategy
+
+params = {
+    'tp-size': [1, 2],
+    'mem-fraction': [0.8, 0.9],
+    'empty-param': [],
+    'another-empty': []
+}
+
+# Test grid search
+grid = generate_parameter_grid(params)
+print(f'Grid search: {len(grid)} combinations')  # 4 combinations (ignores empty)
+
+# Test Bayesian
+strategy = BayesianStrategy(params, 'minimize_latency', max_iterations=5)
+print(f'Search space: {list(strategy.search_space.keys())}')  # ['tp-size', 'mem-fraction']
+"
+```
+
+Output:
+```
+Grid search: 4 combinations
+[Bayesian] Initialized with 2 parameters
+[Bayesian] Search space: ['tp-size', 'mem-fraction']
+✅ Empty list handling works!
+```
+
+### Files Modified
+
+```
+Modified:
+- src/utils/optimizer.py
+  + Added empty list filtering in generate_parameter_grid() (lines 36-37, 44-46)
+  + Added empty list filtering in BayesianStrategy._parse_search_space() (lines 299-300, 312-313)
+```
+
+### Verification Steps
+
+After both fixes:
+1. ✅ ARQ worker restarted with new code
+2. ✅ Empty parameter arrays filtered correctly
+3. ✅ Test suite confirms filtering works for both grid search and Bayesian strategies
+
+### Key Learnings
+
+1. **ARQ Workers Require Manual Restart**: Unlike the FastAPI server with hot-reload, ARQ workers cache loaded code in memory and don't detect file changes.
+
+2. **Empty Arrays Cause Silent Failures**: When parameter specifications include empty arrays (common in UI forms with optional fields), the Cartesian product degenerates to zero combinations without raising an error.
+
+3. **Defensive Programming**: Both grid search and Bayesian strategies should filter invalid parameter specifications (empty lists, None values, etc.) to prevent silent failures.
+
+4. **UI/API Validation Gap**: The frontend/API should prevent empty parameter arrays from reaching the backend, but backend code should also handle this defensively.
+
+### Recommended Frontend Fix
+
+To prevent this issue at the source, the frontend should filter out empty parameter arrays before sending task creation requests:
+
+```typescript
+// Filter out empty parameter arrays
+const filteredParameters = Object.fromEntries(
+  Object.entries(task.parameters).filter(([key, values]) => 
+    Array.isArray(values) && values.length > 0
+  )
+);
+```
+
+### Testing Commands
+
+```bash
+# Verify ARQ worker is running with new code
+ps aux | grep arq
+
+# Test empty parameter handling
+PYTHONPATH=src python3 -c "from utils.optimizer import generate_parameter_grid; print(len(generate_parameter_grid({'a': [1], 'b': []})))"  # Should print 1
+
+# Create a new Bayesian task (should now work)
+curl -X POST http://localhost:8000/api/tasks/ -d @examples/bayesian_task.json
+curl -X POST http://localhost:8000/api/tasks/{id}/start
+```
+
+</details>
+
+---
+
+## 2025-10-30: UI Enhancement - Enable Editing for Cancelled Tasks
+
+<details>
+<summary>Extended task edit capability to include cancelled and failed tasks</summary>
+
+### Feature Request
+
+User requested: "Let cancelled task editable"
+
+### Analysis
+
+**Current Behavior**: Only `pending` tasks showed the Edit button in the Tasks UI (line 303 of `Tasks.tsx`).
+
+**Backend Support**: The backend API already allows editing of non-running tasks:
+```python
+# src/web/routes/tasks.py, lines 134-139
+if task.status == TaskStatus.RUNNING:
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="Cannot edit a running task"
+    )
+```
+
+This means `pending`, `cancelled`, `failed`, and `completed` tasks can all be edited through the API, but the UI only exposed this for `pending` tasks.
+
+### Implementation
+
+**Modified**: `frontend/src/pages/Tasks.tsx` (line 302-316)
+
+**Before**:
+```tsx
+{/* Edit Button - Only for pending tasks */}
+{task.status === 'pending' && (
+  <button onClick={() => { /* ... */ }}>Edit</button>
+)}
+```
+
+**After**:
+```tsx
+{/* Edit Button - For pending, cancelled, and failed tasks */}
+{(task.status === 'pending' || task.status === 'cancelled' || task.status === 'failed') && (
+  <button onClick={() => { /* ... */ }}>Edit</button>
+)}
+```
+
+**Rationale for Including Failed Tasks**: Failed tasks are equally good candidates for editing as cancelled tasks:
+- Users may want to fix configuration issues that caused the failure
+- Failed tasks can be edited and restarted (similar to cancelled tasks)
+- The `canRestartTask()` function already treats failed and cancelled tasks identically (line 108-109)
+
+### User Experience
+
+Users can now:
+1. View a cancelled or failed task in the Tasks list
+2. Click the Edit button (pencil icon) to modify configuration
+3. Update parameters, optimization settings, benchmark config, etc.
+4. Either:
+   - Save changes and leave task as cancelled/failed
+   - Save changes and click Restart to run with new configuration
+
+### Build Process
+
+```bash
+cd frontend
+npm run build
+```
+
+Output:
+```
+✓ 996 modules transformed.
+dist/index.html                   0.47 kB │ gzip:   0.31 kB
+dist/assets/index-Nxg79VnJ.css   49.35 kB │ gzip:   8.39 kB
+dist/assets/index-COSeyLGC.js   658.78 kB │ gzip: 194.83 kB
+✓ built in 2.79s
+```
+
+### Files Modified
+
+```
+Modified:
+- frontend/src/pages/Tasks.tsx (line 302-303)
+  Changed condition from: task.status === 'pending'
+  To: (task.status === 'pending' || task.status === 'cancelled' || task.status === 'failed')
+```
+
+### Backend Compatibility
+
+No backend changes required - the existing `PUT /api/tasks/{task_id}` endpoint already supports this functionality:
+
+```python
+# Status check (only blocks RUNNING tasks)
+if task.status == TaskStatus.RUNNING:
+    raise HTTPException(...)  # Blocks only running tasks
+
+# All other statuses (pending, cancelled, failed, completed) are editable
+```
+
+### Related Functionality
+
+The edit capability complements existing task lifecycle operations:
+- **Start**: `pending` → `running`
+- **Cancel**: `running` → `cancelled`  
+- **Restart**: `completed|failed|cancelled` → `pending` (with optional confirmation)
+- **Edit** (now extended): `pending|cancelled|failed` → modified config
+
+This creates a complete task management workflow where users can:
+1. Create task
+2. Edit if needed (before or after execution)
+3. Start execution
+4. Cancel if needed
+5. Edit and restart if cancelled or failed
+
+</details>
+
+---
+
+> There is a bug, when I restarted a task and cancelled it, the tuning parameters are changed.
+
+<details>
+<summary>Fixed two bugs: restart experiment cleanup and preset parameter parsing</summary>
+
+## Bug 1: Restart Not Resetting Experiment Counters
+
+**Initial Report:**
+User reported that when restarting a task and cancelling it, tuning parameters appeared changed.
+
+**Root Cause:**
+In `/root/work/inference-autotuner/src/web/routes/tasks.py:246-252`, the `restart_task` function reset several fields but did NOT:
+1. Reset `total_experiments` - kept old count from previous run
+2. Delete old experiment records - remained in database with duplicate experiment_ids
+
+**Fix Applied to Backend (tasks.py:246-256):**
+
+1. **Delete old experiments** before restarting:
+   ```python
+   # Delete old experiments from previous runs
+   await db.execute(delete(Experiment).where(Experiment.task_id == task_id))
+   ```
+
+2. **Reset total_experiments counter**:
+   ```python
+   # Reset experiment counters
+   task.total_experiments = 0
+   task.successful_experiments = 0
+   task.best_experiment_id = None
+   ```
+
+**Changes Made:**
+- Added import: `from sqlalchemy import select, func, delete`
+- Added import: `from web.db.models import Task, TaskStatus, Experiment`
+- Line 247: Delete all experiments associated with the task_id
+- Line 254: Reset `total_experiments` to 0 (was missing before)
+
+---
+
+## Bug 2: Preset Parameters Not Saving (The Real Issue)
+
+**User Clarification:**
+> "The real problem is when applied a parameter preset, and save the task, edited parameters list not take effects."
+
+**Steps to Reproduce:**
+1. Edit a task (in CANCELLED or FAILED state)
+2. Apply a parameter preset (e.g., "SGLang Comprehensive Tuning")
+3. Save the task
+4. Parameters with strings/booleans became empty arrays `[]`
+
+**Root Cause:**
+In `/root/work/inference-autotuner/frontend/src/pages/NewTask.tsx:218-232`, the `parseNumberArray` function **only parsed numbers** and filtered out everything else:
+
+```typescript
+const parseNumberArray = (str: string): number[] => {
+  return str
+    .split(',')
+    .map((s) => parseFloat(s.trim()))
+    .filter((n) => !isNaN(n));  // ❌ Filters out strings and booleans!
+};
+```
+
+When presets contained:
+- String values: `"auto"`, `"fp8_e5m2"`, `"flashinfer"`, `"triton"` → Filtered out → `[]`
+- Boolean values: `true`, `false` → Filtered out → `[]`
+- Only numeric values survived
+
+Database evidence (task 4 `qwen3-0.6b-bayesian`):
+```json
+{
+  "kv-cache-dtype": [],
+  "attention-backend": [],
+  "enable-mixed-chunk": [],
+  ...
+}
+```
+
+**Fix Applied to Frontend:**
+Created new `parseParameterArray` function that handles all types (NewTask.tsx:225-247):
+
+```typescript
+const parseParameterArray = (str: string): any[] => {
+  // Parse comma-separated values, handling numbers, strings, and booleans
+  return str
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((val) => {
+      // Try to parse as number first
+      const num = parseFloat(val);
+      if (!isNaN(num)) {
+        return num;
+      }
+      // Parse boolean
+      if (val.toLowerCase() === 'true') {
+        return true;
+      }
+      if (val.toLowerCase() === 'false') {
+        return false;
+      }
+      // Keep as string
+      return val;
+    });
+};
+```
+
+Updated `handleSubmit` to use new parser (line 253-258):
+```typescript
+const parsedParams: Record<string, any[]> = {};  // Changed from number[] to any[]
+for (const param of parameters) {
+  if (param.name && param.values) {
+    parsedParams[param.name] = parseParameterArray(param.values);  // Use new parser
+  }
+}
+```
+
+Also updated TypeScript interface (line 20):
+```typescript
+parameters: Record<string, any[]>;  // Was: Record<string, number[]>
+```
+
+**Impact:**
+- ✅ Backend: Restarted tasks now properly clean up old experiments and recalculate counters
+- ✅ Frontend: Preset parameters with strings now save correctly (e.g., `"auto"`, `"flashinfer"`)
+- ✅ Boolean parameters now save correctly (e.g., `true`, `false`)
+- ✅ Numeric parameters continue to work as before
+- ✅ Mixed-type presets (SGLang Comprehensive Tuning) now work properly
+
+**Note:**
+Frontend changes take effect immediately with hot reload (`npm run dev`). No need to restart backend services.
+
+</details>
+

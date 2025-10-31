@@ -5,14 +5,14 @@ Task management API endpoints.
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, delete
 from typing import List
 import asyncio
 from pathlib import Path
 import os
 
 from web.db.session import get_db
-from web.db.models import Task, TaskStatus
+from web.db.models import Task, TaskStatus, Experiment
 from web.schemas import TaskCreate, TaskUpdate, TaskResponse, TaskListResponse
 
 router = APIRouter()
@@ -243,11 +243,15 @@ async def restart_task(task_id: int, db: AsyncSession = Depends(get_db)):
 			detail=f"Task must be completed, failed, or cancelled to restart. Current status: {task.status}"
 		)
 
+	# Delete old experiments from previous runs
+	await db.execute(delete(Experiment).where(Experiment.task_id == task_id))
+
 	# Reset task fields
 	from datetime import datetime
 	task.completed_at = None
 	task.elapsed_time = None
 	# Reset experiment counters
+	task.total_experiments = 0
 	task.successful_experiments = 0
 	task.best_experiment_id = None
 
