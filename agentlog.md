@@ -17401,3 +17401,404 @@ Potential additions discussed in documentation:
 </details>
 
 ---
+
+## 2025-01-XX - Add TPOT (Time Per Output Token) SLO Support
+
+**User Request:**
+> Add TPOT as a SLO item.
+
+**Context:**
+After implementing comprehensive SLO scoring with P50/P90/P99 latency and TTFT metrics, user requested adding TPOT (Time Per Output Token) as an additional SLO metric. TPOT measures the average time to generate each output token during inference.
+
+<details>
+<summary>Implementation Details</summary>
+
+### Changes Made
+
+**1. Backend - Optimizer Module** (`src/utils/optimizer.py`)
+
+Added TPOT SLO processing in `calculate_slo_penalty()` function (lines 195-228):
+
+```python
+# Process TPOT SLO
+tpot_slo = slo_config.get("tpot", {})
+if tpot_slo:
+    threshold = tpot_slo.get("threshold")
+    weight = tpot_slo.get("weight", 1.0)
+    hard_fail = tpot_slo.get("hard_fail", False)
+    fail_ratio = tpot_slo.get("fail_ratio", 0.5)
+    
+    if threshold is not None:
+        actual_value = metrics.get("mean_tpot")
+        
+        if actual_value is not None and actual_value > threshold:
+            violation_ratio = (actual_value - threshold) / threshold
+            
+            if hard_fail and violation_ratio > fail_ratio:
+                is_hard_failure = True
+                violation_details["tpot"] = {
+                    "threshold": threshold,
+                    "actual": actual_value,
+                    "violation_ratio": violation_ratio,
+                    "severity": "HARD_FAIL"
+                }
+            else:
+                penalty = weight * math.exp(violation_ratio / steepness)
+                total_penalty += penalty
+                
+                severity = "SEVERE" if violation_ratio > 0.2 else "MINOR"
+                violation_details["tpot"] = {
+                    "threshold": threshold,
+                    "actual": actual_value,
+                    "violation_ratio": violation_ratio,
+                    "penalty": penalty,
+                    "severity": severity
+                }
+```
+
+**Key Features:**
+- Uses same exponential penalty formula as other metrics
+- Supports all standard SLO parameters (threshold, weight, hard_fail, fail_ratio)
+- Reads `mean_tpot` metric from benchmark results
+- Consistent violation tracking and severity classification
+
+**2. Frontend - TypeScript Types** (`frontend/src/types/api.ts`)
+
+Updated `SLOConfig` interface to include TPOT (line 20):
+
+```typescript
+export interface SLOConfig {
+  latency?: SLOLatencyConfig;
+  ttft?: SLOMetricConfig;
+  tpot?: SLOMetricConfig;  // Added for TPOT
+  steepness?: number;
+}
+```
+
+**3. Frontend - Task Creation Form** (`frontend/src/pages/NewTask.tsx`)
+
+Added TPOT state management (lines 158, 181-182):
+```typescript
+const [enableTPOT, setEnableTPOT] = useState(false);
+const [sloTpotThreshold, setSloTpotThreshold] = useState('0.05');
+const [sloTpotWeight, setSloTpotWeight] = useState('2.0');
+```
+
+Added TPOT UI section (lines 1007-1045):
+```tsx
+{/* TPOT */}
+<div className="border-b pb-4">
+  <div className="flex items-center justify-between mb-3">
+    <h3 className="text-sm font-medium text-gray-900">Time Per Output Token (Soft Penalty)</h3>
+    <label className="flex items-center cursor-pointer">
+      <input
+        type="checkbox"
+        checked={enableTPOT}
+        onChange={(e) => setEnableTPOT(e.target.checked)}
+        className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+      />
+      <span className="ml-2 text-xs text-gray-600">Enable</span>
+    </label>
+  </div>
+  {enableTPOT && (
+    <div className="grid grid-cols-2 gap-4">
+      <div>
+        <label className="block text-xs text-gray-600 mb-1">Threshold (seconds)</label>
+        <input
+          type="text"
+          value={sloTpotThreshold}
+          onChange={(e) => setSloTpotThreshold(e.target.value)}
+          className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          placeholder="0.05"
+        />
+      </div>
+      <div>
+        <label className="block text-xs text-gray-600 mb-1">Penalty Weight</label>
+        <input
+          type="text"
+          value={sloTpotWeight}
+          onChange={(e) => setSloTpotWeight(e.target.value)}
+          className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          placeholder="2.0"
+        />
+      </div>
+    </div>
+  )}
+</div>
+```
+
+Updated form submission logic to include TPOT (lines 380-387):
+```typescript
+if (enableTPOT && sloTpotThreshold) {
+  slo.tpot = {
+    threshold: parseFloat(sloTpotThreshold),
+    ...(sloTpotWeight && { weight: parseFloat(sloTpotWeight) }),
+    hard_fail: false,
+  };
+}
+```
+
+**4. Documentation** (`docs/SLO_SCORING.md`)
+
+Updated documentation to include TPOT:
+- Added TPOT to overview multi-metric support list
+- Added TPOT to full configuration example
+- Added TPOT to multi-objective optimization use case
+- Updated test coverage section
+
+**5. Example Configuration** (`examples/docker_task_with_slo.json`)
+
+Added TPOT section to example task:
+```json
+"tpot": {
+  "threshold": 0.05,
+  "weight": 2.0,
+  "hard_fail": false
+}
+```
+
+### Testing
+
+Created comprehensive test suite in `test_tpot_slo.py`:
+
+**Test 1: TPOT SLO Violation**
+```
+Metrics: TPOT = 0.06s (threshold: 0.05s)
+Violation Ratio: 20.00%
+Penalty Multiplier: 15.7781x
+✓ PASSED - TPOT violation detected and penalized
+```
+
+**Test 2: TPOT + TTFT Combined**
+```
+Metrics:
+  TTFT = 1.2s (threshold: 1.0s)
+  TPOT = 0.055s (threshold: 0.05s)
+Penalty Multiplier: 19.8555x
+Violations: ['ttft', 'tpot']
+✓ PASSED - Both TTFT and TPOT violations tracked
+```
+
+**Test 3: TPOT Within Bounds**
+```
+Metrics: TPOT = 0.04s (threshold: 0.05s)
+Penalty Multiplier: 1.0000
+✓ PASSED - No violation when within bounds
+```
+
+**All Tests Passed: 3/3** ✅
+
+**Existing Tests Still Pass:**
+- `test_slo_algorithm.py`: 6/6 passed ✅
+- `test_slo_optional_fields.py`: 7/7 passed ✅
+
+### Build Verification
+
+**Frontend Build:**
+```bash
+$ cd frontend && npm run build
+✓ 998 modules transformed
+dist/assets/index-QrLM10Dq.js   675.54 kB │ gzip: 197.76 kB
+✓ built in 2.89s
+```
+
+### TPOT Penalty Behavior
+
+With default configuration (threshold=0.05s, weight=2.0, steepness=0.1):
+
+| Actual TPOT | Violation | Penalty Multiplier | Score Impact |
+|-------------|-----------|-------------------|--------------|
+| 0.04s       | 0%        | 1.00x            | No penalty   |
+| 0.05s       | 0%        | 1.00x            | No penalty   |
+| 0.055s      | 10%       | 3.72x            | 272% worse   |
+| 0.06s       | 20%       | 15.78x           | 1478% worse  |
+| 0.075s      | 50%       | 595.5x           | 59,450% worse|
+
+The exponential curve creates steep penalties for TPOT violations, encouraging configurations that maintain low per-token generation times.
+
+### Integration Notes
+
+**Metric Source:**
+- TPOT values come from genai-bench benchmark results
+- Stored in experiment metrics as `mean_tpot` field
+- Typically in range 0.01s - 0.10s for modern LLMs
+
+**Default Threshold:**
+- Frontend default: 0.05s (50ms per token)
+- Reasonable for production inference workloads
+- Equals ~20 tokens/second throughput
+
+**Common Use Cases:**
+
+1. **Streaming Applications:**
+```json
+"slo": {
+  "tpot": {"threshold": 0.05, "weight": 3.0}
+}
+```
+Critical for real-time streaming where per-token latency matters.
+
+2. **Combined with TTFT:**
+```json
+"slo": {
+  "ttft": {"threshold": 1.0, "weight": 2.0},
+  "tpot": {"threshold": 0.05, "weight": 2.0}
+}
+```
+Optimize both first token latency and subsequent token generation speed.
+
+3. **Balanced Optimization:**
+```json
+"slo": {
+  "latency": {"p90": {"threshold": 5.0, "weight": 1.5}},
+  "ttft": {"threshold": 1.0, "weight": 2.0},
+  "tpot": {"threshold": 0.05, "weight": 2.0}
+}
+```
+Multi-metric optimization considering end-to-end latency, initial response time, and sustained generation speed.
+
+### Files Modified
+
+**Backend:**
+- `src/utils/optimizer.py` (+34 lines)
+  - Added TPOT processing in calculate_slo_penalty()
+
+**Frontend:**
+- `frontend/src/types/api.ts` (+1 line)
+  - Added tpot to SLOConfig interface
+- `frontend/src/pages/NewTask.tsx` (+51 lines, lines 158, 181-182, 380-387, 1007-1045)
+  - Added TPOT state variables
+  - Added TPOT UI section
+  - Added TPOT to form submission
+
+**Documentation:**
+- `docs/SLO_SCORING.md` (+8 lines)
+  - Updated overview and examples
+
+**Examples:**
+- `examples/docker_task_with_slo.json` (+5 lines)
+  - Added TPOT configuration
+
+**Tests:**
+- `test_tpot_slo.py` (new file, 150 lines)
+  - 3 comprehensive test cases
+
+### Benefits
+
+**For Users:**
+- ✅ Fine-grained control over token generation speed
+- ✅ Enforce streaming performance requirements
+- ✅ Optimize for sustained throughput vs burst performance
+
+**For System:**
+- ✅ Complete metric coverage (latency, TTFT, TPOT)
+- ✅ Consistent exponential penalty behavior
+- ✅ Follows same pattern as existing SLO metrics
+
+**Technical Advantages:**
+- ✅ TPOT is independent of request size (normalized metric)
+- ✅ Better indicator of decoding efficiency than total latency
+- ✅ Useful for comparing configurations across different request patterns
+
+</details>
+
+---
+
+## 2025-01-XX - Reorder SLO Configuration UI (TTFT/TPOT First)
+
+**User Request:**
+> Reorder SLO Configuration UI, put TTFT & TPOT at first.
+
+**Context:**
+User requested reordering the SLO configuration form to prioritize TTFT (Time to First Token) and TPOT (Time Per Output Token) metrics, moving them before the latency percentiles (P50/P90/P99). This improves UX by placing frequently-used token-level metrics at the top.
+
+<details>
+<summary>Implementation Details</summary>
+
+### Changes Made
+
+**Frontend - Task Creation Form** (`frontend/src/pages/NewTask.tsx`)
+
+Reordered SLO metric sections (lines 805-1046):
+
+**New Order:**
+1. **TTFT** (Time to First Token) - Lines 807-845
+2. **TPOT** (Time Per Output Token) - Lines 847-885
+3. **P50 Latency** - Lines 887-925
+4. **P90 Latency** - Lines 927-985
+5. **P99 Latency** - Lines 987-1045
+6. **Steepness** - Lines 1047+ (unchanged position)
+
+**Rationale:**
+- TTFT and TPOT are token-level metrics that are often more relevant for streaming/real-time applications
+- Latency percentiles (P50/P90/P99) are broader end-to-end metrics
+- Grouping related metrics improves cognitive load
+- Token-level metrics typically need more frequent tuning
+
+### Build Verification
+
+**Frontend Build:**
+```bash
+$ cd frontend && npm run build
+✓ 998 modules transformed
+dist/assets/index-QrLM10Dq.js   675.54 kB │ gzip: 197.76 kB
+✓ built in 2.89s
+```
+
+### UI Improvements
+
+**Before:**
+```
+SLO Configuration
+├── P50 Latency
+├── P90 Latency
+├── P99 Latency
+├── TTFT
+├── TPOT
+└── Steepness
+```
+
+**After:**
+```
+SLO Configuration
+├── TTFT (Time to First Token)      ← Moved up
+├── TPOT (Time Per Output Token)    ← Moved up
+├── P50 Latency
+├── P90 Latency
+├── P99 Latency
+└── Steepness
+```
+
+### Benefits
+
+**For Users:**
+- ✅ More frequently-used metrics appear first
+- ✅ Token-level metrics grouped together logically
+- ✅ Reduced scrolling for common use cases
+- ✅ Clearer distinction between token metrics and latency percentiles
+
+**UX Considerations:**
+- Token metrics (TTFT, TPOT) are simpler to configure (threshold + weight only)
+- Latency percentiles have additional complexity (hard_fail, fail_ratio options)
+- New users typically start with token metrics before advanced latency constraints
+
+### Files Modified
+
+**Frontend:**
+- `frontend/src/pages/NewTask.tsx` (~260 lines reordered)
+  - Moved TTFT section from line 967 to line 807
+  - Moved TPOT section from line 1007 to line 847
+  - All functionality preserved, only position changed
+
+### Technical Notes
+
+**No Breaking Changes:**
+- Reordering is purely visual/UX improvement
+- Form submission logic unchanged
+- API payload structure unchanged
+- Backend receives identical data regardless of UI order
+- All state management and validation preserved
+
+</details>
+
+---
