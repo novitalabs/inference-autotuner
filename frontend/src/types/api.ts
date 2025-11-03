@@ -1,5 +1,25 @@
 // API Response Types based on backend schemas
 
+// SLO Configuration Types
+export interface SLOMetricConfig {
+	threshold: number;
+	weight?: number;
+	hard_fail?: boolean;
+	fail_ratio?: number;
+}
+
+export interface SLOLatencyConfig {
+	p50?: SLOMetricConfig;
+	p90?: SLOMetricConfig;
+	p99?: SLOMetricConfig;
+}
+
+export interface SLOConfig {
+	latency?: SLOLatencyConfig;
+	ttft?: SLOMetricConfig;
+	steepness?: number;
+}
+
 export interface Task {
 	id: number;
 	task_name: string;
@@ -11,6 +31,7 @@ export interface Task {
 	parameters: Record<string, any>;
 	optimization: Record<string, any>;  // API returns as "optimization", not "optimization_config"
 	benchmark: Record<string, any>;  // API returns as "benchmark", not "benchmark_config"
+	slo?: SLOConfig;  // Optional SLO configuration
 	deployment_mode: string;
 	total_experiments: number;
 	successful_experiments: number;
@@ -38,6 +59,7 @@ export interface Experiment {
 	error_message: string | null;
 	metrics: Record<string, any> | null;
 	objective_score: number | null;
+	slo_violation?: boolean;  // Flag for hard SLO violations
 	service_name: string | null;
 	service_url: string | null;
 	created_at: string;
@@ -77,6 +99,7 @@ export interface TaskCreate {
 	parameters: Record<string, any>;
 	optimization: Record<string, any>;
 	benchmark: Record<string, any>;
+	slo?: SLOConfig;  // Optional SLO configuration
 	deployment_mode?: string;
 }
 

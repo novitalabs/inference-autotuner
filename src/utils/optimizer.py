@@ -3,8 +3,9 @@ Utility functions and classes for parameter optimization.
 """
 
 import itertools
+import math
 from abc import ABC, abstractmethod
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Tuple
 import optuna
 
 
@@ -66,33 +67,164 @@ def generate_parameter_grid(parameter_spec: Dict[str, Any]) -> List[Dict[str, An
 	return grid
 
 
-def calculate_objective_score(results: Dict[str, Any], objective: str = "minimize_latency") -> float:
-	"""Calculate objective score from benchmark results.
+def calculate_slo_penalty(
+	metrics: Dict[str, Any],
+	slo_config: Optional[Dict[str, Any]] = None
+) -> Tuple[float, bool, Dict[str, Any]]:
+	"""Calculate SLO penalty with exponential curve near boundaries.
+
+	Implements tiered enforcement:
+	- Minor violations: exponential penalty only
+	- Severe violations: mark as hard failure
+
+	Args:
+	    metrics: Benchmark metrics dictionary
+	    slo_config: SLO configuration from task JSON
+	                Format: {
+	                  "latency": {
+	                    "p50": {"threshold": 2.0, "weight": 1.0, "hard_fail": false},
+	                    "p90": {"threshold": 5.0, "weight": 2.0, "hard_fail": true, "fail_ratio": 0.2}
+	                  },
+	                  "ttft": {"threshold": 1.0, "weight": 2.0, "hard_fail": false},
+	                  "steepness": 0.1  # Controls exponential slope (lower = steeper)
+	                }
+
+	Returns:
+	    Tuple of (total_penalty_multiplier, is_hard_failure, violation_details)
+	    - penalty_multiplier: Value to multiply base score by (1.0 = no penalty)
+	    - is_hard_failure: True if experiment should be marked as failed
+	    - violation_details: Dict with per-metric violation info
+	"""
+	# No SLO configuration means no penalties
+	if not slo_config or not metrics:
+		return 1.0, False, {}
+
+	# Default steepness parameter (lower = steeper penalty curve)
+	steepness = slo_config.get("steepness", 0.1)
+
+	total_penalty = 0.0
+	is_hard_failure = False
+	violation_details = {}
+
+	# Process latency SLOs (P50, P90, P99)
+	latency_slo = slo_config.get("latency", {})
+	for percentile in ["p50", "p90", "p99"]:
+		if percentile not in latency_slo:
+			continue
+
+		slo_spec = latency_slo[percentile]
+		threshold = slo_spec.get("threshold")
+		weight = slo_spec.get("weight", 1.0)
+		hard_fail = slo_spec.get("hard_fail", False)
+		fail_ratio = slo_spec.get("fail_ratio", 0.5)  # Default: fail if >50% over
+
+		if threshold is None:
+			continue
+
+		# Get actual metric value
+		metric_key = f"{percentile}_e2e_latency"
+		actual_value = metrics.get(metric_key)
+
+		if actual_value is None:
+			continue
+
+		# Calculate violation ratio (normalized)
+		if actual_value > threshold:
+			violation_ratio = (actual_value - threshold) / threshold
+
+			# Check for hard failure condition
+			if hard_fail and violation_ratio > fail_ratio:
+				is_hard_failure = True
+				violation_details[percentile] = {
+					"threshold": threshold,
+					"actual": actual_value,
+					"violation_ratio": violation_ratio,
+					"severity": "HARD_FAIL"
+				}
+			else:
+				# Calculate exponential penalty
+				# penalty = weight × exp(violation_ratio / steepness)
+				# As violation_ratio increases, penalty grows exponentially
+				penalty = weight * math.exp(violation_ratio / steepness)
+				total_penalty += penalty
+
+				severity = "SEVERE" if violation_ratio > 0.2 else "MINOR"
+				violation_details[percentile] = {
+					"threshold": threshold,
+					"actual": actual_value,
+					"violation_ratio": violation_ratio,
+					"penalty": penalty,
+					"severity": severity
+				}
+
+	# Process TTFT SLO
+	ttft_slo = slo_config.get("ttft", {})
+	if ttft_slo:
+		threshold = ttft_slo.get("threshold")
+		weight = ttft_slo.get("weight", 1.0)
+		hard_fail = ttft_slo.get("hard_fail", False)
+		fail_ratio = ttft_slo.get("fail_ratio", 0.5)
+
+		if threshold is not None:
+			actual_value = metrics.get("mean_ttft")
+
+			if actual_value is not None and actual_value > threshold:
+				violation_ratio = (actual_value - threshold) / threshold
+
+				if hard_fail and violation_ratio > fail_ratio:
+					is_hard_failure = True
+					violation_details["ttft"] = {
+						"threshold": threshold,
+						"actual": actual_value,
+						"violation_ratio": violation_ratio,
+						"severity": "HARD_FAIL"
+					}
+				else:
+					penalty = weight * math.exp(violation_ratio / steepness)
+					total_penalty += penalty
+
+					severity = "SEVERE" if violation_ratio > 0.2 else "MINOR"
+					violation_details["ttft"] = {
+						"threshold": threshold,
+						"actual": actual_value,
+						"violation_ratio": violation_ratio,
+						"penalty": penalty,
+						"severity": severity
+					}
+
+	# Calculate final penalty multiplier
+	# penalty_multiplier > 1.0 means the score gets worse
+	penalty_multiplier = 1.0 + total_penalty
+
+	return penalty_multiplier, is_hard_failure, violation_details
+
+
+def calculate_objective_score(results: Dict[str, Any], objective: str = "minimize_latency", slo_config: Optional[Dict[str, Any]] = None) -> float:
+	"""Calculate objective score from benchmark results with optional SLO penalties.
 
 	Args:
 	    results: Benchmark results dictionary from DirectBenchmarkController._parse_results()
 	    objective: Optimization objective - 'minimize_latency' or 'maximize_throughput'
+	    slo_config: Optional SLO configuration for penalty calculation
 
 	Returns:
-	    Objective score (lower is better for minimization, higher for maximization)
+	    Objective score with SLO penalties applied (lower is better for minimization, higher for maximization)
+	    Note: For hard SLO violations, returns worst possible score (inf or -inf)
 	"""
 	if not results:
 		print("[Optimizer] No results provided, returning worst score")
 		return float("inf") if "minimize" in objective else float("-inf")
 
-	# Extract metrics based on objective
+	# Calculate base score based on objective
 	try:
 		if objective == "minimize_latency":
 			# Use mean E2E latency as primary metric (in seconds)
 			# Fallback to P50 if mean not available
-			latency = results.get("mean_e2e_latency", results.get("p50_e2e_latency"))
-			if latency is None:
+			base_score = results.get("mean_e2e_latency", results.get("p50_e2e_latency"))
+			if base_score is None:
 				print(f"[Optimizer] Warning: No latency metrics found in results")
 				print(f"[Optimizer] Available keys: {list(results.keys())}")
 				return float("inf")
-
-			print(f"[Optimizer] Latency score: {latency:.4f}s (lower is better)")
-			return latency
 
 		elif objective == "maximize_throughput":
 			# Use mean total throughput (tokens/s) as primary metric
@@ -106,32 +238,54 @@ def calculate_objective_score(results: Dict[str, Any], objective: str = "minimiz
 				return float("-inf")
 
 			# Negate for minimization (optimizer looks for minimum score)
-			score = -throughput
-			print(f"[Optimizer] Throughput score: {throughput:.2f} tokens/s (score: {score:.2f}, lower is better)")
-			return score
+			base_score = -throughput
 
 		elif objective == "minimize_ttft":
 			# Time to First Token optimization
-			ttft = results.get("mean_ttft")
-			if ttft is None:
+			base_score = results.get("mean_ttft")
+			if base_score is None:
 				print(f"[Optimizer] Warning: No TTFT metrics found in results")
 				return float("inf")
 
-			print(f"[Optimizer] TTFT score: {ttft:.4f}s (lower is better)")
-			return ttft
-
 		elif objective == "minimize_tpot":
 			# Time Per Output Token optimization
-			tpot = results.get("mean_tpot")
-			if tpot is None:
+			base_score = results.get("mean_tpot")
+			if base_score is None:
 				print(f"[Optimizer] Warning: No TPOT metrics found in results")
 				return float("inf")
 
-			print(f"[Optimizer] TPOT score: {tpot:.4f}s (lower is better)")
-			return tpot
-
 		else:
 			raise ValueError(f"Unsupported objective: {objective}")
+
+		# Apply SLO penalties if configured
+		if slo_config:
+			penalty_multiplier, is_hard_failure, violation_details = calculate_slo_penalty(results, slo_config)
+
+			# Hard failure: return worst possible score
+			if is_hard_failure:
+				print(f"[Optimizer] HARD SLO FAILURE detected:")
+				for metric, details in violation_details.items():
+					if details.get("severity") == "HARD_FAIL":
+						print(f"  {metric}: {details['actual']:.4f} >> {details['threshold']:.4f} (violation: {details['violation_ratio']*100:.1f}%)")
+				return float("inf") if "minimize" in objective else float("-inf")
+
+			# Soft penalties: multiply base score
+			if penalty_multiplier > 1.0:
+				final_score = base_score * penalty_multiplier
+				print(f"[Optimizer] Base score: {base_score:.4f}, SLO penalty multiplier: {penalty_multiplier:.2f}x, Final: {final_score:.4f}")
+				if violation_details:
+					print(f"[Optimizer] SLO violations detected:")
+					for metric, details in violation_details.items():
+						print(f"  {metric}: {details['actual']:.4f} > {details['threshold']:.4f} "
+						      f"(+{details['violation_ratio']*100:.1f}%, penalty: +{details['penalty']:.2f}, severity: {details['severity']})")
+				return final_score
+			else:
+				print(f"[Optimizer] Score: {base_score:.4f} (no SLO violations)")
+				return base_score
+		else:
+			# No SLO config, return base score
+			print(f"[Optimizer] Score: {base_score:.4f} (lower is better)")
+			return base_score
 
 	except Exception as e:
 		print(f"[Optimizer] Error calculating objective score: {e}")

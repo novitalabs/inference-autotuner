@@ -174,11 +174,24 @@ export default function Experiments() {
 												{task?.task_name || `Task ${experiment.task_id}`}
 											</td>
 											<td className="whitespace-nowrap px-3 py-4 text-sm">
-												<span
-													className={`inline-flex rounded-full px-2 text-xs font-semibold leading-5 ${getStatusColor(experiment.status)}`}
-												>
-													{experiment.status}
-												</span>
+												<div className="flex items-center gap-2">
+													<span
+														className={`inline-flex rounded-full px-2 text-xs font-semibold leading-5 ${getStatusColor(experiment.status)}`}
+													>
+														{experiment.status}
+													</span>
+													{experiment.slo_violation && (
+														<span
+															className="inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-800"
+															title="Hard SLO violation detected"
+														>
+															<svg className="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
+																<path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+															</svg>
+															SLO
+														</span>
+													)}
+												</div>
 											</td>
 											<td className="px-3 py-4 text-sm text-gray-700">
 												<div className="max-w-xs truncate">

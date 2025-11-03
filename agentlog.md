@@ -16936,3 +16936,468 @@ const [logViewerExperiment, setLogViewerExperiment] = useState<Experiment | null
 **TypeScript Compilation:** ✅ Passed with no errors
 
 </details>
+
+
+---
+
+## 2025/11/03
+
+
+## SLO-Aware Objective Scoring with Exponential Penalties
+
+> Design a sophisticated objective scoring algorithm with SLO considerations, making scores increase steeply at the edge of SLO boundary violations.
+
+<details>
+<summary>Designed and implemented sophisticated SLO-aware scoring algorithm with exponential penalties and tiered enforcement</summary>
+
+### Requirements Clarification
+
+Used interactive questionnaire to gather requirements:
+
+**SLO Metrics Selected:**
+- Latency SLOs (P50, P90, P99 percentiles)
+- TTFT SLO (Time to First Token)
+
+**Configuration Approach:** Per-task configuration (each task specifies its own SLO thresholds)
+
+**Penalty Curve:** Exponential (e^x) for smooth but rapidly increasing penalties near boundaries
+
+**Violation Handling:** Tiered approach:
+- Minor violations: Heavy penalty only
+- Severe violations (beyond fail_ratio): Hard fail with experiment marked as failed
+
+### Algorithm Design
+
+**Core Formula:**
+```
+final_score = base_objective_score × (1 + total_penalty)
+
+Where:
+  penalty(metric) = weight × exp(violation_ratio / steepness)
+  violation_ratio = (actual_value - threshold) / threshold  # Normalized
+  total_penalty = Σ penalty(metric) for all violated metrics
+```
+
+**Key Parameters:**
+- `threshold`: Maximum allowed value (in seconds)
+- `weight`: Penalty multiplier for the metric (higher = more important)
+- `hard_fail`: Enable hard failure enforcement for severe violations
+- `fail_ratio`: Violation percentage threshold for hard fail (e.g., 0.2 = 20% over)
+- `steepness`: Controls exponential curve slope (lower = steeper, default: 0.1)
+
+**Tiered Enforcement Logic:**
+1. If `violation_ratio > fail_ratio` AND `hard_fail=true` → Mark experiment as FAILED (score = ∞)
+2. If `violation_ratio ≤ fail_ratio` → Apply exponential penalty to score
+3. Violations classified by severity:
+   - `MINOR`: violation_ratio ≤ 0.2 (≤20% over)
+   - `SEVERE`: violation_ratio > 0.2 (>20% over)
+   - `HARD_FAIL`: violation_ratio > fail_ratio with hard_fail enabled
+
+### Implementation
+
+#### 1. Backend Algorithm (`src/utils/optimizer.py`)
+
+**Added Function: `calculate_slo_penalty()`**
+```python
+def calculate_slo_penalty(
+    metrics: Dict[str, Any],
+    slo_config: Optional[Dict[str, Any]] = None
+) -> Tuple[float, bool, Dict[str, Any]]:
+    """Calculate SLO penalty with exponential curve near boundaries.
+
+    Returns:
+        (penalty_multiplier, is_hard_failure, violation_details)
+    """
+```
+
+**Features:**
+- Processes latency SLOs for P50/P90/P99 percentiles
+- Processes TTFT SLO
+- Applies exponential penalty: `weight × exp(violation_ratio / steepness)`
+- Detects hard failure conditions
+- Returns detailed violation information per metric
+
+**Enhanced Function: `calculate_objective_score()`**
+```python
+def calculate_objective_score(
+    results: Dict[str, Any],
+    objective: str = "minimize_latency",
+    slo_config: Optional[Dict[str, Any]] = None
+) -> float:
+```
+
+**Changes:**
+- Added optional `slo_config` parameter
+- Calculates base score from objective
+- Applies SLO penalties if configured
+- Returns `inf` for hard failures
+- Logs detailed violation information
+
+#### 2. Orchestrator Integration (`src/orchestrator.py`)
+
+**Modified: `run_experiment()` method**
+
+Direct benchmark path (lines 176-198):
+```python
+# Get SLO configuration from task if present
+slo_config = task.get("slo")
+
+# Calculate objective score with SLO penalties
+score = calculate_objective_score(metrics, task["optimization"]["objective"], slo_config)
+
+# Check if this is a hard SLO failure (score = inf/-inf)
+is_slo_failure = (score == float("inf") or score == float("-inf"))
+
+if is_slo_failure:
+    experiment_result["status"] = "failed"
+    experiment_result["slo_violation"] = True
+    print(f"Experiment {experiment_id} FAILED due to hard SLO violation")
+else:
+    experiment_result["status"] = "success"
+```
+
+K8s BenchmarkJob path: Applied identical logic (lines 220-244)
+
+#### 3. Task Configuration Schema
+
+**Example: `examples/docker_task_with_slo.json`**
+```json
+{
+  "task_name": "docker-slo-aware-tune",
+  "optimization": {
+    "strategy": "grid_search",
+    "objective": "minimize_latency"
+  },
+  "slo": {
+    "latency": {
+      "p50": {
+        "threshold": 2.0,
+        "weight": 1.0,
+        "hard_fail": false
+      },
+      "p90": {
+        "threshold": 5.0,
+        "weight": 2.0,
+        "hard_fail": true,
+        "fail_ratio": 0.2
+      },
+      "p99": {
+        "threshold": 10.0,
+        "weight": 3.0,
+        "hard_fail": true,
+        "fail_ratio": 0.5
+      }
+    },
+    "ttft": {
+      "threshold": 1.0,
+      "weight": 2.0,
+      "hard_fail": false
+    },
+    "steepness": 0.1
+  }
+}
+```
+
+#### 4. Frontend TypeScript Types (`frontend/src/types/api.ts`)
+
+**Added Interfaces:**
+```typescript
+export interface SLOMetricConfig {
+  threshold: number;
+  weight?: number;
+  hard_fail?: boolean;
+  fail_ratio?: number;
+}
+
+export interface SLOLatencyConfig {
+  p50?: SLOMetricConfig;
+  p90?: SLOMetricConfig;
+  p99?: SLOMetricConfig;
+}
+
+export interface SLOConfig {
+  latency?: SLOLatencyConfig;
+  ttft?: SLOMetricConfig;
+  steepness?: number;
+}
+```
+
+**Extended Existing Interfaces:**
+- `Task`: Added `slo?: SLOConfig`
+- `Experiment`: Added `slo_violation?: boolean`
+- `TaskCreate`: Added `slo?: SLOConfig`
+
+#### 5. Frontend UI - New Task Form (`frontend/src/pages/NewTask.tsx`)
+
+**Added State Variables (18 new states):**
+```typescript
+const [enableSLO, setEnableSLO] = useState(false);
+const [sloP50Threshold, setSloP50Threshold] = useState('2.0');
+const [sloP50Weight, setSloP50Weight] = useState('1.0');
+// ... (P90, P99, TTFT configurations)
+const [sloSteepness, setSloSteepness] = useState('0.1');
+```
+
+**Added SLO Configuration Section:**
+- Toggle to enable SLO configuration
+- Collapsible form with sections for each metric:
+  - **P50 Latency**: Threshold, weight (soft penalty only)
+  - **P90 Latency**: Threshold, weight, hard fail checkbox, fail_ratio
+  - **P99 Latency**: Threshold, weight, hard fail checkbox, fail_ratio
+  - **TTFT**: Threshold, weight (soft penalty only)
+  - **Steepness**: Global parameter with explanation
+- Form integrated into `handleSubmit()` to include SLO in task creation
+
+**UI Features:**
+- Clear labeling: "Soft Penalty" vs "Tiered Enforcement"
+- Inline help text explaining fail_ratio percentages
+- Conditional inputs (fail_ratio only enabled when hard_fail is checked)
+- Descriptive steepness parameter guidance
+
+#### 6. Frontend UI - Experiments View (`frontend/src/pages/Experiments.tsx`)
+
+**Added SLO Violation Indicator:**
+```tsx
+<td className="whitespace-nowrap px-3 py-4 text-sm">
+  <div className="flex items-center gap-2">
+    <span className={`inline-flex rounded-full px-2 text-xs font-semibold leading-5 ${getStatusColor(experiment.status)}`}>
+      {experiment.status}
+    </span>
+    {experiment.slo_violation && (
+      <span className="inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-800"
+            title="Hard SLO violation detected">
+        <svg><!-- X icon --></svg>
+        SLO
+      </span>
+    )}
+  </div>
+</td>
+```
+
+**Features:**
+- Red "SLO" badge next to status for hard violations
+- Tooltip: "Hard SLO violation detected"
+- Visual distinction from regular failures
+
+### Testing
+
+**Created Comprehensive Test Suite: `test_slo_algorithm.py`**
+
+**Test 1: No SLO Violations**
+```
+Metrics: P50=1.5s, P90=4.0s (all within bounds)
+Result: Penalty multiplier = 1.0 (no penalty)
+✓ PASSED
+```
+
+**Test 2: Minor Violation (10% over)**
+```
+Metrics: P50 = 2.2s (threshold: 2.0s, weight: 1.0, steepness: 0.1)
+Violation Ratio: 10%
+Penalty: 1.0 × exp(0.10 / 0.1) = 2.72
+Penalty Multiplier: 3.72x
+Score Increase: 271.83%
+Severity: MINOR
+✓ PASSED
+```
+
+**Test 3: Severe Violation (25% over)**
+```
+Metrics: P90 = 6.25s (threshold: 5.0s, weight: 2.0, steepness: 0.1)
+Violation Ratio: 25%
+Penalty: 2.0 × exp(0.25 / 0.1) = 24.36
+Penalty Multiplier: 25.37x
+Severity: SEVERE
+✓ PASSED - Steep exponential penalty applied
+```
+
+**Test 4: Hard Failure (30% over fail_ratio)**
+```
+Metrics: P90 = 6.5s (threshold: 5.0s, fail_ratio: 0.2)
+Violation Ratio: 30% > 20% fail_ratio
+Result: HARD_FAIL, score = ∞
+✓ PASSED - Experiment marked as failed
+```
+
+**Test 5: Multiple Cumulative Violations**
+```
+Metrics:
+  P50: 2.30s > 2.00s (+15%, penalty: +4.48)
+  P90: 5.50s > 5.00s (+10%, penalty: +5.44)
+  P99: 11.00s > 10.00s (+10%, penalty: +8.15)
+  TTFT: 1.20s > 1.00s (+20%, penalty: +14.78)
+
+Total Penalty: 32.85
+Penalty Multiplier: 33.85x
+Score Increase: 3285% 🔥
+✓ PASSED - Cumulative penalties applied
+```
+
+**Test 6: Steepness Parameter Effect**
+```
+Metrics: P90 = 6.0s (20% over 5.0s threshold, weight: 2.0)
+
+Steepness 0.05: penalty_multiplier = 110.20x (very steep)
+Steepness 0.1:  penalty_multiplier = 15.78x  (recommended)
+Steepness 0.2:  penalty_multiplier = 6.44x   (gentler)
+
+✓ PASSED - Lower steepness = steeper penalties
+```
+
+**All Tests Passed:** 6/6 ✅
+
+**Test Execution:**
+```bash
+$ python test_slo_algorithm.py
+################################################################################
+# Test Summary: 6 passed, 0 failed
+################################################################################
+```
+
+### Documentation
+
+**Created: `docs/SLO_SCORING.md`**
+
+**Contents:**
+- Mathematical formulas and derivations
+- Configuration parameter reference
+- Example scenarios with calculations
+- Steepness parameter impact analysis
+- Frontend feature guide
+- Backend implementation details
+- Use cases and design rationale
+- Backward compatibility notes
+- Future enhancement ideas
+
+**Key Sections:**
+- **Mathematical Formula**: Detailed breakdown of penalty calculation
+- **Example Scenarios**: 4 scenarios with step-by-step calculations
+- **Steepness Impact Table**: Comparison of 0.05 vs 0.1 vs 0.2
+- **Design Rationale**: Why exponential over linear, why tiered enforcement
+- **Use Cases**: Production constraints, multi-objective optimization, soft boundaries
+
+### Files Modified
+
+**Backend:**
+- `src/utils/optimizer.py` (+149 lines)
+  - Added `calculate_slo_penalty()` function
+  - Enhanced `calculate_objective_score()` with SLO integration
+  - Added `math` import for exponential calculations
+  - Added `Tuple` type import
+
+- `src/orchestrator.py` (+24 lines, -8 lines)
+  - Modified `run_experiment()` to pass SLO config to scorer
+  - Added hard failure detection logic
+  - Added `slo_violation` flag to experiment results
+  - Applied changes to both direct benchmark and K8s paths
+
+**Frontend:**
+- `frontend/src/types/api.ts` (+23 lines)
+  - Added `SLOMetricConfig`, `SLOLatencyConfig`, `SLOConfig` interfaces
+  - Extended `Task`, `Experiment`, `TaskCreate` interfaces
+
+- `frontend/src/pages/NewTask.tsx` (+214 lines)
+  - Added 18 state variables for SLO configuration
+  - Added complete SLO configuration form section
+  - Enhanced `handleSubmit()` to include SLO in task payload
+
+- `frontend/src/pages/Experiments.tsx` (+18 lines, -6 lines)
+  - Added SLO violation badge to experiment status column
+  - Added conditional rendering for `slo_violation` flag
+
+**Examples:**
+- `examples/docker_task_with_slo.json` (new file)
+  - Complete task configuration with SLO section
+  - Demonstrates P50/P90/P99 latency + TTFT configuration
+
+**Tests:**
+- `test_slo_algorithm.py` (new file, 220 lines)
+  - 6 comprehensive test cases
+  - Validates exponential penalty behavior
+  - Tests tiered enforcement boundaries
+  - Verifies steepness parameter effects
+
+**Documentation:**
+- `docs/SLO_SCORING.md` (new file, 350 lines)
+  - Complete feature documentation
+  - Mathematical formulas with examples
+  - Configuration guide and use cases
+
+### Build Verification
+
+**TypeScript Type Checking:**
+```bash
+$ cd frontend && npm run type-check
+✅ No errors (all types valid)
+```
+
+**Frontend Build:**
+```bash
+$ cd frontend && npm run build
+✓ 998 modules transformed
+dist/assets/index-DHWPilzk.js   672.31 kB │ gzip: 197.35 kB
+✓ built in 2.88s
+```
+
+### Key Features
+
+**Exponential Penalty Curve:**
+- Creates steep gradients near SLO boundaries
+- Guides optimization away from unsafe configurations
+- 10% violation → 2.72x penalty
+- 20% violation → 15.78x penalty
+- 50% violation → 297.4x penalty
+
+**Tiered Enforcement:**
+- **Soft Penalties** (hard_fail=false): Allow exploration slightly over SLO
+- **Hard Failures** (violation > fail_ratio): Reject egregious violations
+- Configurable per-metric fail_ratio thresholds
+
+**Multi-Metric Cumulative:**
+- Penalties sum across all violated metrics
+- Example: 4 violations → 33.85x total penalty multiplier
+- Allows weighting (P99 more important than P50)
+
+**Configurable Steepness:**
+- Controls aggressiveness of penalty curve
+- Default 0.1 recommended (balanced)
+- Lower values (0.05) create steeper penalties
+- Higher values (0.2) create gentler curves
+
+**Backward Compatible:**
+- Tasks without `slo` configuration work unchanged
+- Fully optional feature
+- No breaking changes to existing APIs
+
+### Benefits
+
+**For Users:**
+- ✅ Enforce production-like SLO constraints during tuning
+- ✅ Balance multiple objectives (latency + TTFT)
+- ✅ Prevent configurations that violate critical thresholds
+- ✅ Visual feedback for SLO violations in UI
+
+**For System:**
+- ✅ Mathematically sound exponential penalty function
+- ✅ Flexible tiered enforcement (warn vs fail)
+- ✅ Per-task configurability
+- ✅ Comprehensive test coverage
+- ✅ Full TypeScript type safety
+
+**For Development:**
+- ✅ Clean separation of concerns (optimizer vs orchestrator)
+- ✅ Detailed violation logging for debugging
+- ✅ Well-documented with examples
+- ✅ Extensible for future SLO types (throughput, error rate)
+
+### Future Enhancements
+
+Potential additions discussed in documentation:
+- Throughput SLOs (minimum thresholds)
+- Custom penalty functions (polynomial, piecewise)
+- SLO violation budgets (allow N% of experiments to violate)
+- SLO-aware Bayesian optimization (constrained BO)
+
+</details>
+
+---

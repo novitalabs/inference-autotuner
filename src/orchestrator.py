@@ -176,11 +176,24 @@ class AutotunerOrchestrator:
 			# Step 4: Process results
 			print(f"\n[Step 4/4] Processing results...")
 			if metrics:
-				experiment_result["status"] = "success"
-				experiment_result["metrics"] = metrics
-				score = calculate_objective_score(metrics, task["optimization"]["objective"])
-				experiment_result["objective_score"] = score
-				print(f"Experiment {experiment_id} completed. Score: {score}")
+				# Get SLO configuration from task if present
+				slo_config = task.get("slo")
+
+				# Calculate objective score with SLO penalties
+				score = calculate_objective_score(metrics, task["optimization"]["objective"], slo_config)
+
+				# Check if this is a hard SLO failure (score = inf/-inf)
+				is_slo_failure = (score == float("inf") or score == float("-inf"))
+
+				if is_slo_failure:
+					experiment_result["status"] = "failed"
+					experiment_result["slo_violation"] = True
+					print(f"Experiment {experiment_id} FAILED due to hard SLO violation")
+				else:
+					experiment_result["status"] = "success"
+					experiment_result["metrics"] = metrics
+					experiment_result["objective_score"] = score
+					print(f"Experiment {experiment_id} completed. Score: {score}")
 			else:
 				print("Failed to retrieve benchmark results")
 		else:
@@ -209,11 +222,24 @@ class AutotunerOrchestrator:
 			metrics = self.benchmark_controller.get_benchmark_results(benchmark_name, namespace)
 
 			if metrics:
-				experiment_result["status"] = "success"
-				experiment_result["metrics"] = metrics
-				score = calculate_objective_score(metrics, task["optimization"]["objective"])
-				experiment_result["objective_score"] = score
-				print(f"Experiment {experiment_id} completed. Score: {score}")
+				# Get SLO configuration from task if present
+				slo_config = task.get("slo")
+
+				# Calculate objective score with SLO penalties
+				score = calculate_objective_score(metrics, task["optimization"]["objective"], slo_config)
+
+				# Check if this is a hard SLO failure (score = inf/-inf)
+				is_slo_failure = (score == float("inf") or score == float("-inf"))
+
+				if is_slo_failure:
+					experiment_result["status"] = "failed"
+					experiment_result["slo_violation"] = True
+					print(f"Experiment {experiment_id} FAILED due to hard SLO violation")
+				else:
+					experiment_result["status"] = "success"
+					experiment_result["metrics"] = metrics
+					experiment_result["objective_score"] = score
+					print(f"Experiment {experiment_id} completed. Score: {score}")
 			else:
 				print("Failed to retrieve benchmark results")
 
