@@ -1,0 +1,39 @@
+{
+  "task_name": "docker-minimal-slo",
+  "description": "Minimal SLO configuration example - only P99 latency enforced",
+  "deployment_mode": "docker",
+  "model": {
+    "id_or_path": "llama-3-2-1b-instruct",
+    "namespace": "autotuner"
+  },
+  "base_runtime": "sglang",
+  "parameters": {
+    "tp-size": [1, 2],
+    "mem-fraction-static": [0.8, 0.85]
+  },
+  "optimization": {
+    "strategy": "grid_search",
+    "objective": "minimize_latency",
+    "max_iterations": 4,
+    "timeout_per_iteration": 600
+  },
+  "slo": {
+    "latency": {
+      "p99": {
+        "threshold": 10.0
+      }
+    }
+  },
+  "benchmark": {
+    "task": "text-to-text",
+    "model_name": "llama-3-2-1b-instruct",
+    "model_tokenizer": "meta-llama/Llama-3.2-1B-Instruct",
+    "traffic_scenarios": ["D(100,100)"],
+    "num_concurrency": [1, 4],
+    "max_time_per_iteration": 10,
+    "max_requests_per_iteration": 50,
+    "additional_params": {
+      "temperature": 0.0
+    }
+  }
+}

@@ -41,7 +41,9 @@ penalty = weight × exp(violation_ratio / steepness)
 
 ## Task Configuration
 
-Add an optional `slo` section to your task JSON:
+Add an optional `slo` section to your task JSON. **All fields within the SLO configuration are optional** - you can specify only the metrics you care about.
+
+### Full Example (All Options)
 
 ```json
 {
@@ -80,11 +82,37 @@ Add an optional `slo` section to your task JSON:
 }
 ```
 
+### Minimal Example (Only Required Fields)
+
+You can specify just the metrics you want to enforce. Here's a minimal configuration with only P99 latency:
+
+```json
+{
+  "task_name": "my-minimal-slo-task",
+  "optimization": {
+    "strategy": "grid_search",
+    "objective": "minimize_latency"
+  },
+  "slo": {
+    "latency": {
+      "p99": {
+        "threshold": 10.0
+      }
+    }
+  }
+}
+```
+
 ### Configuration Parameters
+
+**Important:** All SLO configuration fields are optional. You can:
+- Omit entire metric sections (e.g., no P50 if you only care about P99)
+- Omit individual metrics (e.g., only configure P90 and P99)
+- Omit optional parameters within metrics (weight, hard_fail, fail_ratio)
 
 #### Per-Metric SLO
 
-- **`threshold`** (required): Maximum allowed value (in seconds)
+- **`threshold`** (required if metric specified): Maximum allowed value (in seconds)
 - **`weight`** (optional, default: 1.0): Penalty weight for this metric
 - **`hard_fail`** (optional, default: false): Enable hard failure enforcement
 - **`fail_ratio`** (optional, default: 0.5): Violation threshold for hard fail (e.g., 0.2 = 20% over)

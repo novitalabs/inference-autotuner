@@ -149,18 +149,34 @@ export default function NewTask() {
 
   // SLO Configuration
   const [enableSLO, setEnableSLO] = useState(false);
+
+  // Individual metric enable flags
+  const [enableP50, setEnableP50] = useState(false);
+  const [enableP90, setEnableP90] = useState(false);
+  const [enableP99, setEnableP99] = useState(false);
+  const [enableTTFT, setEnableTTFT] = useState(false);
+
+  // P50 configuration
   const [sloP50Threshold, setSloP50Threshold] = useState('2.0');
   const [sloP50Weight, setSloP50Weight] = useState('1.0');
+
+  // P90 configuration
   const [sloP90Threshold, setSloP90Threshold] = useState('5.0');
   const [sloP90Weight, setSloP90Weight] = useState('2.0');
   const [sloP90HardFail, setSloP90HardFail] = useState(true);
   const [sloP90FailRatio, setSloP90FailRatio] = useState('0.2');
+
+  // P99 configuration
   const [sloP99Threshold, setSloP99Threshold] = useState('10.0');
   const [sloP99Weight, setSloP99Weight] = useState('3.0');
   const [sloP99HardFail, setSloP99HardFail] = useState(true);
   const [sloP99FailRatio, setSloP99FailRatio] = useState('0.5');
+
+  // TTFT configuration
   const [sloTtftThreshold, setSloTtftThreshold] = useState('1.0');
   const [sloTtftWeight, setSloTtftWeight] = useState('2.0');
+
+  // Steepness
   const [sloSteepness, setSloSteepness] = useState('0.1');
 
   // Auto-update benchmarkModelName when modelIdOrPath changes
@@ -311,33 +327,58 @@ export default function NewTask() {
       },
       // Include SLO configuration if enabled
       ...(enableSLO && {
-        slo: {
-          latency: {
-            p50: {
+        slo: (() => {
+          const slo: any = {};
+
+          // Only include latency section if at least one metric is enabled
+          const latency: any = {};
+
+          if (enableP50 && sloP50Threshold) {
+            latency.p50 = {
               threshold: parseFloat(sloP50Threshold),
-              weight: parseFloat(sloP50Weight),
+              ...(sloP50Weight && { weight: parseFloat(sloP50Weight) }),
               hard_fail: false,
-            },
-            p90: {
+            };
+          }
+
+          if (enableP90 && sloP90Threshold) {
+            latency.p90 = {
               threshold: parseFloat(sloP90Threshold),
-              weight: parseFloat(sloP90Weight),
+              ...(sloP90Weight && { weight: parseFloat(sloP90Weight) }),
               hard_fail: sloP90HardFail,
-              fail_ratio: parseFloat(sloP90FailRatio),
-            },
-            p99: {
+              ...(sloP90HardFail && sloP90FailRatio && { fail_ratio: parseFloat(sloP90FailRatio) }),
+            };
+          }
+
+          if (enableP99 && sloP99Threshold) {
+            latency.p99 = {
               threshold: parseFloat(sloP99Threshold),
-              weight: parseFloat(sloP99Weight),
+              ...(sloP99Weight && { weight: parseFloat(sloP99Weight) }),
               hard_fail: sloP99HardFail,
-              fail_ratio: parseFloat(sloP99FailRatio),
-            },
-          },
-          ttft: {
-            threshold: parseFloat(sloTtftThreshold),
-            weight: parseFloat(sloTtftWeight),
-            hard_fail: false,
-          },
-          steepness: parseFloat(sloSteepness),
-        },
+              ...(sloP99HardFail && sloP99FailRatio && { fail_ratio: parseFloat(sloP99FailRatio) }),
+            };
+          }
+
+          if (Object.keys(latency).length > 0) {
+            slo.latency = latency;
+          }
+
+          // Only include TTFT if enabled and threshold is configured
+          if (enableTTFT && sloTtftThreshold) {
+            slo.ttft = {
+              threshold: parseFloat(sloTtftThreshold),
+              ...(sloTtftWeight && { weight: parseFloat(sloTtftWeight) }),
+              hard_fail: false,
+            };
+          }
+
+          // Only include steepness if specified
+          if (sloSteepness) {
+            slo.steepness = parseFloat(sloSteepness);
+          }
+
+          return slo;
+        })(),
       }),
     };
 
@@ -751,150 +792,202 @@ export default function NewTask() {
             <div className="space-y-6 border-t pt-4">
               {/* P50 Latency */}
               <div className="border-b pb-4">
-                <h3 className="text-sm font-medium text-gray-900 mb-3">P50 Latency (Soft Penalty)</h3>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs text-gray-600 mb-1">Threshold (seconds)</label>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-medium text-gray-900">P50 Latency (Soft Penalty)</h3>
+                  <label className="flex items-center cursor-pointer">
                     <input
-                      type="text"
-                      value={sloP50Threshold}
-                      onChange={(e) => setSloP50Threshold(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder="2.0"
+                      type="checkbox"
+                      checked={enableP50}
+                      onChange={(e) => setEnableP50(e.target.checked)}
+                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
                     />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-gray-600 mb-1">Penalty Weight</label>
-                    <input
-                      type="text"
-                      value={sloP50Weight}
-                      onChange={(e) => setSloP50Weight(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder="1.0"
-                    />
-                  </div>
+                    <span className="ml-2 text-xs text-gray-600">Enable</span>
+                  </label>
                 </div>
+                {enableP50 && (
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs text-gray-600 mb-1">Threshold (seconds)</label>
+                      <input
+                        type="text"
+                        value={sloP50Threshold}
+                        onChange={(e) => setSloP50Threshold(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="2.0"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-600 mb-1">Penalty Weight</label>
+                      <input
+                        type="text"
+                        value={sloP50Weight}
+                        onChange={(e) => setSloP50Weight(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="1.0"
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* P90 Latency */}
               <div className="border-b pb-4">
-                <h3 className="text-sm font-medium text-gray-900 mb-3">P90 Latency (Tiered Enforcement)</h3>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs text-gray-600 mb-1">Threshold (seconds)</label>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-medium text-gray-900">P90 Latency (Tiered Enforcement)</h3>
+                  <label className="flex items-center cursor-pointer">
                     <input
-                      type="text"
-                      value={sloP90Threshold}
-                      onChange={(e) => setSloP90Threshold(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder="5.0"
+                      type="checkbox"
+                      checked={enableP90}
+                      onChange={(e) => setEnableP90(e.target.checked)}
+                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
                     />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-gray-600 mb-1">Penalty Weight</label>
-                    <input
-                      type="text"
-                      value={sloP90Weight}
-                      onChange={(e) => setSloP90Weight(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder="2.0"
-                    />
-                  </div>
-                  <div className="col-span-2">
-                    <label className="flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={sloP90HardFail}
-                        onChange={(e) => setSloP90HardFail(e.target.checked)}
-                        className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                      />
-                      <span className="ml-2 text-xs text-gray-700">Enable hard fail above ratio:</span>
+                    <span className="ml-2 text-xs text-gray-600">Enable</span>
+                  </label>
+                </div>
+                {enableP90 && (
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs text-gray-600 mb-1">Threshold (seconds)</label>
                       <input
                         type="text"
-                        value={sloP90FailRatio}
-                        onChange={(e) => setSloP90FailRatio(e.target.value)}
-                        disabled={!sloP90HardFail}
-                        className="ml-2 w-20 px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
-                        placeholder="0.2"
+                        value={sloP90Threshold}
+                        onChange={(e) => setSloP90Threshold(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="5.0"
                       />
-                      <span className="ml-1 text-xs text-gray-500">(20% over = fail)</span>
-                    </label>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-600 mb-1">Penalty Weight</label>
+                      <input
+                        type="text"
+                        value={sloP90Weight}
+                        onChange={(e) => setSloP90Weight(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="2.0"
+                      />
+                    </div>
+                    <div className="col-span-2">
+                      <label className="flex items-center cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={sloP90HardFail}
+                          onChange={(e) => setSloP90HardFail(e.target.checked)}
+                          className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                        />
+                        <span className="ml-2 text-xs text-gray-700">Enable hard fail above ratio:</span>
+                        <input
+                          type="text"
+                          value={sloP90FailRatio}
+                          onChange={(e) => setSloP90FailRatio(e.target.value)}
+                          disabled={!sloP90HardFail}
+                          className="ml-2 w-20 px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+                          placeholder="0.2"
+                        />
+                        <span className="ml-1 text-xs text-gray-500">(20% over = fail)</span>
+                      </label>
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
 
               {/* P99 Latency */}
               <div className="border-b pb-4">
-                <h3 className="text-sm font-medium text-gray-900 mb-3">P99 Latency (Tiered Enforcement)</h3>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs text-gray-600 mb-1">Threshold (seconds)</label>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-medium text-gray-900">P99 Latency (Tiered Enforcement)</h3>
+                  <label className="flex items-center cursor-pointer">
                     <input
-                      type="text"
-                      value={sloP99Threshold}
-                      onChange={(e) => setSloP99Threshold(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder="10.0"
+                      type="checkbox"
+                      checked={enableP99}
+                      onChange={(e) => setEnableP99(e.target.checked)}
+                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
                     />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-gray-600 mb-1">Penalty Weight</label>
-                    <input
-                      type="text"
-                      value={sloP99Weight}
-                      onChange={(e) => setSloP99Weight(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder="3.0"
-                    />
-                  </div>
-                  <div className="col-span-2">
-                    <label className="flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={sloP99HardFail}
-                        onChange={(e) => setSloP99HardFail(e.target.checked)}
-                        className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                      />
-                      <span className="ml-2 text-xs text-gray-700">Enable hard fail above ratio:</span>
+                    <span className="ml-2 text-xs text-gray-600">Enable</span>
+                  </label>
+                </div>
+                {enableP99 && (
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs text-gray-600 mb-1">Threshold (seconds)</label>
                       <input
                         type="text"
-                        value={sloP99FailRatio}
-                        onChange={(e) => setSloP99FailRatio(e.target.value)}
-                        disabled={!sloP99HardFail}
-                        className="ml-2 w-20 px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
-                        placeholder="0.5"
+                        value={sloP99Threshold}
+                        onChange={(e) => setSloP99Threshold(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="10.0"
                       />
-                      <span className="ml-1 text-xs text-gray-500">(50% over = fail)</span>
-                    </label>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-600 mb-1">Penalty Weight</label>
+                      <input
+                        type="text"
+                        value={sloP99Weight}
+                        onChange={(e) => setSloP99Weight(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="3.0"
+                      />
+                    </div>
+                    <div className="col-span-2">
+                      <label className="flex items-center cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={sloP99HardFail}
+                          onChange={(e) => setSloP99HardFail(e.target.checked)}
+                          className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                        />
+                        <span className="ml-2 text-xs text-gray-700">Enable hard fail above ratio:</span>
+                        <input
+                          type="text"
+                          value={sloP99FailRatio}
+                          onChange={(e) => setSloP99FailRatio(e.target.value)}
+                          disabled={!sloP99HardFail}
+                          className="ml-2 w-20 px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+                          placeholder="0.5"
+                        />
+                        <span className="ml-1 text-xs text-gray-500">(50% over = fail)</span>
+                      </label>
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
 
               {/* TTFT */}
               <div className="border-b pb-4">
-                <h3 className="text-sm font-medium text-gray-900 mb-3">Time to First Token (Soft Penalty)</h3>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs text-gray-600 mb-1">Threshold (seconds)</label>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-medium text-gray-900">Time to First Token (Soft Penalty)</h3>
+                  <label className="flex items-center cursor-pointer">
                     <input
-                      type="text"
-                      value={sloTtftThreshold}
-                      onChange={(e) => setSloTtftThreshold(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder="1.0"
+                      type="checkbox"
+                      checked={enableTTFT}
+                      onChange={(e) => setEnableTTFT(e.target.checked)}
+                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
                     />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-gray-600 mb-1">Penalty Weight</label>
-                    <input
-                      type="text"
-                      value={sloTtftWeight}
-                      onChange={(e) => setSloTtftWeight(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder="2.0"
-                    />
-                  </div>
+                    <span className="ml-2 text-xs text-gray-600">Enable</span>
+                  </label>
                 </div>
+                {enableTTFT && (
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs text-gray-600 mb-1">Threshold (seconds)</label>
+                      <input
+                        type="text"
+                        value={sloTtftThreshold}
+                        onChange={(e) => setSloTtftThreshold(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="1.0"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-600 mb-1">Penalty Weight</label>
+                      <input
+                        type="text"
+                        value={sloTtftWeight}
+                        onChange={(e) => setSloTtftWeight(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="2.0"
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Steepness */}
