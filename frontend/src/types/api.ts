@@ -17,6 +17,7 @@ export interface SLOLatencyConfig {
 export interface SLOConfig {
 	latency?: SLOLatencyConfig;
 	ttft?: SLOMetricConfig;
+	tpot?: SLOMetricConfig;
 	steepness?: number;
 }
 

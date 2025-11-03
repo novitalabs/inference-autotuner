@@ -192,6 +192,41 @@ def calculate_slo_penalty(
 						"severity": severity
 					}
 
+	# Process TPOT SLO
+	tpot_slo = slo_config.get("tpot", {})
+	if tpot_slo:
+		threshold = tpot_slo.get("threshold")
+		weight = tpot_slo.get("weight", 1.0)
+		hard_fail = tpot_slo.get("hard_fail", False)
+		fail_ratio = tpot_slo.get("fail_ratio", 0.5)
+
+		if threshold is not None:
+			actual_value = metrics.get("mean_tpot")
+
+			if actual_value is not None and actual_value > threshold:
+				violation_ratio = (actual_value - threshold) / threshold
+
+				if hard_fail and violation_ratio > fail_ratio:
+					is_hard_failure = True
+					violation_details["tpot"] = {
+						"threshold": threshold,
+						"actual": actual_value,
+						"violation_ratio": violation_ratio,
+						"severity": "HARD_FAIL"
+					}
+				else:
+					penalty = weight * math.exp(violation_ratio / steepness)
+					total_penalty += penalty
+
+					severity = "SEVERE" if violation_ratio > 0.2 else "MINOR"
+					violation_details["tpot"] = {
+						"threshold": threshold,
+						"actual": actual_value,
+						"violation_ratio": violation_ratio,
+						"penalty": penalty,
+						"severity": severity
+					}
+
 	# Calculate final penalty multiplier
 	# penalty_multiplier > 1.0 means the score gets worse
 	penalty_multiplier = 1.0 + total_penalty

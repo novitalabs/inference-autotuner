@@ -155,6 +155,7 @@ export default function NewTask() {
   const [enableP90, setEnableP90] = useState(false);
   const [enableP99, setEnableP99] = useState(false);
   const [enableTTFT, setEnableTTFT] = useState(false);
+  const [enableTPOT, setEnableTPOT] = useState(false);
 
   // P50 configuration
   const [sloP50Threshold, setSloP50Threshold] = useState('2.0');
@@ -175,6 +176,10 @@ export default function NewTask() {
   // TTFT configuration
   const [sloTtftThreshold, setSloTtftThreshold] = useState('1.0');
   const [sloTtftWeight, setSloTtftWeight] = useState('2.0');
+
+  // TPOT configuration
+  const [sloTpotThreshold, setSloTpotThreshold] = useState('0.05');
+  const [sloTpotWeight, setSloTpotWeight] = useState('2.0');
 
   // Steepness
   const [sloSteepness, setSloSteepness] = useState('0.1');
@@ -368,6 +373,15 @@ export default function NewTask() {
             slo.ttft = {
               threshold: parseFloat(sloTtftThreshold),
               ...(sloTtftWeight && { weight: parseFloat(sloTtftWeight) }),
+              hard_fail: false,
+            };
+          }
+
+          // Only include TPOT if enabled and threshold is configured
+          if (enableTPOT && sloTpotThreshold) {
+            slo.tpot = {
+              threshold: parseFloat(sloTpotThreshold),
+              ...(sloTpotWeight && { weight: parseFloat(sloTpotWeight) }),
               hard_fail: false,
             };
           }
@@ -790,6 +804,86 @@ export default function NewTask() {
 
           {enableSLO && (
             <div className="space-y-6 border-t pt-4">
+              {/* TTFT */}
+              <div className="border-b pb-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-medium text-gray-900">Time to First Token (Soft Penalty)</h3>
+                  <label className="flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={enableTTFT}
+                      onChange={(e) => setEnableTTFT(e.target.checked)}
+                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                    />
+                    <span className="ml-2 text-xs text-gray-600">Enable</span>
+                  </label>
+                </div>
+                {enableTTFT && (
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs text-gray-600 mb-1">Threshold (seconds)</label>
+                      <input
+                        type="text"
+                        value={sloTtftThreshold}
+                        onChange={(e) => setSloTtftThreshold(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="1.0"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-600 mb-1">Penalty Weight</label>
+                      <input
+                        type="text"
+                        value={sloTtftWeight}
+                        onChange={(e) => setSloTtftWeight(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="2.0"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* TPOT */}
+              <div className="border-b pb-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-medium text-gray-900">Time Per Output Token (Soft Penalty)</h3>
+                  <label className="flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={enableTPOT}
+                      onChange={(e) => setEnableTPOT(e.target.checked)}
+                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                    />
+                    <span className="ml-2 text-xs text-gray-600">Enable</span>
+                  </label>
+                </div>
+                {enableTPOT && (
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs text-gray-600 mb-1">Threshold (seconds)</label>
+                      <input
+                        type="text"
+                        value={sloTpotThreshold}
+                        onChange={(e) => setSloTpotThreshold(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="0.05"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-600 mb-1">Penalty Weight</label>
+                      <input
+                        type="text"
+                        value={sloTpotWeight}
+                        onChange={(e) => setSloTpotWeight(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="2.0"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {/* P50 Latency */}
               <div className="border-b pb-4">
                 <div className="flex items-center justify-between mb-3">
@@ -945,46 +1039,6 @@ export default function NewTask() {
                         />
                         <span className="ml-1 text-xs text-gray-500">(50% over = fail)</span>
                       </label>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* TTFT */}
-              <div className="border-b pb-4">
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-sm font-medium text-gray-900">Time to First Token (Soft Penalty)</h3>
-                  <label className="flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={enableTTFT}
-                      onChange={(e) => setEnableTTFT(e.target.checked)}
-                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                    />
-                    <span className="ml-2 text-xs text-gray-600">Enable</span>
-                  </label>
-                </div>
-                {enableTTFT && (
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs text-gray-600 mb-1">Threshold (seconds)</label>
-                      <input
-                        type="text"
-                        value={sloTtftThreshold}
-                        onChange={(e) => setSloTtftThreshold(e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        placeholder="1.0"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-gray-600 mb-1">Penalty Weight</label>
-                      <input
-                        type="text"
-                        value={sloTtftWeight}
-                        onChange={(e) => setSloTtftWeight(e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        placeholder="2.0"
-                      />
                     </div>
                   </div>
                 )}

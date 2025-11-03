@@ -8,7 +8,7 @@ The SLO-aware scoring algorithm enhances experiment evaluation by:
 
 1. **Exponential Penalty Curves**: Creates steep score increases near SLO boundaries
 2. **Tiered Enforcement**: Distinguishes between minor violations (penalty) and severe violations (hard fail)
-3. **Multi-Metric Support**: Monitors P50/P90/P99 latency and TTFT (Time to First Token)
+3. **Multi-Metric Support**: Monitors P50/P90/P99 latency, TTFT (Time to First Token), and TPOT (Time Per Output Token)
 4. **Configurable Per-Task**: Each task defines its own SLO thresholds and weights
 
 ## Mathematical Formula
@@ -74,6 +74,11 @@ Add an optional `slo` section to your task JSON. **All fields within the SLO con
     },
     "ttft": {
       "threshold": 1.0,
+      "weight": 2.0,
+      "hard_fail": false
+    },
+    "tpot": {
+      "threshold": 0.05,
       "weight": 2.0,
       "hard_fail": false
     },
@@ -196,7 +201,8 @@ The `steepness` parameter controls how aggressively penalties grow:
 Navigate to **Create New Task** → Enable **SLO Configuration** toggle:
 
 - Configure P50/P90/P99 latency thresholds
-- Configure TTFT thresholds
+- Configure TTFT (Time to First Token) thresholds
+- Configure TPOT (Time Per Output Token) thresholds
 - Set penalty weights per metric
 - Enable hard fail enforcement with fail_ratio
 - Adjust steepness parameter
@@ -245,6 +251,8 @@ python test_slo_algorithm.py
 - ✓ Hard failure boundary conditions
 - ✓ Multiple cumulative violations
 - ✓ Steepness parameter effects
+- ✓ TPOT SLO enforcement (test_tpot_slo.py)
+- ✓ Optional field handling (test_slo_optional_fields.py)
 
 ## Example Task
 
@@ -265,13 +273,14 @@ Ensure tuned configurations meet real-world SLOs:
 
 ### 2. **Multi-Objective Optimization**
 
-Balance latency and TTFT:
+Balance latency, TTFT, and TPOT:
 ```json
 "slo": {
   "latency": {
     "p90": {"threshold": 5.0, "weight": 1.0}
   },
-  "ttft": {"threshold": 1.0, "weight": 3.0}  // Higher weight = more important
+  "ttft": {"threshold": 1.0, "weight": 3.0},  // Higher weight = more important
+  "tpot": {"threshold": 0.05, "weight": 2.0}
 }
 ```
 

@@ -42,6 +42,11 @@
       "weight": 2.0,
       "hard_fail": false
     },
+    "tpot": {
+      "threshold": 0.05,
+      "weight": 2.0,
+      "hard_fail": false
+    },
     "steepness": 0.1
   },
   "benchmark": {
