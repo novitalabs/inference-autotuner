@@ -4,9 +4,11 @@ Automated parameters tuning for LLM inference engines.
 
 **Features:**
 - **Dual Deployment Modes**: OME (Kubernetes) or Docker (Standalone)
+- **Web UI**: React frontend with real-time task monitoring
 - **Web API**: FastAPI-based REST API for task management
 - **Background Processing**: ARQ task queue with Redis
 - **Database**: SQLite for task and experiment tracking
+- **SLO-Aware Scoring**: Exponential penalties for Service Level Objective violations
 
 ## Deployment Modes
 
@@ -55,28 +57,29 @@ python src/run_autotuner.py examples/docker_task.json --mode docker
 
 ## Web API
 
-The autotuner includes a FastAPI-based web service for managing tuning tasks:
+The autotuner includes a FastAPI-based web service and React frontend for managing tuning tasks:
 
 **Features:**
+- React UI with task creation wizard and results visualization
 - Create and manage tuning tasks via REST API
-- Track experiment progress and results
+- Track experiment progress and results in real-time
+- Configure SLO constraints with exponential penalties
 - Background job processing with ARQ and Redis
 - OpenAPI/Swagger documentation at `/docs`
 
-**Starting the API server:**
+**Starting the Full Stack:**
 ```bash
-# From anywhere in the project
-cd /root/work/inference-autotuner/src
-python web/server.py
+# Terminal 1: Start backend (API + Worker)
+./scripts/start_dev.sh
 
-# Or using the virtual environment
-/root/work/inference-autotuner/env/bin/python src/web/server.py
+# Terminal 2: Start frontend
+cd frontend && npm run dev
 ```
 
-The server will start on `http://0.0.0.0:8000` with:
-- API endpoints at `/api/*`
-- Interactive docs at `/docs`
-- Health check at `/health`
+Then access:
+- **Frontend UI**: http://localhost:5173
+- **Backend API**: http://localhost:8000
+- **API Docs**: http://localhost:8000/docs
 
 **Key Endpoints:**
 - `POST /api/tasks/` - Create new tuning task
@@ -92,45 +95,6 @@ Task and experiment data is stored in SQLite at:
 ```
 
 This location follows XDG Base Directory standards and persists independently of the codebase.
-
-## Project Structure
-
-```
-inference-autotuner/
-├── src/                      # Main source code
-│   ├── controllers/          # Deployment controllers
-│   │   ├── ome_controller.py
-│   │   ├── docker_controller.py
-│   │   ├── benchmark_controller.py
-│   │   └── direct_benchmark_controller.py
-│   ├── utils/               # Utilities
-│   │   └── optimizer.py     # Parameter grid generation
-│   ├── templates/           # Kubernetes YAML templates
-│   ├── web/                 # Web API (FastAPI)
-│   │   ├── app.py          # FastAPI application
-│   │   ├── server.py       # Development server
-│   │   ├── config.py       # Settings configuration
-│   │   ├── routes/         # API endpoints
-│   │   ├── db/             # Database models & session
-│   │   ├── schemas/        # Pydantic schemas
-│   │   └── workers/        # ARQ background workers
-│   ├── orchestrator.py     # Main orchestration logic
-│   └── run_autotuner.py    # CLI entry point
-├── examples/               # Task configuration examples
-│   ├── simple_task.json    # OME mode example
-│   └── docker_task.json    # Docker mode example
-├── config/                 # Kubernetes resources
-├── docs/                   # Documentation
-├── requirements.txt        # Python dependencies
-└── README.md
-```
-
-**Key Components:**
-- **CLI Interface**: `src/run_autotuner.py` - Command-line tool for running experiments
-- **Web API**: `src/web/` - REST API for task management
-- **Orchestrator**: `src/orchestrator.py` - Core experiment coordination logic
-- **Controllers**: `src/controllers/` - Deployment-specific implementations
-- **Database**: `~/.local/share/inference-autotuner/autotuner.db` - SQLite storage
 
 ## Prerequisites
 
@@ -468,12 +432,55 @@ Currently supported:
 Currently supported:
 - `minimize_latency`: Minimize average end-to-end latency
 - `maximize_throughput`: Maximize tokens/second
+- `minimize_ttft`: Minimize Time to First Token
+- `minimize_tpot`: Minimize Time Per Output Token
+
+### SLO-Aware Scoring
+
+The autotuner supports sophisticated Service Level Objective (SLO) constraints with exponential penalties:
+
+**Supported Metrics:**
+- **Latency Percentiles**: P50, P90, P99 end-to-end latency
+- **TTFT**: Time to First Token (initial response latency)
+- **TPOT**: Time Per Output Token (sustained generation speed)
+
+**Key Features:**
+- Exponential penalty curves create steep gradients near SLO boundaries
+- Tiered enforcement: soft penalties for minor violations, hard failures for severe violations
+- Multi-metric cumulative penalties with configurable weights
+- Configurable steepness parameter (lower = steeper penalties)
+
+**Example Configuration:**
+```json
+{
+  "slo": {
+    "ttft": {
+      "threshold": 1.0,
+      "weight": 2.0,
+      "hard_fail": false
+    },
+    "tpot": {
+      "threshold": 0.05,
+      "weight": 2.0,
+      "hard_fail": false
+    },
+    "latency": {
+      "p90": {
+        "threshold": 5.0,
+        "weight": 2.0,
+        "hard_fail": true,
+        "fail_ratio": 0.2
+      }
+    },
+    "steepness": 0.1
+  }
+}
+```
+
+**See [docs/SLO_SCORING.md](docs/SLO_SCORING.md) for complete documentation.**
 
 ## Limitations (Prototype)
 
-- ~~No database persistence~~ ✅ SQLite database implemented
-- ~~No web frontend~~ ✅ REST API implemented (frontend TODO)
-- Grid search only (no Bayesian optimization)
 - Sequential execution (no parallel experiments)
 - Basic error handling
 - Simplified metric extraction
@@ -484,17 +491,19 @@ Currently supported:
 - ✅ Database persistence (SQLite with SQLAlchemy)
 - ✅ REST API (FastAPI with OpenAPI docs)
 - ✅ Background job processing (ARQ with Redis)
+- ✅ Web frontend (React with Vite, TanStack Query, Tailwind CSS)
 - ✅ Dual deployment modes (OME + Docker)
 - ✅ User data separation (~/.local/share/)
 - ✅ Code reorganization (unified src/ structure)
+- ✅ SLO-aware scoring with exponential penalties
+- ✅ Real-time task monitoring and log viewing
 
 **TODO:**
-- Web frontend (React/Vue.js)
-- Bayesian optimization
+- Bayesian optimization (Optuna integration in progress)
 - Parallel experiment execution
 - Advanced error handling
-- Real-time progress tracking via WebSocket
-- Result visualization and comparison
+- WebSocket support for real-time updates
+- Enhanced result visualization and comparison
 
 ## Troubleshooting
 
@@ -513,8 +522,8 @@ Quick reference:
 For production implementation:
 1. ~~Add database backend~~ ✅ **Completed** - SQLite with SQLAlchemy ORM
 2. ~~Implement REST API~~ ✅ **Completed** - FastAPI with OpenAPI
-3. Add web UI (React/Vue.js + WebSocket for real-time updates)
-4. Add Bayesian optimization (switch from grid search)
+3. ~~Add web UI~~ ✅ **Completed** - React UI with task management and monitoring
+4. Add Bayesian optimization (Optuna integration in progress)
 5. Enable parallel experiment execution (multi-threaded/async)
 6. Improve error handling and retry logic
 7. Add comprehensive logging and monitoring
@@ -526,6 +535,7 @@ For production implementation:
 
 - [DOCKER_MODE.md](docs/DOCKER_MODE.md) - Docker deployment guide
 - [OME_INSTALLATION.md](docs/OME_INSTALLATION.md) - Kubernetes/OME setup
+- [SLO_SCORING.md](docs/SLO_SCORING.md) - SLO-aware scoring with exponential penalties
 - [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) - Common issues and solutions
 - [GENAI_BENCH_LOGS.md](docs/GENAI_BENCH_LOGS.md) - Viewing benchmark logs
 

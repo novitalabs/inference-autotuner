@@ -8,10 +8,11 @@ The LLM Inference Autotuner is a system for automatically tuning LLM inference e
 
 **Key Capabilities:**
 - Grid search experiments across parameter combinations (e.g., `tp-size`, `mem-fraction-static`)
+- SLO-aware scoring with exponential penalties for constraint violations
 - Benchmarking with genai-bench for performance metrics
 - REST API with background task queue (ARQ + Redis)
 - SQLite database for persistence
-- React frontend for task management
+- React frontend for task management and visualization
 
 ## Architecture
 
@@ -95,12 +96,13 @@ npm run lint                    # ESLint checking
 ```
 
 **Frontend Features (Implemented):**
-- Task creation wizard with JSON editor and form validation
+- Task creation wizard with form builder and SLO configuration
 - Task list with status tracking and filtering
-- Experiment results table with metrics visualization
+- Experiment results table with metrics visualization and SLO violation badges
 - Real-time log viewer for task execution
 - Docker container monitoring (Docker mode)
 - Recharts-based performance graphs
+- Parameter preset selector for common configurations
 
 **CLI (Direct Execution):**
 ```bash
@@ -159,9 +161,30 @@ Task JSON defines experiments. Critical fields:
   },
   "optimization": {
     "strategy": "grid_search",
-    "objective": "minimize_latency",         // or "maximize_throughput"
+    "objective": "minimize_latency",         // or "maximize_throughput", "minimize_ttft", "minimize_tpot"
     "max_iterations": 10,
     "timeout_per_iteration": 600
+  },
+  "slo": {                                   // Optional: SLO-aware scoring
+    "ttft": {
+      "threshold": 1.0,                      // Time to First Token (seconds)
+      "weight": 2.0,
+      "hard_fail": false
+    },
+    "tpot": {
+      "threshold": 0.05,                     // Time Per Output Token (seconds)
+      "weight": 2.0,
+      "hard_fail": false
+    },
+    "latency": {
+      "p90": {
+        "threshold": 5.0,                    // P90 latency (seconds)
+        "weight": 2.0,
+        "hard_fail": true,
+        "fail_ratio": 0.2                    // Fail if >20% over threshold
+      }
+    },
+    "steepness": 0.1                         // Exponential curve parameter (lower = steeper)
   },
   "benchmark": {
     "task": "text-to-text",
@@ -179,6 +202,14 @@ Task JSON defines experiments. Critical fields:
 - The `--` prefix is added automatically
 - Simple format: `"param-name": [val1, val2]` (recommended)
 - Legacy format: `"param_name": {"type": "choice", "values": [...]}` (backward compatible)
+
+**SLO Configuration Notes:**
+- All SLO fields are optional (can omit metrics, weights, etc.)
+- Exponential penalties: `penalty = weight × exp(violation_ratio / steepness)`
+- Violation ratio: `(actual - threshold) / threshold`
+- Soft penalties (hard_fail=false): Multiply objective score
+- Hard failures (hard_fail=true + violation > fail_ratio): Experiment marked as FAILED
+- See `docs/SLO_SCORING.md` for detailed documentation
 
 ## Critical Implementation Details
 
@@ -463,7 +494,9 @@ HF_TOKEN=<your-token>            # Optional: for gated models
 
 **Current implementation status**:
 - ✅ **React frontend is fully implemented** (Dashboard, Tasks, Experiments, Container monitoring)
+- ✅ **SLO-aware scoring** with exponential penalties and tiered enforcement
 - ✅ REST API with background processing
 - ✅ Docker and OME deployment modes
+- ✅ Parameter preset selector for common configurations
 - ⏳ WebSocket support for real-time updates (TODO)
-- ⏳ Bayesian optimization (currently grid search only)
+- ⏳ Bayesian optimization (Optuna integration in progress)

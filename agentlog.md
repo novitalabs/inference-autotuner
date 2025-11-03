@@ -17402,7 +17402,7 @@ Potential additions discussed in documentation:
 
 ---
 
-## 2025-01-XX - Add TPOT (Time Per Output Token) SLO Support
+## Add TPOT (Time Per Output Token) SLO Support
 
 **User Request:**
 > Add TPOT as a SLO item.
@@ -17704,7 +17704,7 @@ Multi-metric optimization considering end-to-end latency, initial response time,
 
 ---
 
-## 2025-01-XX - Reorder SLO Configuration UI (TTFT/TPOT First)
+## Reorder SLO Configuration UI (TTFT/TPOT First)
 
 **User Request:**
 > Reorder SLO Configuration UI, put TTFT & TPOT at first.
