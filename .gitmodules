@@ -4,3 +4,6 @@
 [submodule "third_party/genai-bench"]
 	path = third_party/genai-bench
 	url = https://github.com/sgl-project/genai-bench.git
+[submodule "third_party/aiconfigurator"]
+	path = third_party/aiconfigurator
+	url = https://github.com/ai-dynamo/aiconfigurator

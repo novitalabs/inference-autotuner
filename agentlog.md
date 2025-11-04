@@ -17802,3 +17802,141 @@ SLO Configuration
 </details>
 
 ---
+
+## Deep Dive: aiconfigurator Integration Analysis
+
+**User Request:**
+> Add https://github.com/ai-dynamo/aiconfigurator as a submodule.
+> Deep dive the project aiconfigurator, mine good features adapted for our development target.
+
+**Context:**
+User requested adding NVIDIA's aiconfigurator as a submodule and performing a comprehensive analysis to identify features that could benefit the inference-autotuner project.
+
+<details>
+<summary>Comprehensive Analysis: 10 High-Value Features Identified from NVIDIA aiconfigurator</summary>
+
+### Submodule Addition
+
+```bash
+$ git submodule add https://github.com/ai-dynamo/aiconfigurator
+✓ Submodule added on branch test/aiconfigurator
+```
+
+### What is aiconfigurator?
+
+**NVIDIA's AI System** for automatically optimizing LLM inference deployments:
+- Searches thousands of configuration combinations (parallelism, quantization, serving architecture)
+- Achieves **1.7x-2x performance improvements** under SLA constraints
+- **Core Innovation**: Disaggregated inference (separate prefill/decode worker pools)
+
+### Deep Dive Results
+
+**Exploration Coverage:**
+- 40+ code modules analyzed
+- 50+ configuration options documented
+- 5 design patterns identified
+- 4 comprehensive documents created (1,970 lines total)
+
+### Top 10 Features for Inference-Autotuner
+
+| Feature | Value | Priority | Status |
+|---------|-------|----------|---------|
+| 1. Pareto Frontier Analysis | ⭐⭐⭐⭐⭐ | **HIGH** | Not implemented |
+| 2. Layered Config Factory | ⭐⭐⭐⭐⭐ | **HIGH** | Partial |
+| 3. Exponential Penalties | ⭐⭐⭐⭐⭐ | **HIGH** | ✅ Implemented! |
+| 4. Backend Strategy Pattern | ⭐⭐⭐⭐ | **HIGH** | ✅ Similar exists |
+| 5. Performance Modeling | ⭐⭐⭐⭐ | MEDIUM | Not implemented |
+| 6. Config Profiles | ⭐⭐⭐⭐ | MEDIUM | ✅ Frontend |
+| 7. Heterogeneous Deploy | ⭐⭐⭐ | LOW | Not implemented |
+| 8. Multi-Experiment Compare | ⭐⭐⭐ | MEDIUM | Partial |
+| 9. Replica Scaling | ⭐⭐⭐ | LOW | Not implemented |
+| 10. Template Generation | ⭐⭐⭐ | LOW | Not implemented |
+
+### Quick Wins
+
+**1. Pareto Analysis (2-3 days, High Value)**
+- Multi-objective optimization finding non-dominated configurations
+- Reveals optimal trade-offs between throughput/latency/cost
+- Implementation: Add to `src/utils/pareto.py`
+
+**2. Layered SLO Configuration (1-2 days, High Value)**
+- Compose SLO configs from layers: Base → Model-specific → Task-specific
+- Pattern from `aiconfigurator/sdk/task.py`
+- Implementation: New `src/utils/config_factory.py`
+
+**3. SLO Profile Presets (1 day, Medium Value)**
+- Pre-built templates: strict_latency, high_throughput, balanced
+- Enhance existing frontend presets
+
+### Integration Phases
+
+**Phase 1: Core Enhancements (1-2 weeks)**
+- Implement Pareto frontier analysis
+- Add layered SLO configuration factory
+- Create SLO profile presets
+- Add Pareto visualization to frontend
+
+**Phase 2: Performance Modeling (2-3 weeks)**
+- Build performance database from historical experiments
+- Implement operation-based modeling
+- Enable "what-if" analysis
+
+**Phase 3: Advanced Features (3-4 weeks)**
+- Multi-experiment comparison dashboard
+- Template-based config generation
+- Heterogeneous deployment support
+
+### Code Reuse Opportunities
+
+**Direct Adaptation:**
+1. `aiconfigurator/sdk/pareto_analysis.py` → `src/utils/pareto.py`
+2. `aiconfigurator/sdk/task.py` → `src/utils/config_factory.py`
+3. Backend abstraction patterns
+
+**Design Patterns:**
+- Layered config factory for SLO composition
+- Operation-based modeling for performance prediction
+- Template generation for deployment artifacts
+
+### Key Architectural Insights
+
+**Recommended Layering:**
+```
+User Interface (Frontend/CLI)
+    ↓
+Task Configuration Layer (with profiles, layers)
+    ↓
+Orchestration Layer (orchestrator.py)
+    ↓
+Execution Layer (controllers/)
+    ↓
+Backend Layer (frameworks: sglang, vllm)
+```
+
+### Documentation Created
+
+1. **AICONFIGURATOR_INDEX.md** (244 lines) - Navigation guide
+2. **AICONFIGURATOR_SUMMARY.md** (283 lines) - Quick reference
+3. **AICONFIGURATOR_ANALYSIS.md** (1,123 lines) - Comprehensive technical analysis
+4. **AICONFIGURATOR_MANIFEST.txt** (320 lines) - Project metadata
+5. **docs/AICONFIGURATOR_FEATURES.md** - Integration roadmap with implementation details
+
+### Immediate Action Items
+
+**High Priority:**
+1. Implement Pareto frontier analysis (reveals optimal trade-offs)
+2. Add layered SLO configuration (improves flexibility)
+3. Create SLO profile presets (better UX)
+
+**Long-term:**
+1. Performance modeling database (reduce benchmarking cost)
+2. Template-based deployment generation (faster deployment)
+3. Heterogeneous hardware support (cost optimization)
+
+### Summary
+
+aiconfigurator provides proven patterns for multi-objective optimization, flexible configuration composition, and performance prediction. The most valuable takeaway is **Pareto analysis** for discovering optimal configurations with conflicting objectives - this is not yet implemented in inference-autotuner and would provide significant value.
+
+</details>
+
+---
