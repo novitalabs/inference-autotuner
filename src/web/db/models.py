@@ -39,6 +39,8 @@ class Task(Base):
 	parameters = Column(JSON, nullable=False)  # parameter grid
 	optimization_config = Column(JSON, nullable=False)  # strategy, objective
 	benchmark_config = Column(JSON, nullable=False)  # benchmark settings
+	slo_config = Column(JSON, nullable=True)  # SLO constraints (optional)
+	config_metadata = Column("metadata", JSON, nullable=True)  # Additional metadata (e.g., applied_layers)
 
 	# Deployment mode
 	deployment_mode = Column(String, default="docker")  # docker, ome

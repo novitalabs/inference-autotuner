@@ -18106,3 +18106,125 @@ Successfully deployed aiconfigurator web application in isolated virtual environ
 </details>
 
 ---
+
+> Translate `LAYERED_CONFIG_INTEGRATION.md` from Chinese to English, and implement the Layered Config Factory feature for inference-autotuner. Continue until it can be verified.
+
+<details>
+<summary>Implemented Layered Config Factory with API integration and full verification</summary>
+
+**User Request:**
+1. Translate Chinese integration guide to English
+2. Implement complete Layered Config Factory feature
+3. Integrate with FastAPI backend
+4. Verify end-to-end functionality
+
+**Implementation Steps:**
+
+1. **Translation**: Created English version of `docs/LAYERED_CONFIG_INTEGRATION.md` with complete architecture analysis and integration guide.
+
+2. **Core Infrastructure** (`src/config/`):
+   - `layers.py`: ConfigLayer (immutable dataclass), TaskContext, deep_merge function
+   - `factory.py`: TaskConfigFactory with layer application pipeline (base → deployment → runtime → profiles → overrides)
+   - `profiles.py`: Four built-in profiles (high-throughput, low-latency, quick-test, production)
+
+3. **Testing**: Created `tests/test_config_factory.py` with 10 comprehensive tests covering:
+   - Deep merge with nested dictionaries and allow_new parameter
+   - Conditional layer application
+   - Profile registration and application
+   - User overrides (patch mode)
+   - SLO constraints and GPU constraints
+   - All tests passed ✅
+
+4. **Demo**: Created `examples/demo_layered_config.py` showing 6 usage scenarios - executed successfully ✅
+
+5. **Backend Integration**:
+   - Added `TaskContextCreate` and `TaskContextResponse` schemas to `src/web/schemas/__init__.py`
+   - Implemented new API endpoint `POST /api/tasks/from-context` in `src/web/routes/tasks.py`
+   - Registered profiles at app startup in `src/web/app.py`
+   - Modified `Task` model to add `slo_config` and `config_metadata` columns
+
+6. **Database Migration**:
+   - Created SQLite-compatible migration: `migrations/add_slo_and_metadata_to_tasks.sql`
+   - Applied migration to add two new columns: `slo_config` (JSON) and `metadata` (JSON)
+   - Resolved SQLAlchemy reserved name conflict using `config_metadata = Column("metadata", ...)` mapping
+
+7. **End-to-End Verification**:
+   - Started web server on port 8000
+   - Successfully created task using `POST /api/tasks/from-context` with `quick-test` profile
+   - Verified response contains:
+     - Applied layers: `["base-model", "base-optimization", "docker-defaults", "sglang-defaults", "profile:quick-test:quick-test-params"]`
+     - Generated config with proper parameters merged from all layers
+     - Task stored in database with metadata tracking
+   - Confirmed metadata persisted correctly in database: `{"applied_layers": [...]}`
+
+**Key Technical Decisions:**
+
+1. **Immutable ConfigLayer**: Used frozen dataclass to prevent accidental mutations
+2. **Deep Merge Strategy**: Recursive merging with `allow_new` flag to control key addition at top level
+3. **Dynamic Resolution**: ConfigLayer.data supports both static dict and callable `(TaskContext) -> dict`
+4. **Conditional Application**: Optional condition function per layer for runtime-specific configs
+5. **Profile Registry**: Centralized registration in TaskConfigFactory.PROFILE_REGISTRY
+6. **Database Metadata**: Store applied_layers for auditability and debugging
+
+**API Example:**
+
+```bash
+curl -X POST http://localhost:8000/api/tasks/from-context \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model_name": "llama-3-2-1b-instruct",
+    "base_runtime": "sglang",
+    "deployment_mode": "docker",
+    "profiles": ["quick-test"]
+  }'
+```
+
+**Response:**
+```json
+{
+  "task": {
+    "id": 5,
+    "task_name": "llama-3-2-1b-instruct_grid_search",
+    "parameters": {
+      "tp-size": [1],
+      "mem-fraction-static": [0.85],
+      "schedule-policy": ["lpm"],
+      "enable-torch-compile": [true, false]
+    },
+    ...
+  },
+  "applied_layers": [
+    "base-model",
+    "base-optimization",
+    "docker-defaults",
+    "sglang-defaults",
+    "profile:quick-test:quick-test-params"
+  ],
+  "generated_config": {...}
+}
+```
+
+**Issues Resolved:**
+
+1. **SQLAlchemy Reserved Name**: Fixed by mapping Python attribute `config_metadata` to database column `metadata`
+2. **SQLite Syntax**: Rewrote migration to remove PostgreSQL-specific syntax (`IF NOT EXISTS`, `COMMENT ON`)
+3. **Database Schema Sync**: Applied migration before testing endpoint
+
+**Status**: ✅ **COMPLETE** - All features implemented, tested, and verified through API
+
+**Files Created/Modified:**
+- Created: `docs/LAYERED_CONFIG_INTEGRATION.md` (translation)
+- Created: `src/config/__init__.py`, `src/config/layers.py`, `src/config/factory.py`, `src/config/profiles.py`
+- Created: `tests/test_config_factory.py`, `examples/demo_layered_config.py`
+- Created: `migrations/add_slo_and_metadata_to_tasks.sql`
+- Modified: `src/web/schemas/__init__.py`, `src/web/routes/tasks.py`, `src/web/app.py`, `src/web/db/models.py`
+
+**Next Steps** (for future development):
+- Frontend UI for profile selection and context-based task creation
+- Additional built-in profiles for other scenarios
+- Profile composition (combining multiple profiles)
+- SLO validation in frontend
+
+</details>
+
+---

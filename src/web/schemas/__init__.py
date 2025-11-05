@@ -153,3 +153,31 @@ class SystemInfoResponse(BaseModel):
 	version: str
 	deployment_mode: str
 	available_runtimes: List[str]
+
+
+# Layered Config Factory schemas
+class TaskContextCreate(BaseModel):
+	"""Schema for creating task from context using Layered Config Factory."""
+
+	model_name: str = Field(..., description="Model identifier")
+	base_runtime: str = Field(..., description="Runtime engine (sglang, vllm, trtllm)")
+	deployment_mode: str = Field("docker", description="Deployment mode (docker, ome)")
+	benchmark_task: str = Field("text-to-text", description="Benchmark task type")
+	traffic_scenarios: List[str] = Field(default=["D(100,100)"], description="Traffic patterns")
+	num_concurrency: List[int] = Field(default=[1, 4], description="Concurrency levels to test")
+	optimization_strategy: str = Field("grid_search", description="Optimization strategy")
+	optimization_objective: str = Field("minimize_latency", description="Optimization objective")
+	slo_config: Optional[Dict[str, Any]] = Field(None, description="SLO constraints")
+	profiles: List[str] = Field(default=[], description="Configuration profiles to apply")
+	user_overrides: Dict[str, Any] = Field(default={}, description="User configuration overrides")
+	override_mode: str = Field("patch", description="Override mode (patch or replace)")
+	gpu_type: Optional[str] = Field(None, description="GPU type")
+	total_gpus: Optional[int] = Field(None, description="Total GPU limit")
+
+
+class TaskContextResponse(BaseModel):
+	"""Schema for task context response with generated config."""
+
+	task: TaskResponse
+	applied_layers: List[str] = Field(..., description="List of config layers that were applied")
+	generated_config: Dict[str, Any] = Field(..., description="The full generated configuration")

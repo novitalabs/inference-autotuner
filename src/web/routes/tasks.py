@@ -13,7 +13,9 @@ import os
 
 from web.db.session import get_db
 from web.db.models import Task, TaskStatus, Experiment
-from web.schemas import TaskCreate, TaskUpdate, TaskResponse, TaskListResponse
+from web.schemas import TaskCreate, TaskUpdate, TaskResponse, TaskListResponse, TaskContextCreate, TaskContextResponse
+from config.layers import TaskContext
+from config.factory import TaskConfigFactory
 
 router = APIRouter()
 
@@ -49,6 +51,79 @@ async def create_task(task_data: TaskCreate, db: AsyncSession = Depends(get_db))
 	await db.refresh(db_task)
 
 	return db_task
+
+
+@router.post("/from-context", response_model=TaskContextResponse, status_code=status.HTTP_201_CREATED)
+async def create_task_from_context(context_data: TaskContextCreate, db: AsyncSession = Depends(get_db)):
+	"""
+	Create a new autotuning task from context using Layered Config Factory.
+
+	This endpoint uses the layered configuration system to generate task configuration
+	from a context object, applying base layers, deployment mode layers, runtime layers,
+	user-selected profiles, and user overrides.
+	"""
+	# Build TaskContext
+	ctx = TaskContext(
+		model_name=context_data.model_name,
+		base_runtime=context_data.base_runtime,
+		deployment_mode=context_data.deployment_mode,
+		benchmark_task=context_data.benchmark_task,
+		traffic_scenarios=context_data.traffic_scenarios,
+		num_concurrency=context_data.num_concurrency,
+		optimization_strategy=context_data.optimization_strategy,
+		optimization_objective=context_data.optimization_objective,
+		slo_config=context_data.slo_config,
+		profiles=context_data.profiles,
+		user_overrides=context_data.user_overrides,
+		override_mode=context_data.override_mode,  # type: ignore
+		gpu_type=context_data.gpu_type,
+		total_gpus=context_data.total_gpus
+	)
+
+	# Generate configuration
+	config_dict, applied_layers = TaskConfigFactory.create(ctx)
+
+	# Extract configuration components
+	task_name = config_dict.get("task_name")
+
+	# Check if task name already exists
+	result = await db.execute(select(Task).where(Task.task_name == task_name))
+	existing_task = result.scalar_one_or_none()
+
+	if existing_task:
+		raise HTTPException(
+			status_code=status.HTTP_400_BAD_REQUEST,
+			detail=f"Task '{task_name}' already exists. Try a different model name or override the task_name."
+		)
+
+	# Create new task from generated config
+	db_task = Task(
+		task_name=task_name,
+		description=f"Task created from context with profiles: {context_data.profiles}",
+		model_config=config_dict.get("model", {}),
+		base_runtime=config_dict.get("base_runtime"),
+		runtime_image_tag=config_dict.get("runtime_image_tag"),
+		parameters=config_dict.get("parameters", {}),
+		optimization_config=config_dict.get("optimization", {}),
+		benchmark_config=config_dict.get("benchmark", {}),
+		deployment_mode=context_data.deployment_mode,
+		status=TaskStatus.PENDING,
+		config_metadata={"applied_layers": applied_layers}
+	)
+
+	# Add SLO if present
+	if "slo" in config_dict:
+		db_task.slo_config = config_dict["slo"]
+
+	db.add(db_task)
+	await db.commit()
+	await db.refresh(db_task)
+
+	return TaskContextResponse(
+		task=db_task,
+		applied_layers=applied_layers,
+		generated_config=config_dict
+	)
 
 
 @router.get("/", response_model=List[TaskListResponse])

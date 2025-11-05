@@ -10,6 +10,7 @@ from web.config import get_settings
 from web.db.session import init_db, get_db
 from web.db.seed_presets import seed_system_presets
 from web.routes import tasks, experiments, system, docker, presets, runtime_params
+from config.profiles import register_builtin_profiles
 
 
 @asynccontextmanager
@@ -19,6 +20,10 @@ async def lifespan(app: FastAPI):
 	print("🚀 Starting LLM Inference Autotuner API...")
 	await init_db()
 	print("✅ Database initialized")
+
+	# Register config factory profiles
+	register_builtin_profiles()
+	print("✅ Configuration profiles registered")
 
 	# Seed system presets
 	async for db in get_db():
