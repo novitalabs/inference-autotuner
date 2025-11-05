@@ -18228,3 +18228,120 @@ curl -X POST http://localhost:8000/api/tasks/from-context \
 </details>
 
 ---
+
+> Continue developing layered config system: add profile metadata, new profiles, API endpoints, and documentation.
+
+<details>
+<summary>Enhanced layered config with profile metadata, API, and comprehensive documentation</summary>
+
+**User Request**: Continue developing the layered config feature with metadata, additional profiles, and API support.
+
+**Enhancements Implemented**:
+
+1. **Profile Metadata System**:
+   - Created `ProfileMetadata` dataclass in `factory.py`
+   - Fields: name, description, use_case, tags, recommended_for
+   - Enables richer profile discovery and selection guidance
+
+2. **Enhanced Factory Methods**:
+   - `register_profile()`: Now accepts optional metadata parameter
+   - `list_profiles()`: Returns all profiles with metadata
+   - `get_profile_info()`: Get detailed info for specific profile including layer names
+   - Dual registries: PROFILE_REGISTRY (layers) + PROFILE_METADATA (metadata)
+
+3. **New Profiles Added**:
+   - **balanced**: General-purpose exploration (15 iterations, tp-size [1,2,4], concurrency [4,8,16])
+   - **cost-optimization**: Budget-conscious (12 iterations, tp-size [1,2], lower memory usage)
+   - Total profiles: 6 (quick-test, balanced, low-latency, high-throughput, cost-optimization, production)
+
+4. **Profile API Endpoints** (`/api/profiles`):
+   - `GET /api/profiles/`: List all profiles with metadata
+   - `GET /api/profiles/{name}`: Get specific profile details including layer names
+   - Proper 404 handling for non-existent profiles
+   - Integrated into FastAPI app with "profiles" tag
+
+5. **Comprehensive Documentation** (`docs/CONFIGURATION_PROFILES.md`):
+   - Overview of layered config system
+   - Detailed profile descriptions with use cases and configurations
+   - Profile selection guide with scenario-to-profile mapping
+   - API usage examples (list, details, create tasks)
+   - Advanced usage: GPU constraints, custom SLO, override modes
+   - Custom profile creation guide
+   - FAQ section
+
+**API Examples**:
+
+List profiles:
+```bash
+$ curl http://localhost:8000/api/profiles/
+[
+  {
+    "name": "balanced",
+    "layers_count": 1,
+    "description": "Balanced configuration exploring common parameter ranges",
+    "use_case": "General purpose testing, exploring parameter space",
+    "tags": ["balanced", "general", "exploration"],
+    "recommended_for": ["general", "exploration", "baseline"]
+  },
+  ...
+]
+```
+
+Get profile details:
+```bash
+$ curl http://localhost:8000/api/profiles/balanced
+{
+  "name": "balanced",
+  "layer_names": ["balanced-params"],
+  "description": "Balanced configuration exploring common parameter ranges",
+  ...
+}
+```
+
+Create task with profile:
+```bash
+$ curl -X POST http://localhost:8000/api/tasks/from-context \
+  -d '{
+    "model_name": "llama-3-2-1b-instruct",
+    "base_runtime": "sglang",
+    "profiles": ["balanced"]
+  }'
+```
+
+**Profile Metadata Summary**:
+
+| Profile | Description | Use Case | Tags |
+|---------|-------------|----------|------|
+| quick-test | Fast validation (2 iterations) | Development, CI/CD | testing, development, quick |
+| balanced | General exploration (15 iterations) | First-time tuning | balanced, general, exploration |
+| low-latency | Minimize latency | Chatbots, interactive | latency, real-time, interactive |
+| high-throughput | Maximize throughput | Batch processing | throughput, batch, high-concurrency |
+| cost-optimization | Minimal resource usage | Budget-conscious | cost, efficiency, budget |
+| production | SLO-aware comprehensive | Pre-deployment | production, slo, comprehensive |
+
+**Verification**:
+- ✅ Profile metadata registration working
+- ✅ API endpoints returning correct data
+- ✅ Profiles creating tasks successfully with correct layer application
+- ✅ Error handling (404 for non-existent profiles)
+- ✅ Documentation complete and comprehensive
+
+**Files Created/Modified**:
+- Modified: `src/config/factory.py` - Added ProfileMetadata, list_profiles(), get_profile_info()
+- Modified: `src/config/__init__.py` - Export ProfileMetadata
+- Modified: `src/config/profiles.py` - Added metadata for all profiles + 2 new profiles
+- Created: `src/web/routes/profiles.py` - Profile API endpoints
+- Modified: `src/web/app.py` - Register profiles router
+- Created: `docs/CONFIGURATION_PROFILES.md` - Comprehensive profile guide
+
+**Impact**:
+- Users can now discover and understand available profiles via API
+- Frontend can dynamically populate profile selectors with descriptions
+- Profile selection guidance helps users choose appropriate presets
+- Extensible system for adding custom profiles with rich metadata
+
+**Status**: ✅ **COMPLETE** - Profile system enhanced with metadata, API, and documentation
+
+</details>
+
+---

@@ -3,11 +3,22 @@ Layered configuration factory for building task configurations.
 """
 
 from typing import ClassVar
+from dataclasses import dataclass
 import copy
 import logging
 from .layers import ConfigLayer, TaskContext, _deep_merge
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class ProfileMetadata:
+    """Metadata for a configuration profile."""
+    name: str
+    description: str
+    use_case: str
+    tags: list[str]
+    recommended_for: list[str]  # e.g., ["quick-testing", "production", "gpu-limited"]
 
 
 class TaskConfigFactory:
@@ -25,12 +36,60 @@ class TaskConfigFactory:
     """
 
     PROFILE_REGISTRY: ClassVar[dict[str, list[ConfigLayer]]] = {}
+    PROFILE_METADATA: ClassVar[dict[str, ProfileMetadata]] = {}
 
     @classmethod
-    def register_profile(cls, name: str, layers: list[ConfigLayer]) -> None:
-        """Register a configuration preset profile."""
+    def register_profile(cls, name: str, layers: list[ConfigLayer], metadata: ProfileMetadata | None = None) -> None:
+        """Register a configuration preset profile with optional metadata."""
         cls.PROFILE_REGISTRY[name] = layers
+        if metadata:
+            cls.PROFILE_METADATA[name] = metadata
         logger.info(f"Registered profile: {name}")
+
+    @classmethod
+    def list_profiles(cls) -> list[dict]:
+        """List all registered profiles with their metadata."""
+        profiles = []
+        for name, layers in cls.PROFILE_REGISTRY.items():
+            metadata = cls.PROFILE_METADATA.get(name)
+            profile_info = {
+                "name": name,
+                "layers_count": len(layers)
+            }
+            if metadata:
+                profile_info.update({
+                    "description": metadata.description,
+                    "use_case": metadata.use_case,
+                    "tags": metadata.tags,
+                    "recommended_for": metadata.recommended_for
+                })
+            profiles.append(profile_info)
+        return profiles
+
+    @classmethod
+    def get_profile_info(cls, name: str) -> dict | None:
+        """Get information about a specific profile."""
+        if name not in cls.PROFILE_REGISTRY:
+            return None
+
+        layers = cls.PROFILE_REGISTRY[name]
+        metadata = cls.PROFILE_METADATA.get(name)
+
+        info = {
+            "name": name,
+            "layers_count": len(layers),
+            "layer_names": [layer.name for layer in layers]
+        }
+
+        if metadata:
+            info.update({
+                "description": metadata.description,
+                "use_case": metadata.use_case,
+                "tags": metadata.tags,
+                "recommended_for": metadata.recommended_for
+            })
+
+        return info
 
     @classmethod
     def create(cls, ctx: TaskContext) -> tuple[dict, list[str]]:
