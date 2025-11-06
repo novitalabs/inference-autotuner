@@ -6,3 +6,5 @@
 *.log
 
 .env
+env/
+benchmark_results/
