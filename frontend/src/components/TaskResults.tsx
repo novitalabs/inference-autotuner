@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/services/api';
 import type { Task } from '@/types/api';
 import toast from 'react-hot-toast';
+import { useEscapeKey } from '@/hooks/useEscapeKey';
 import {
   BarChart,
   Bar,
@@ -20,6 +21,8 @@ interface TaskResultsProps {
 }
 
 export default function TaskResults({ task, onClose }: TaskResultsProps) {
+  // Handle Escape key to close modal
+  useEscapeKey(onClose);
   // Fetch experiments for this task
   const {
     data: experiments = [],

@@ -9,7 +9,10 @@ import type {
 	ContainerInfo,
 	ContainerStats,
 	ContainerLogs,
-	DockerInfo
+	DockerInfo,
+	Profile,
+	TaskContextCreate,
+	TaskContextResponse
 } from "@/types/api";
 
 class ApiClient {
@@ -122,6 +125,22 @@ class ApiClient {
 
 	async deleteTask(id: number): Promise<void> {
 		await this.client.delete(`/tasks/${id}`);
+	}
+
+	// Configuration Profiles
+	async getProfiles(): Promise<Profile[]> {
+		const { data } = await this.client.get("/profiles/");
+		return data;
+	}
+
+	async getProfile(name: string): Promise<Profile> {
+		const { data } = await this.client.get(`/profiles/${name}`);
+		return data;
+	}
+
+	async createTaskFromContext(context: TaskContextCreate): Promise<TaskContextResponse> {
+		const { data } = await this.client.post("/tasks/from-context", context);
+		return data;
 	}
 
 	// Experiments

@@ -7,6 +7,7 @@ import TaskResults from "@/components/TaskResults";
 import ExperimentProgressBar from "@/components/ExperimentProgressBar";
 import { navigateTo } from "@/components/Layout";
 import { setEditingTaskId } from "@/utils/editTaskStore";
+import { useEscapeKey } from "@/hooks/useEscapeKey";
 
 export default function Tasks() {
 	const queryClient = useQueryClient();
@@ -119,10 +120,29 @@ export default function Tasks() {
 						Manage and monitor autotuning tasks for LLM inference optimization.
 					</p>
 				</div>
-				<div className="mt-4 sm:mt-0 sm:ml-16 sm:flex-none">
+				<div className="mt-4 sm:mt-0 sm:ml-16 sm:flex-none flex items-center gap-3">
+					<button
+						onClick={() => navigateTo('quick-create')}
+						className="inline-flex items-center justify-center rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+					>
+						<svg
+							className="h-5 w-5 mr-2"
+							fill="none"
+							viewBox="0 0 24 24"
+							stroke="currentColor"
+						>
+							<path
+								strokeLinecap="round"
+								strokeLinejoin="round"
+								strokeWidth={2}
+								d="M13 10V3L4 14h7v7l9-11h-7z"
+							/>
+						</svg>
+						Quick Create
+					</button>
 					<button
 						onClick={() => navigateTo('new-task')}
-						className="inline-flex items-center justify-center rounded-md bg-blue-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+						className="inline-flex items-center justify-center rounded-md bg-white border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
 					>
 						<svg
 							className="h-5 w-5 mr-2"
@@ -137,7 +157,7 @@ export default function Tasks() {
 								d="M12 4v16m8-8H4"
 							/>
 						</svg>
-						Create Task
+						Advanced
 					</button>
 				</div>
 			</div>
@@ -628,6 +648,9 @@ function TaskDetailModal({ task, onClose }: { task: Task; onClose: () => void })
 
 // Create Task Modal Component
 function CreateTaskModal({ onClose }: { onClose: () => void }) {
+	// Handle Escape key to close modal
+	useEscapeKey(onClose);
+
 	return (
 		<div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center p-4 z-50">
 			<div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">

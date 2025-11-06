@@ -150,3 +150,37 @@ export interface DockerInfo {
 	operating_system: string;
 	architecture: string;
 }
+
+// Configuration Profile Types
+export interface Profile {
+	name: string;
+	description: string;
+	use_case: string;
+	tags: string[];
+	recommended_for: string[];
+	layers_count: number;
+	layer_names?: string[];
+}
+
+export interface TaskContextCreate {
+	model_name: string;
+	base_runtime: string;
+	deployment_mode?: string;
+	benchmark_task?: string;
+	traffic_scenarios?: string[];
+	num_concurrency?: number[];
+	optimization_strategy?: string;
+	optimization_objective?: string;
+	slo_config?: SLOConfig;
+	profiles?: string[];
+	user_overrides?: Record<string, any>;
+	override_mode?: "patch" | "replace";
+	gpu_type?: string;
+	total_gpus?: number;
+}
+
+export interface TaskContextResponse {
+	task: Task;
+	applied_layers: string[];
+	generated_config: Record<string, any>;
+}

@@ -3,10 +3,11 @@ import Dashboard from "@/pages/Dashboard";
 import Tasks from "@/pages/Tasks";
 import Experiments from "@/pages/Experiments";
 import NewTask from "@/pages/NewTask";
+import QuickCreateTask from "@/pages/QuickCreateTask";
 import Containers from "@/pages/Containers";
 import Presets from "@/pages/Presets";
 
-type TabId = "dashboard" | "tasks" | "experiments" | "new-task" | "containers" | "presets";
+type TabId = "dashboard" | "tasks" | "experiments" | "new-task" | "quick-create" | "containers" | "presets";
 
 interface MenuItem {
 	id: TabId;
@@ -96,6 +97,13 @@ const menuSections: MenuSection[] = [
 				component: NewTask,
 				hideInMenu: true,
 				icon: null as any
+			},
+			{
+				id: "quick-create",
+				name: "Quick Create",
+				component: QuickCreateTask,
+				hideInMenu: true,
+				icon: null as any
 			}
 		]
 	},
@@ -130,7 +138,7 @@ export let navigateTo: (tabId: TabId) => void = () => {};
 // Helper to get tab from URL hash
 const getTabFromHash = (): TabId => {
 	const hash = window.location.hash.slice(1); // Remove leading #
-	const validTabs: TabId[] = ["dashboard", "tasks", "experiments", "new-task", "containers", "presets"];
+	const validTabs: TabId[] = ["dashboard", "tasks", "experiments", "new-task", "quick-create", "containers", "presets"];
 	return validTabs.includes(hash as TabId) ? (hash as TabId) : "dashboard";
 };
 
