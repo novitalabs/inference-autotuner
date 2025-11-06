@@ -157,12 +157,57 @@ fi
 if [ "$SKIP_VENV" = false ]; then
     log_info "Setting up Python virtual environment at: $VENV_PATH"
 
+    # Check Python version compatibility with genai-bench
+    PYTHON_MAJOR=$(python3 --version | awk '{print $2}' | cut -d. -f1)
+    PYTHON_MINOR=$(python3 --version | awk '{print $2}' | cut -d. -f2)
+    
+    if [ "$PYTHON_MAJOR" -eq 3 ] && [ "$PYTHON_MINOR" -ge 13 ]; then
+        log_warning "Python 3.13+ detected - genai-bench requires Python <3.13"
+        
+        # Try to find Python 3.10, 3.11, or 3.12
+        for py_version in python3.12 python3.11 python3.10; do
+            if command -v $py_version &> /dev/null; then
+                log_info "Found compatible Python: $py_version"
+                PYTHON_CMD=$py_version
+                break
+            fi
+        done
+        
+        if [ -z "$PYTHON_CMD" ]; then
+            log_error "No compatible Python version found (need 3.10, 3.11, or 3.12)"
+            log_error "genai-bench requires Python <3.13 for compatibility"
+            log_info "Please install Python 3.10, 3.11, or 3.12 and run:"
+            log_info "  python3.10 -m venv env"
+            log_info "  source env/bin/activate"
+            log_info "  pip install -r requirements.txt"
+            exit 1
+        fi
+    else
+        PYTHON_CMD=python3
+    fi
+
     # Create virtual environment if it doesn't exist
     if [ ! -d "$VENV_PATH" ]; then
-        python3 -m venv "$VENV_PATH"
+        log_info "Creating virtual environment with $PYTHON_CMD..."
+        $PYTHON_CMD -m venv "$VENV_PATH"
         log_success "Virtual environment created"
     else
         log_warning "Virtual environment already exists at $VENV_PATH"
+        
+        # Check if it uses compatible Python
+        VENV_PYTHON_VERSION=$("$VENV_PATH/bin/python" --version | awk '{print $2}')
+        log_info "Existing venv Python version: $VENV_PYTHON_VERSION"
+        
+        VENV_MAJOR=$(echo $VENV_PYTHON_VERSION | cut -d. -f1)
+        VENV_MINOR=$(echo $VENV_PYTHON_VERSION | cut -d. -f2)
+        
+        if [ "$VENV_MAJOR" -eq 3 ] && [ "$VENV_MINOR" -ge 13 ]; then
+            log_warning "Existing venv uses Python 3.13+ which is incompatible with genai-bench"
+            log_warning "Recreating virtual environment with compatible Python..."
+            rm -rf "$VENV_PATH"
+            $PYTHON_CMD -m venv "$VENV_PATH"
+            log_success "Virtual environment recreated with $PYTHON_CMD"
+        fi
     fi
 
     # Activate virtual environment
@@ -214,7 +259,7 @@ fi
 log_info "Verifying installation..."
 
 # Check Python packages
-REQUIRED_PACKAGES=("kubernetes" "yaml" "jinja2")
+REQUIRED_PACKAGES=("kubernetes" "yaml" "jinja2" "docker")
 for package in "${REQUIRED_PACKAGES[@]}"; do
     if python3 -c "import $package" 2>/dev/null; then
         log_success "Python package '$package' is available"
@@ -233,9 +278,65 @@ fi
 if [ -f "$GENAI_BENCH_PATH" ]; then
     log_success "genai-bench CLI available at: $GENAI_BENCH_PATH"
     log_info "Testing genai-bench CLI..."
-    "$GENAI_BENCH_PATH" --version || log_warning "genai-bench --version failed"
+    if "$GENAI_BENCH_PATH" --version &> /dev/null; then
+        GENAI_BENCH_VERSION=$("$GENAI_BENCH_PATH" --version 2>&1 | grep "version" | awk '{print $NF}')
+        log_success "genai-bench version: $GENAI_BENCH_VERSION"
+    else
+        log_warning "genai-bench --version failed (may still work)"
+    fi
 else
     log_error "genai-bench CLI not found"
+    log_error "This is required for benchmarking. Please check installation."
+fi
+
+# Check GPU availability (for Docker mode)
+log_info "Checking GPU availability..."
+if command -v nvidia-smi &> /dev/null; then
+    GPU_COUNT=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | wc -l)
+    if [ "$GPU_COUNT" -gt 0 ]; then
+        log_success "Found $GPU_COUNT GPU(s):"
+        nvidia-smi --query-gpu=index,name,memory.total --format=csv,noheader 2>/dev/null | while read line; do
+            log_info "  GPU $line"
+        done
+        log_info "Docker mode can use GPUs directly"
+    else
+        log_warning "nvidia-smi found but no GPUs detected"
+    fi
+else
+    log_warning "nvidia-smi not found - GPU support not available"
+    log_warning "For GPU inference, install NVIDIA drivers and CUDA toolkit"
+fi
+
+# Check Docker (for Docker mode)
+log_info "Checking Docker availability..."
+if command -v docker &> /dev/null; then
+    if docker ps &> /dev/null; then
+        log_success "Docker is installed and accessible"
+        DOCKER_VERSION=$(docker --version | awk '{print $3}' | tr -d ',')
+        log_info "Docker version: $DOCKER_VERSION"
+        
+        # Check if Docker can access GPUs
+        if command -v nvidia-smi &> /dev/null; then
+            log_info "Testing Docker GPU access..."
+            if docker run --rm --gpus all nvidia/cuda:12.1.0-base-ubuntu22.04 nvidia-smi &> /dev/null; then
+                log_success "Docker can access GPUs (NVIDIA Container Toolkit is configured)"
+                log_info "Docker mode with GPU is fully supported"
+            else
+                log_warning "Docker cannot access GPUs"
+                log_warning "To enable GPU in Docker:"
+                log_warning "  1. Install NVIDIA Container Toolkit: https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html"
+                log_warning "  2. Restart Docker: sudo systemctl restart docker"
+            fi
+        fi
+    else
+        log_warning "Docker is installed but cannot connect to Docker daemon"
+        log_warning "Start Docker or check permissions: sudo usermod -aG docker $USER"
+    fi
+else
+    log_warning "Docker is not installed (optional for Docker mode)"
+    log_info "To use Docker deployment mode:"
+    log_info "  - Install Docker: https://docs.docker.com/engine/install/"
+    log_info "  - Install NVIDIA Container Toolkit for GPU support"
 fi
 
 ##############################################################################
@@ -480,47 +581,157 @@ echo "==========================================================================
 log_success "Installation completed successfully!"
 echo "============================================================================"
 echo ""
+
+# Determine best deployment mode based on environment
+RECOMMENDED_MODE=""
+if command -v docker &> /dev/null && docker ps &> /dev/null && command -v nvidia-smi &> /dev/null; then
+    if docker run --rm --gpus all nvidia/cuda:12.1.0-base-ubuntu22.04 nvidia-smi &> /dev/null 2>&1; then
+        RECOMMENDED_MODE="docker"
+        echo "🎉 GPU-enabled Docker mode is available (RECOMMENDED for GPU workloads)"
+        echo ""
+    fi
+fi
+
+if command -v kubectl &> /dev/null && kubectl cluster-info &> /dev/null; then
+    if kubectl get namespace ome &> /dev/null 2>&1; then
+        if [ -z "$RECOMMENDED_MODE" ]; then
+            RECOMMENDED_MODE="ome"
+            echo "✅ OME mode is available"
+        else
+            echo "✅ OME mode is also available"
+        fi
+        
+        # Check if Kubernetes has GPU resources
+        GPU_NODES=$(kubectl get nodes -o json 2>/dev/null | grep -c "nvidia.com/gpu" || echo "0")
+        if [ "$GPU_NODES" -gt 0 ]; then
+            ALLOCATABLE_GPUS=$(kubectl describe nodes 2>/dev/null | grep "nvidia.com/gpu" | grep "Allocatable" | awk '{sum+=$2} END {print sum}')
+            if [ "$ALLOCATABLE_GPUS" -gt 0 ]; then
+                echo "   🎉 Kubernetes has $ALLOCATABLE_GPUS GPU(s) available - OME mode can use GPUs"
+                RECOMMENDED_MODE="ome"
+            else
+                echo "   ⚠️  Kubernetes has no allocatable GPUs (Minikube limitation)"
+                echo "   ℹ️  Use Docker mode for GPU workloads, OME for orchestration testing"
+            fi
+        else
+            echo "   ⚠️  Kubernetes cannot access GPUs (Minikube Docker driver limitation)"
+            echo "   ℹ️  See docs/GPU_DEPLOYMENT_STRATEGY.md for solutions"
+        fi
+        echo ""
+    fi
+fi
+
+if [ -z "$RECOMMENDED_MODE" ]; then
+    log_warning "Neither Docker nor OME mode is fully configured"
+    echo ""
+fi
+
 echo "Next steps:"
 echo ""
 echo "1. Activate the virtual environment (if not already activated):"
 echo "   source $VENV_PATH/bin/activate"
 echo ""
-echo "2a. Start the Web API (optional):"
-echo "    cd src"
-echo "    python web/server.py"
-echo "    # Access API at http://localhost:8000/docs"
+
+if [ "$RECOMMENDED_MODE" = "docker" ]; then
+    echo "2. RECOMMENDED: Run with Docker mode (GPU support):"
+    echo "   python src/run_autotuner.py examples/docker_task.json --mode docker --verbose"
+    echo ""
+    echo "   Or create your own task:"
+    echo "   cp examples/docker_task.json my_task.json"
+    echo "   # Edit my_task.json with your parameters"
+    echo "   python src/run_autotuner.py my_task.json --mode docker --verbose"
+    echo ""
+elif [ "$RECOMMENDED_MODE" = "ome" ]; then
+    echo "2. Run with OME mode (Kubernetes orchestration):"
+    echo "   python src/run_autotuner.py examples/simple_ome_task.json --mode ome --direct --verbose"
+    echo ""
+    echo "   Note: Use --direct flag for more reliable benchmarking"
+    echo ""
+else
+    echo "2. Configure your deployment mode:"
+    echo ""
+    echo "   For Docker mode (GPU support):"
+    echo "     - Install Docker: https://docs.docker.com/engine/install/"
+    echo "     - Install NVIDIA Container Toolkit"
+    echo "     - Run: python src/run_autotuner.py examples/docker_task.json --mode docker"
+    echo ""
+    echo "   For OME mode (Kubernetes):"
+    echo "     - Setup Kubernetes cluster with GPU support"
+    echo "     - Install OME: ./install.sh --install-ome"
+    echo "     - Run: python src/run_autotuner.py examples/simple_ome_task.json --mode ome --direct"
+    echo ""
+fi
+
+echo "3. Monitor results:"
+echo "   # Real-time logs"
+echo "   tail -f logs/autotuner.log"
 echo ""
-echo "2b. Start Redis for background jobs (if using Web API):"
-echo "    redis-server"
-echo "    # Or with Docker: docker run -d -p 6379:6379 redis:alpine"
-echo ""
-echo "3. Configure your task JSON file:"
-echo "   vi examples/simple_task.json"
-echo ""
-echo "4. Run the autotuner:"
-echo "   # OME mode - Direct CLI mode (recommended)"
-echo "   python src/run_autotuner.py examples/simple_task.json --mode ome --direct"
-echo ""
-echo "   # Docker mode - Standalone (no Kubernetes)"
-echo "   python src/run_autotuner.py examples/docker_task.json --mode docker --direct"
-echo ""
-echo "   # OME mode - Kubernetes BenchmarkJob mode"
-echo "   python src/run_autotuner.py examples/simple_task.json --mode ome"
-echo ""
-echo "5. View results:"
+echo "   # View results"
 echo "   cat results/<task_name>_results.json"
-echo "   # Or query via API: curl http://localhost:8000/api/tasks/"
+echo ""
+
+if command -v nvidia-smi &> /dev/null; then
+    echo "4. Monitor GPU usage:"
+    echo "   watch -n 1 nvidia-smi"
+    echo ""
+fi
+
+echo "5. Optional: Start Web API (for UI and REST API):"
+echo "   # Terminal 1: Start Redis"
+echo "   redis-server  # Or: docker run -d -p 6379:6379 redis:alpine"
+echo ""
+echo "   # Terminal 2: Start backend"
+echo "   ./scripts/start_dev.sh"
+echo ""
+echo "   # Terminal 3: Start frontend"
+echo "   cd frontend && npm run dev"
+echo ""
+echo "   # Access UI at: http://localhost:5173"
+echo "   # Access API at: http://localhost:8000/docs"
 echo ""
 
 if [ "$SKIP_K8S" = false ] && command -v kubectl &> /dev/null && kubectl cluster-info &> /dev/null; then
-    echo "Environment verification commands:"
+    echo "Kubernetes verification commands:"
     echo "   kubectl get clusterbasemodels"
     echo "   kubectl get clusterservingruntimes"
     echo "   kubectl get inferenceservices -n autotuner"
+    echo "   kubectl get pods -n autotuner"
     echo ""
 fi
 
 echo "Database location: $DB_DIR/autotuner.db"
 echo ""
-echo "For more information, see README.md"
+echo "Documentation:"
+echo "   README.md                              - Project overview"
+echo "   docs/QUICK_START_VERIFIED.md          - Quick start commands"
+echo "   docs/TASK_COMPLETION_SUMMARY.md       - Full deliverables"
+echo "   docs/GPU_DEPLOYMENT_STRATEGY.md       - GPU deployment options"
+echo "   docs/DOCKER_MODE.md                   - Docker mode guide"
+echo "   docs/OME_INSTALLATION.md              - OME setup guide"
+echo "   docs/TROUBLESHOOTING.md               - Common issues"
+echo ""
+
+# Final environment check
+echo "Environment summary:"
+echo "   Python: $(python3 --version | awk '{print $2}')"
+if [ -f "$GENAI_BENCH_PATH" ]; then
+    echo "   genai-bench: ✅ Installed"
+else
+    echo "   genai-bench: ❌ Not found"
+fi
+if command -v kubectl &> /dev/null && kubectl cluster-info &> /dev/null; then
+    echo "   Kubernetes: ✅ Accessible"
+else
+    echo "   Kubernetes: ❌ Not accessible"
+fi
+if command -v docker &> /dev/null && docker ps &> /dev/null; then
+    echo "   Docker: ✅ Running"
+else
+    echo "   Docker: ❌ Not running"
+fi
+if command -v nvidia-smi &> /dev/null; then
+    GPU_COUNT=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | wc -l)
+    echo "   GPUs: ✅ $GPU_COUNT available"
+else
+    echo "   GPUs: ❌ Not detected"
+fi
 echo ""
