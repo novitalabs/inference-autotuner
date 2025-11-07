@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '../services/api';
+import { useEscapeKey } from '@/hooks/useEscapeKey';
 
 interface ExperimentLogViewerProps {
   taskId: number;
@@ -9,6 +10,8 @@ interface ExperimentLogViewerProps {
 }
 
 export default function ExperimentLogViewer({ taskId, experimentId, onClose }: ExperimentLogViewerProps) {
+  // Handle Escape key to close modal
+  useEscapeKey(onClose);
   const [autoScroll, setAutoScroll] = useState(false);
 
   // Fetch task logs

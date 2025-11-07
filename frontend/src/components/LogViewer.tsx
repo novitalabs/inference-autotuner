@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "@/services/api";
+import { useEscapeKey } from "@/hooks/useEscapeKey";
 
 interface LogViewerProps {
 	taskId: number;
@@ -9,6 +10,8 @@ interface LogViewerProps {
 }
 
 export default function LogViewer({ taskId, taskName, onClose }: LogViewerProps) {
+	// Handle Escape key to close modal
+	useEscapeKey(onClose);
 	const [autoScroll, setAutoScroll] = useState(true);
 	const [isStreaming, setIsStreaming] = useState(false); // Will be set to true after initial load
 	const [streamLogs, setStreamLogs] = useState<string[]>([]);

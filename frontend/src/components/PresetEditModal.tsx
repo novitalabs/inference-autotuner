@@ -3,6 +3,7 @@ import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import { presetService } from '../services/presetService';
 import { runtimeParamsService } from '../services/runtimeParamsService';
 import toast from 'react-hot-toast';
+import { useEscapeKey } from '@/hooks/useEscapeKey';
 import type { Preset } from '../types/preset';
 
 interface PresetEditModalProps {
@@ -16,6 +17,8 @@ interface ParamField {
 }
 
 export default function PresetEditModal({ preset, onClose }: PresetEditModalProps) {
+  // Handle Escape key to close modal
+  useEscapeKey(onClose);
   const queryClient = useQueryClient();
 
   // Form state

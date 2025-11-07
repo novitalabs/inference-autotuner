@@ -4,6 +4,7 @@ import { apiClient } from '../services/api';
 import toast from 'react-hot-toast';
 import { navigateTo } from '../components/Layout';
 import { getEditingTaskId } from '../utils/editTaskStore';
+import { useEscapeKey } from '@/hooks/useEscapeKey';
 import type { Task } from '../types/api';
 import PresetSelector from '../components/PresetSelector';
 
@@ -42,6 +43,9 @@ interface ParamField {
 }
 
 export default function NewTask() {
+  // Handle Escape key to go back to tasks page
+  useEscapeKey(() => navigateTo("tasks"));
+
   const queryClient = useQueryClient();
   // Edit mode support
   const [editingTaskId, setEditingTaskId] = useState<number | null>(null);

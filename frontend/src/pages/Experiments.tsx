@@ -3,11 +3,21 @@ import { useQuery } from "@tanstack/react-query";
 import { apiClient } from "@/services/api";
 import type { Experiment, Task } from "@/types/api";
 import ExperimentLogViewer from "@/components/ExperimentLogViewer";
+import { useEscapeKey } from "@/hooks/useEscapeKey";
 
 export default function Experiments() {
 	const [selectedTaskId, setSelectedTaskId] = useState<number | "all">("all");
 	const [selectedExperiment, setSelectedExperiment] = useState<Experiment | null>(null);
 	const [logViewerExperiment, setLogViewerExperiment] = useState<Experiment | null>(null);
+
+	// Handle Escape key to close modals
+	useEscapeKey(() => {
+		if (selectedExperiment) {
+			setSelectedExperiment(null);
+		} else if (logViewerExperiment) {
+			setLogViewerExperiment(null);
+		}
+	}, !!(selectedExperiment || logViewerExperiment));
 
 	// Fetch all tasks for the filter dropdown
 	const { data: tasks = [] } = useQuery({
