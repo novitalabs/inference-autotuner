@@ -18106,3 +18106,271 @@ Successfully deployed aiconfigurator web application in isolated virtual environ
 </details>
 
 ---
+
+---
+
+
+## 2025/11/07
+
+
+## Task Configuration System Refactor (V2)
+
+> **User Prompt**: Now plan a new refactor, align our task configuration system to aiconfigurator, use the same preset groups for Runtime, System, Quantization, Parallel & Misc. Write your plan in agentlog.md at first.
+
+<details>
+<summary>Comprehensive refactoring plan for grouped configuration system aligned with aiconfigurator</summary>
+
+### Context
+After comprehensive research of aiconfigurator (NVIDIA's LLM inference optimization system), we identified valuable design patterns for improving inference-autotuner's configuration management:
+- **Layered configuration factory** with conditional profile application
+- **Grouped parameter organization** (Runtime, System, Quantization, Parallel, Memory, Scheduling, Attention, Misc)
+- **Type-safe configuration** with Pydantic dataclasses
+- **Profile/preset inheritance** system
+
+### User Decisions
+1. **Backward Compatibility**: Create new TaskV2 database table, keep old Task table as backup
+2. **Serving Mode**: Design structure to support agg/disagg (prefill/decode separation) but don't implement yet (future TODO)
+3. **Preset System**: Implement full layered composition with conditional profiles (aiconfigurator pattern)
+4. **UI Design**: Quick mode (preset selector) + Advanced mode (collapsible sections + tabs)
+
+### Implementation Plan
+
+#### Phase 1: Backend Schema & Data Model (Week 1-2)
+**New Configuration Schema Files** (`src/web/schemas/`):
+- `runtime_config.py` - RuntimeConfig (isl, osl, ttft_target, tpot_target, nextn)
+- `system_config.py` - SystemConfig (gpu_type, backend, backend_version, serving_mode)
+- `parallel_config.py` - ParallelConfig (tensor_parallel, pipeline_parallel, data_parallel, expert_parallel)
+- `quantization_config.py` - QuantizationConfig with enums (gemm_mode, kvcache_mode, fmha_mode, moe_mode, comm_mode)
+- `memory_config.py` - MemoryConfig (mem_fraction_static, max_total_tokens, page_size)
+- `scheduling_config.py` - SchedulingConfig (policy, conservativeness, max_running_requests)
+- `attention_config.py` - AttentionConfig (backend, prefill_backend, decode_backend, chunked_prefill_size)
+- `misc_config.py` - MiscConfig (dtype, context_length, load_format, feature flags)
+
+**New Configuration Factory** (`src/utils/config_factory.py`):
+- `ConfigLayer` dataclass with conditional application logic
+- `TaskConfigFactory` with layer composition methods
+- `ProfileRegistry` for built-in and custom profiles
+- Context-aware defaults based on runtime/model/GPU
+
+**Database Updates** (`src/web/db/models.py`):
+- New `TaskV2` model with grouped config storage (JSON field)
+- Add `config_version` field to distinguish v1/v2
+- Keep old `Task` model for backward compatibility
+
+**Migration Utilities** (`src/utils/task_migration.py`):
+- `migrate_v1_to_v2(task_v1) -> task_v2` converter
+- Parameter mapping logic (e.g., "tp-size" → parallel.tensor_parallel)
+
+#### Phase 2: Configuration Logic & Validation (Week 2-3)
+- Update `src/utils/optimizer.py` for group-aware parameter grid generation
+- Update `src/utils/runtime_parameters.py` for group-to-CLI-param mapping
+- Create built-in profiles (`src/config/profiles.py`): high_throughput, low_latency, balanced, fp8_quantized, memory_optimized
+- Update `src/orchestrator.py` to use config_factory
+
+#### Phase 3: API Layer Updates (Week 3-4)
+- New v2 endpoints: `POST /api/v2/tasks/`, `GET /api/v2/tasks/{id}`, `POST /api/v2/tasks/migrate/{id}`
+- New profile endpoints (`src/web/routes/profiles.py`): list, get, apply, custom
+- Update schemas with `TaskCreateV2` using grouped configs
+- Maintain v1 endpoints for old tasks
+
+#### Phase 4: Frontend Refactor (Week 4-6)
+**New TypeScript Types** (`frontend/src/types/config.ts`):
+- Interfaces matching backend config groups
+
+**Config Group Components** (`frontend/src/components/config/`):
+- 8 section components (RuntimeConfigSection, SystemConfigSection, etc.)
+
+**UI Mode Components**:
+- `NewTaskV2.tsx` - main v2 task creator
+- `QuickMode.tsx` - preset selector only
+- `AdvancedMode.tsx` - tabbed config groups
+- `ProfileSelector.tsx` - enhanced preset picker
+
+**Update Existing Pages**:
+- Tasks.tsx - show v1/v2 badge
+- TaskDetails.tsx - render grouped config view
+
+#### Phase 5: Integration & Testing (Week 6-7)
+- Worker integration with both v1 and v2 formats
+- End-to-end testing (Quick Mode, Advanced Mode, migration)
+- Documentation updates (CONFIGURATION_V2.md, PROFILES_GUIDE.md, MIGRATION_V1_TO_V2.md)
+- New examples in `examples/v2/`
+
+#### Phase 6: Deployment & Migration Support (Week 7-8)
+- Batch migration script (`scripts/migrate_tasks_to_v2.py`)
+- Frontend migration UI with preview
+- Backward compatibility maintenance
+
+### Key Design Patterns Adopted from aiconfigurator
+
+**1. Grouped Configuration Structure**:
+```python
+class TaskCreateV2(BaseModel):
+    task_name: str
+    deployment_mode: str
+    model: ModelConfig
+
+    runtime: RuntimeConfig      # Workload parameters
+    system: SystemConfig        # Backend/GPU selection
+    parallel: ParallelConfig    # Parallelism strategies
+    quantization: QuantizationConfig  # Per-component quantization
+    memory: MemoryConfig        # Memory management
+    scheduling: SchedulingConfig  # Scheduler tuning
+    attention: AttentionConfig  # Attention kernels
+    misc: MiscConfig            # Advanced flags
+
+    optimization: OptimizationConfig
+    benchmark: BenchmarkConfig
+    slo: Optional[SLOConfig]
+    profiles: List[str] = []
+```
+
+**2. Layered Configuration Factory**:
+```python
+context = TaskContext(model="llama-3.2-1b", runtime="sglang", gpu_type="h100")
+config = (TaskConfigFactory()
+    .apply_base_defaults()
+    .apply_profile("high_throughput")
+    .apply_profile("fp8_quantized", condition=lambda ctx: ctx.gpu_supports_fp8)
+    .apply_user_overrides(user_config)
+    .build(context))
+```
+
+**3. Conditional Profile Layers**:
+```python
+Profile(
+    name="fp8_optimized",
+    layers=[
+        ConfigLayer(
+            name="quantization",
+            data={"quantization": {"gemm_mode": "fp8_block", ...}},
+            condition=lambda ctx: ctx.system.supports_fp8
+        )
+    ]
+)
+```
+
+### Parameter Group Mapping
+
+**Runtime → System → Parallel → Quantization → Memory → Scheduling → Attention → Misc**
+
+Current flat parameters organized into logical groups:
+- **Runtime**: isl, osl, ttft_target, tpot_target (from benchmark.traffic_scenarios + optimization.objective)
+- **System**: backend (from base_runtime), backend_version (from runtime_image_tag), gpu_type, serving_mode
+- **Parallel**: tensor_parallel (from tp-size), pipeline_parallel, data_parallel, expert_parallel
+- **Quantization**: gemm_mode, kvcache_mode (from kv-cache-dtype), fmha_mode, moe_mode, comm_mode
+- **Memory**: mem_fraction_static, max_total_tokens, page_size, cpu_offload_gb
+- **Scheduling**: policy (from schedule-policy), conservativeness, max_running_requests
+- **Attention**: backend (from attention-backend), prefill_backend, decode_backend, chunked_prefill_size
+- **Misc**: dtype, context_length, load_format, feature flags
+
+### Frontend UI Organization
+- **Quick Mode**: Preset dropdown → Optional tweaks → Create (simplified workflow)
+- **Advanced Mode**: Tabs for each config group + collapsible sections within tabs (power user workflow)
+
+### Timeline
+- **Week 1-2**: Backend schemas + config factory
+- **Week 3-4**: API endpoints + validation
+- **Week 4-6**: Frontend refactor
+- **Week 6-7**: Integration + testing
+- **Week 7-8**: Migration support
+- **Total: 8 weeks**
+
+### Risk Mitigation
+1. New TaskV2 table → zero downtime
+2. Keep old frontend at `/tasks/legacy`
+3. Comprehensive unit tests for config_factory
+4. In-app migration wizard
+5. Cache profile resolution results
+
+### Success Criteria
+- All v1 tasks migrate to v2 without data loss
+- Quick Mode reduces task creation time by 50%
+- Advanced Mode provides full control over all 8 groups
+- Built-in profiles work for SGLang and vLLM
+- Conditional profile layers work correctly
+- Backend correctly translates grouped → CLI parameters
+- Documentation complete
+- Zero breaking changes (v1 still works)
+
+### Next Steps
+1. Create feature branch `refactor/grouped-config-v2`
+2. Start Phase 1.1: Backend schema creation
+3. Daily agentlog.md updates
+4. Weekly phase demos
+
+</details>
+
+---
+
+### Critical Insight - Aiconfigurator Verification Goal
+
+> **User Insight**: "Notice our target is that in final we can run experiments to verify the results of aiconfigurator generated by static estimate, let user can compare data between our results & aiconfigurator's. So be careful about all kinds of data dimension alignment."
+
+<details>
+<summary>Pause implementation - realign plan for verification goal</summary>
+
+### The Real Objective
+
+The **ultimate goal** is not just to refactor our config system, but to:
+1. **Verify aiconfigurator's static performance estimates** by running actual benchmark experiments
+2. **Compare predicted vs actual metrics** (throughput, TTFT, TPOT, latency)
+3. **Validate the accuracy** of aiconfigurator's operation-based modeling approach
+
+This fundamentally changes priorities and requires careful **data dimension alignment**.
+
+### Critical Alignment Challenges Identified
+
+**Configuration Parameters:**
+- Aiconfigurator: `tp_list`, `pp_list`, `gemm_quant_mode`, `kvcache_quant_mode` (fine-grained)
+- Inference-Autotuner: `tp-size`, `quantization: "fp8"` (coarse-grained)
+- **Issue:** Quantization granularity mismatch (per-component vs global)
+
+**Metrics:**
+- Aiconfigurator: `throughput: 913.82` (tokens/s/gpu), `ttft: 202.65` (ms)
+- Genai-Bench: `output_throughput: 29241.28` (tokens/s total), `ttft_mean: 205.3` (ms)
+- **Issue:** Unit differences (per-GPU vs total, estimated vs actual distribution)
+
+**Workload:**
+- Aiconfigurator: `isl: 4000, osl: 1000` (static single-batch analysis)
+- Genai-Bench: `traffic_scenarios: ["D(4000,1000)"]` (dynamic request arrivals)
+- **Issue:** Static vs dynamic workload models
+
+**Model Specification:**
+- Aiconfigurator: Structured model specs (`LLAMA_7B` with layers, hidden, etc.)
+- Inference-Autotuner: Model paths (`/mnt/data/models/llama-3-2-1b-instruct`)
+- **Issue:** Need model registry and introspection
+
+### New Implementation Strategy
+
+**Created:** `docs/AICONFIGURATOR_VERIFICATION_PLAN.md` - comprehensive 10-section plan
+
+**Proposed 3-Phase Verification Workflow:**
+1. **Configuration Translation**: Aiconfigurator config → Inference-Autotuner task JSON
+2. **Experiment Execution**: Run actual benchmarks, measure metrics, normalize units
+3. **Comparison & Visualization**: Predicted vs actual with error analysis
+
+**Key Components Needed:**
+- `src/utils/model_registry.py` - Map model paths to aiconfigurator specs
+- `src/utils/aiconfigurator_translator.py` - Bidirectional config translation
+- `src/verification/experiment_runner.py` - Run verification experiments
+- `frontend/src/components/AiconfiguratorComparison.tsx` - Visualization
+
+### Decision Point: Refactor vs Verification Priority
+
+**Option A:** Config refactor first (8 weeks), then verification (8 weeks) = 16 weeks total
+**Option B:** Verification first (4 weeks), then refactor based on learnings (8 weeks) = 12 weeks total
+**Option C (Recommended):** Hybrid - minimal alignment (2 weeks) + verification (4 weeks) + experiments (2 weeks) = 8 weeks to first results
+
+### Questions for User
+
+1. **Priority**: Config system refactor OR aiconfigurator verification?
+2. **Runtime**: Which to focus on first - SGLang or vLLM?
+3. **GPU Access**: Do we have H100/H200 for realistic tests?
+4. **Disaggregated Serving**: Implement before verification?
+5. **Accuracy Threshold**: What's "good enough"? (10%, 15%, 20% error?)
+
+**Status:** Paused code implementation, awaiting user guidance on priority and approach.
+
+</details>
+
