@@ -490,7 +490,8 @@ HF_TOKEN=<your-token>            # Optional: for gated models
 4. **Place new .md docs in `./docs/`**
 5. **Consult `docs/TROUBLESHOOTING.md`** when encountering issues, maintain it when resolving new issues
 6. **Restart ARQ worker** after editing relevant code files
-7. **Follow `CLAUDE.local.md`** if present for further local instructions
+7. DONOT use git commands with writing effects
+8. **Follow `CLAUDE.local.md`** if present for further local instructions
 
 **Current implementation status**:
 - ✅ **React frontend is fully implemented** (Dashboard, Tasks, Experiments, Container monitoring)
