@@ -18377,6 +18377,116 @@ This fundamentally changes priorities and requires careful **data dimension alig
 
 ---
 
+## 2025-11-07: Multi-Objective Optimization and Configuration Alignment
+
+> I noticed that aiconfigurator has limited model support. We need alternative optimization strategies when aiconfigurator is not applicable.
+
+<details>
+<summary>Completed comprehensive multi-objective optimization strategy and configuration alignment</summary>
+
+### Problem Statement
+- Aiconfigurator only supports specific models, but we need to support all runtime-compatible models
+- Real experiments are expensive (5-10 min each)
+- Multiple conflicting objectives (throughput vs latency)
+- Need Pareto Frontier analysis, not just single "best" config
+- Grid search infeasible (324 experiments = 27+ hours)
+
+### Solutions Implemented
+
+#### 1. Multi-Objective Optimization Strategy Document (`docs/MULTI_OBJECTIVE_OPTIMIZATION_STRATEGY.md`)
+
+Created comprehensive strategy with three approaches:
+
+**Strategy 1: Two-Stage Strategy (With Aiconfigurator)**
+- Stage 1: Static prediction using aiconfigurator (324 configs in ~30 seconds)
+- Stage 2: Real experiments on predicted frontier (10-15 configs in 50-75 minutes)
+- **95% reduction in experiment time**
+
+**Strategy 2: Progressive Pareto Sampling (Without Aiconfigurator)**
+- Phase 1: Extreme point sampling (4 experiments)
+- Phase 2: Gap filling based on frontier analysis (5-8 experiments)
+- Phase 3: Heuristic refinement (3-5 experiments)
+- Total: 12-17 experiments (~60-85 minutes)
+
+**Strategy 3: Hybrid Approach**
+- Combines aiconfigurator predictions with progressive sampling
+- Automatic strategy selection based on model support
+- Best of both worlds approach
+
+#### 2. Configuration Schema Alignment (Backend Complete)
+
+**Database Models Updated** (`src/web/db/models.py`):
+```python
+# Task model - added structured config fields
+system_config = Column(JSON, nullable=True)
+parallel_config = Column(JSON, nullable=True)
+quantization_config = Column(JSON, nullable=True)
+memory_config = Column(JSON, nullable=True)
+scheduling_config = Column(JSON, nullable=True)
+advanced_tuning_config = Column(JSON, nullable=True)
+slo_config = Column(JSON, nullable=True)
+task_metadata = Column("metadata", JSON, nullable=True)
+
+# Experiment model - added Pareto analysis fields
+predicted_throughput/ttft/tpot/latency_p90 = Column(Float, nullable=True)
+actual_throughput/ttft/tpot/latency_p90 = Column(Float, nullable=True)
+is_on_predicted_frontier = Column(Boolean, default=False)
+is_on_actual_frontier = Column(Boolean, default=False)
+selection_reason = Column(String, nullable=True)
+```
+
+**Database Migration** (`src/web/db/migrate_add_structured_configs.py`):
+- Automatic migration script created
+- Adds all new columns to existing database
+- Backfills actual metrics from existing experiments
+- Successfully migrated 6 tasks, 59 experiments
+
+**API Schemas Updated** (`src/web/schemas/__init__.py`):
+- Added structured config schema classes:
+  - `SystemConfig`: GPU type, total GPUs, memory, interconnect
+  - `ParallelConfig`: TP, PP, DP, MoE configs
+  - `QuantizationConfig`: GEMM, KVCache, FMHA quantization modes
+  - `MemoryConfig`: mem_fraction_static, max_model_len
+  - `SchedulingConfig`: schedule_policy, max_num_batched_tokens
+  - `AdvancedTuningConfig`: chunked_prefill, prefix_caching
+- Updated `TaskCreate`, `TaskResponse`, `ExperimentResponse` schemas
+
+**API Routes Updated** (`src/web/routes/tasks.py`):
+- `create_task` endpoint now accepts structured configs
+- Converts Pydantic models to JSON for database storage
+- Maintains backward compatibility with flat parameters
+
+#### 3. Documentation Created
+
+- `docs/MULTI_OBJECTIVE_OPTIMIZATION_STRATEGY.md`: Complete optimization strategy guide
+- `docs/CONFIG_SCHEMA_ALIGNMENT.md`: Configuration structure alignment design
+- `docs/AICONFIGURATOR_CONFIG_EXPORT.md`: How to obtain aiconfigurator config files
+
+### Status
+✅ **Backend Complete**:
+- Database models updated
+- Migration script created and tested
+- API schemas updated
+- API routes updated
+- Server running without errors
+
+⏳ **Frontend Pending**:
+- TypeScript types need updating
+- Forms need to display structured configuration
+- Pareto frontier visualization needed
+
+### Next Steps
+1. Update frontend TypeScript types for structured configs
+2. Update UI to display/edit structured configuration
+3. Add Pareto frontier visualization
+4. Implement two-stage optimization in orchestrator
+5. Test end-to-end with aligned configuration
+
+</details>
+
+
+---
+
 ## 2025-11-07: Multi-Objective Optimization Strategy and Configuration Alignment
 
 > For not available models in aiconfigurator, what is your alternative approach?
