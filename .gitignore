@@ -4,5 +4,6 @@
 *.local.*
 
 *.log
+logs/
 
 .env

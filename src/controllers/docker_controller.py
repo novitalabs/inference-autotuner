@@ -96,6 +96,12 @@ class DockerController(BaseModelController):
 		model_identifier = model_name
 		volumes = {}
 
+		# Always mount HuggingFace cache directory for model caching
+		# This allows reusing downloaded models across container restarts
+		hf_cache_dir = Path.home() / ".cache/huggingface"
+		hf_cache_dir.mkdir(parents=True, exist_ok=True)
+		volumes[str(hf_cache_dir)] = {"bind": "/root/.cache/huggingface", "mode": "rw"}
+
 		if model_name.startswith("/") or "/" not in model_name:
 			# Could be a local path - check if it exists
 			if model_name.startswith("/"):
