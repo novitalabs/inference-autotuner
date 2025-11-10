@@ -564,7 +564,14 @@ export default function Dashboard() {
 			</div>
 
 			{/* Grid layout */}
-			{/* First row: GPU Status and Timeline */}
+			{/* First row: Worker Status, DB Statistics, Running Tasks */}
+			<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-6">
+				{renderWorkerCard()}
+				{renderDBStatsCard()}
+				{renderRunningTasksCard()}
+			</div>
+
+			{/* Second row: GPU Status and Timeline */}
 			<div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
 				<div className="lg:col-span-1">
 					{renderGPUCard()}
@@ -572,13 +579,6 @@ export default function Dashboard() {
 				<div className="lg:col-span-2">
 					{renderTimelineChart()}
 				</div>
-			</div>
-
-			{/* Second row: Worker Status, DB Statistics, Running Tasks */}
-			<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-6">
-				{renderWorkerCard()}
-				{renderDBStatsCard()}
-				{renderRunningTasksCard()}
 			</div>
 		</div>
 	);
