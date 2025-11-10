@@ -144,11 +144,41 @@ async def run_autotuning_task(ctx: Dict[str, Any], task_id: int) -> Dict[str, An
 			logger.info(f"[ARQ Worker] Optimization strategy: {strategy_name}")
 			logger.info(f"[ARQ Worker] Max iterations: {max_iterations}")
 
-			try:
-				strategy = create_optimization_strategy(optimization_config, task.parameters)
-			except Exception as e:
-				logger.error(f"[ARQ Worker] Failed to create optimization strategy: {e}")
-				raise
+			# Check for existing checkpoint and resume if available
+			checkpoint = TaskCheckpoint.load_checkpoint(task.task_metadata)
+			if checkpoint:
+				logger.info(f"[ARQ Worker] Found checkpoint at iteration {checkpoint['iteration']}")
+				logger.info(f"[ARQ Worker] Resuming from checkpoint...")
+
+				# Restore strategy from checkpoint
+				try:
+					strategy = restore_optimization_strategy(checkpoint["strategy_state"])
+					logger.info(f"[ARQ Worker] Strategy restored from checkpoint")
+				except Exception as e:
+					logger.error(f"[ARQ Worker] Failed to restore strategy from checkpoint: {e}")
+					logger.info(f"[ARQ Worker] Creating fresh strategy instead")
+					strategy = create_optimization_strategy(optimization_config, task.parameters)
+
+				# Restore progress from checkpoint
+				best_score = checkpoint["best_score"]
+				best_experiment_id = checkpoint.get("best_experiment_id")
+				iteration = checkpoint["iteration"]
+
+				logger.info(f"[ARQ Worker] Restored state: iteration={iteration}, best_score={best_score}, best_experiment_id={best_experiment_id}")
+			else:
+				logger.info(f"[ARQ Worker] No checkpoint found, starting fresh")
+
+				# Create fresh strategy
+				try:
+					strategy = create_optimization_strategy(optimization_config, task.parameters)
+				except Exception as e:
+					logger.error(f"[ARQ Worker] Failed to create optimization strategy: {e}")
+					raise
+
+				# Initialize progress tracking
+				best_score = float("inf")
+				best_experiment_id = None
+				iteration = 0
 
 			# Set initial total_experiments (may be less for grid search, unknown for Bayesian)
 			if strategy_name == "grid_search":
@@ -177,10 +207,6 @@ async def run_autotuning_task(ctx: Dict[str, Any], task_id: int) -> Dict[str, An
 			)
 
 			# Run experiments using strategy
-			best_score = float("inf")
-			best_experiment_id = None
-			iteration = 0
-
 			while not strategy.should_stop():
 				iteration += 1
 
@@ -267,6 +293,22 @@ async def run_autotuning_task(ctx: Dict[str, Any], task_id: int) -> Dict[str, An
 
 					await db.commit()
 
+					# Save checkpoint after each experiment
+					try:
+						await db.refresh(task)
+						updated_metadata = TaskCheckpoint.save_checkpoint(
+							task_metadata=task.task_metadata or {},
+							iteration=iteration,
+							best_score=best_score,
+							best_experiment_id=best_experiment_id,
+							strategy_state=strategy.get_state(),
+						)
+						task.task_metadata = updated_metadata
+						await db.commit()
+						logger.info(f"[ARQ Worker] Checkpoint saved at iteration {iteration}")
+					except Exception as checkpoint_error:
+						logger.warning(f"[ARQ Worker] Failed to save checkpoint: {checkpoint_error}")
+
 				except Exception as e:
 					logger.error(f"[Experiment {iteration}] Failed: {e}", exc_info=True)
 					db_experiment.status = ExperimentStatus.FAILED
@@ -283,6 +325,22 @@ async def run_autotuning_task(ctx: Dict[str, Any], task_id: int) -> Dict[str, An
 						metrics={}
 					)
 
+					# Save checkpoint after failed experiment
+					try:
+						await db.refresh(task)
+						updated_metadata = TaskCheckpoint.save_checkpoint(
+							task_metadata=task.task_metadata or {},
+							iteration=iteration,
+							best_score=best_score,
+							best_experiment_id=best_experiment_id,
+							strategy_state=strategy.get_state(),
+						)
+						task.task_metadata = updated_metadata
+						await db.commit()
+						logger.info(f"[ARQ Worker] Checkpoint saved at iteration {iteration} (after failure)")
+					except Exception as checkpoint_error:
+						logger.warning(f"[ARQ Worker] Failed to save checkpoint: {checkpoint_error}")
+
 			# Update task total_experiments with actual count
 			task.total_experiments = iteration
 
@@ -292,6 +350,9 @@ async def run_autotuning_task(ctx: Dict[str, Any], task_id: int) -> Dict[str, An
 			task.status = TaskStatus.COMPLETED
 			task.completed_at = datetime.utcnow()
 			task.best_experiment_id = best_experiment_id
+
+			# Clear checkpoint after successful completion
+			task.task_metadata = TaskCheckpoint.clear_checkpoint(task.task_metadata)
 
 			if task.started_at:
 				elapsed = (task.completed_at - task.started_at).total_seconds()

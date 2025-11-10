@@ -43,6 +43,9 @@ class Task(Base):
 	# Deployment mode
 	deployment_mode = Column(String, default="docker")  # docker, ome
 
+	# Metadata for checkpoints and other task state (using task_metadata as Python attribute name)
+	task_metadata = Column("metadata", JSON, nullable=True)
+
 	# Results
 	total_experiments = Column(Integer, default=0)
 	successful_experiments = Column(Integer, default=0)
