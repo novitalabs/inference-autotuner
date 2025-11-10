@@ -325,16 +325,15 @@ export default function Dashboard() {
 			);
 		}
 
-		// Filter experiments with valid start and end times
-		const validExperiments = timeline.filter(
-			(exp) => exp.started_at && exp.completed_at
-		);
+		// Filter experiments with valid start times
+		// Include both completed experiments and currently running/deploying ones
+		const validExperiments = timeline.filter((exp) => exp.started_at);
 
 		if (validExperiments.length === 0) {
 			return (
 				<div className="bg-white shadow rounded-lg p-6">
 					<h3 className="text-lg font-medium text-gray-900 mb-4">Experiment Timeline (24h)</h3>
-					<p className="text-gray-500">No completed experiments in the last 24 hours</p>
+					<p className="text-gray-500">No experiments in the last 24 hours</p>
 				</div>
 			);
 		}
@@ -459,17 +458,23 @@ export default function Dashboard() {
 					<div className="space-y-1">
 						{displayExperiments.map((exp) => {
 							const startTime = new Date(exp.started_at!).getTime() + timezoneOffsetMs;
-							const endTime = new Date(exp.completed_at!).getTime() + timezoneOffsetMs;
+							// Use completed_at if available, otherwise use current time (for running experiments)
+							const endTime = exp.completed_at
+								? new Date(exp.completed_at).getTime() + timezoneOffsetMs
+								: Date.now();
 							const duration = endTime - startTime;
 							const leftPercent = ((startTime - minTime) / timeRange) * 100;
 							const widthPercent = (duration / timeRange) * 100;
 
-							const statusColor =
-								exp.status === 'success'
-									? 'bg-green-500'
-									: exp.status === 'failed'
-									? 'bg-red-500'
-									: 'bg-yellow-500';
+							// Color based on status
+							const isRunning = !exp.completed_at && (exp.status === 'deploying' || exp.status === 'benchmarking' || exp.status === 'pending');
+							const statusColor = isRunning
+								? 'bg-blue-500 animate-pulse'
+								: exp.status === 'success'
+								? 'bg-green-500'
+								: exp.status === 'failed'
+								? 'bg-red-500'
+								: 'bg-yellow-500';
 
 							return (
 								<div key={exp.id} className="flex items-center group">
@@ -514,6 +519,10 @@ export default function Dashboard() {
 					<div className="flex items-center gap-2">
 						<div className="w-4 h-4 bg-red-500 rounded"></div>
 						<span className="text-gray-600">Failed</span>
+					</div>
+					<div className="flex items-center gap-2">
+						<div className="w-4 h-4 bg-blue-500 rounded"></div>
+						<span className="text-gray-600">Running</span>
 					</div>
 					<div className="flex items-center gap-2">
 						<div className="w-4 h-4 bg-yellow-500 rounded"></div>
