@@ -39,4 +39,5 @@ async def system_info():
 		version=settings.app_version,
 		deployment_mode=settings.deployment_mode,
 		available_runtimes=["sglang", "vllm"],
+		timezone=settings.timezone,
 	)

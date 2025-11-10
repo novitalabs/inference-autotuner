@@ -19319,3 +19319,109 @@ if (markers[markers.length - 1] !== maxTime) {
 **Status:** Timeline now has complete time scale with tick marks, labels, and gridlines
 
 </details>
+
+---
+
+> Note that align display timezone to backend, let the timezone used by backend configurable by env.
+
+<details>
+<summary>Added configurable timezone support for consistent datetime display across backend and frontend</summary>
+
+**User Requirement:** Configure backend timezone via environment variable and ensure frontend displays times in the same timezone.
+
+### Backend Changes
+
+**1. Configuration (`src/web/config.py`)**
+- Added `timezone` field to Settings class
+- Defaults to `"UTC"` if not set
+- Reads from `TIMEZONE` environment variable
+
+**2. Schema (`src/web/schemas/__init__.py`)**
+- Added `timezone: str` field to `SystemInfoResponse`
+
+**3. API Endpoint (`src/web/routes/system.py`)**
+- Updated `GET /api/system/info` to include timezone in response
+
+**4. Environment File (`.env`)**
+- Added `TIMEZONE=Asia/Shanghai` setting
+- Supports any IANA timezone (e.g., UTC, Asia/Shanghai, America/New_York)
+
+### Frontend Changes
+
+**1. Timezone Context (`frontend/src/contexts/TimezoneContext.tsx`)**
+- Created React context to provide timezone globally
+- Fetches timezone from backend on app load
+- Provides formatting functions:
+  - `formatTime(date)` - HH:mm format (24-hour)
+  - `formatDate(date)` - MM/DD/YYYY format
+  - `formatDateTime(date)` - Full datetime with seconds
+  - `timezone` - Current timezone string
+
+**2. App Integration (`frontend/src/App.tsx`)**
+- Wrapped app with `TimezoneProvider`
+- All components can access timezone context
+
+**3. Dashboard Updates (`frontend/src/pages/Dashboard.tsx`)**
+- Imported and used `useTimezone()` hook
+- Timeline X-axis labels now use `formatTime()` instead of `toLocaleTimeString()`
+- Displays times in configured backend timezone (Asia/Shanghai)
+
+**4. Type Definitions (`frontend/src/types/api.ts`)**
+- Added `timezone?: string` to `SystemInfoResponse` interface
+
+### Documentation
+
+**Created `docs/TIMEZONE_CONFIGURATION.md`** with:
+- Configuration instructions
+- Architecture explanation
+- Usage examples for components
+- List of common timezones
+- Technical details (storage vs display)
+
+### How It Works
+
+1. **Backend** reads `TIMEZONE` from .env (defaults to UTC)
+2. **API endpoint** `/api/system/info` returns timezone setting
+3. **Frontend** fetches timezone on app load via `TimezoneProvider`
+4. **Components** use `formatTime()`, `formatDate()`, `formatDateTime()` from context
+5. **All displays** show times in the configured timezone consistently
+
+### Testing
+
+```bash
+# Backend API response
+$ curl http://localhost:8000/api/system/info | jq .timezone
+"Asia/Shanghai"
+
+# Frontend formats times using Asia/Shanghai timezone
+# Timeline shows: 14:30, 15:00, 15:30 (Beijing time)
+```
+
+### Benefits
+
+- **Consistent display** across all users regardless of client timezone
+- **Single source of truth** - one env var controls all datetime display
+- **No confusion** - avoids "what timezone is this in?" questions
+- **Global teams** - can set common timezone for distributed teams
+- **Standards compliant** - uses IANA timezone database
+
+### Files Modified
+
+**Backend:**
+- `src/web/config.py` - Added timezone setting
+- `src/web/schemas/__init__.py` - Updated SystemInfoResponse
+- `src/web/routes/system.py` - Return timezone in API
+- `.env` - Added TIMEZONE=Asia/Shanghai
+
+**Frontend:**
+- `frontend/src/contexts/TimezoneContext.tsx` - New context provider
+- `frontend/src/App.tsx` - Wrapped with TimezoneProvider
+- `frontend/src/pages/Dashboard.tsx` - Use formatTime()
+- `frontend/src/types/api.ts` - Added timezone field
+
+**Documentation:**
+- `docs/TIMEZONE_CONFIGURATION.md` - Complete guide
+
+**Status:** Timezone configuration fully implemented and tested
+
+</details>

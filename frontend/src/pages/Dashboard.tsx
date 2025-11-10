@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { useState, useEffect } from 'react';
 import { dashboardApi } from '../services/dashboardApi';
+import { useTimezone } from '../contexts/TimezoneContext';
 import {
 	CpuChipIcon,
 	ServerIcon,
@@ -29,6 +30,9 @@ type GPUHistory = Record<number, number[]>;
 export default function Dashboard() {
 	// Track GPU utilization history
 	const [gpuHistory, setGpuHistory] = useState<GPUHistory>({});
+
+	// Get timezone formatting functions
+	const { formatTime, timezoneOffsetMs } = useTimezone();
 
 	// Fetch dashboard data with auto-refresh
 	const { data: gpuStatus, isLoading: gpuLoading } = useQuery({
@@ -342,19 +346,17 @@ export default function Dashboard() {
 			.reverse(); // Reverse to show oldest at top
 
 		// Find time range from the 20 displayed experiments
-		const startTimes = displayExperiments.map((e) => new Date(e.started_at!).getTime());
-		const endTimes = displayExperiments.map((e) => new Date(e.completed_at!).getTime());
+		// Apply timezone offset to convert UTC to configured timezone for visual alignment
+		const startTimes = displayExperiments.map((e) => new Date(e.started_at!).getTime() + timezoneOffsetMs);
 		let minTime = Math.min(...startTimes);
-		let maxTime = Math.max(...endTimes);
+		let maxTime = Date.now(); // Use current time in configured timezone as max
 
 		// Ensure at least 1 hour duration
 		const MIN_DURATION_MS = 3600000; // 1 hour
 		const actualRange = maxTime - minTime;
 		if (actualRange < MIN_DURATION_MS) {
-			// Expand range symmetrically to reach 1 hour
-			const expansion = (MIN_DURATION_MS - actualRange) / 2;
-			minTime -= expansion;
-			maxTime += expansion;
+			// Expand minTime backward to reach 1 hour
+			minTime = maxTime - MIN_DURATION_MS;
 		}
 
 		const timeRange = maxTime - minTime;
@@ -429,7 +431,7 @@ export default function Dashboard() {
 													<div className="absolute bottom-0 w-px h-2 bg-gray-400" style={{ left: '-0.5px' }}></div>
 													{/* Time label */}
 													<div className="absolute top-1 text-xs text-gray-600 whitespace-nowrap" style={{ transform: 'translateX(-50%)' }}>
-														{new Date(time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+														{formatTime(new Date(time))}
 													</div>
 												</div>
 											);
@@ -456,8 +458,8 @@ export default function Dashboard() {
 					{/* Experiment bars */}
 					<div className="space-y-1">
 						{displayExperiments.map((exp) => {
-							const startTime = new Date(exp.started_at!).getTime();
-							const endTime = new Date(exp.completed_at!).getTime();
+							const startTime = new Date(exp.started_at!).getTime() + timezoneOffsetMs;
+							const endTime = new Date(exp.completed_at!).getTime() + timezoneOffsetMs;
 							const duration = endTime - startTime;
 							const leftPercent = ((startTime - minTime) / timeRange) * 100;
 							const widthPercent = (duration / timeRange) * 100;

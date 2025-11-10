@@ -88,6 +88,7 @@ export interface SystemInfoResponse {
 	version: string;
 	deployment_mode: string;
 	available_runtimes: string[];
+	timezone?: string;
 }
 
 // Request Types

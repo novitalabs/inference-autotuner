@@ -58,6 +58,9 @@ class Settings(BaseSettings):
 	# HuggingFace Token (optional, required for gated models)
 	hf_token: str = Field(default="", description="HuggingFace access token for downloading gated models")
 
+	# Timezone settings
+	timezone: str = Field(default="UTC", description="Timezone for displaying timestamps (e.g., 'UTC', 'Asia/Shanghai', 'America/New_York')")
+
 
 @lru_cache()
 def get_settings() -> Settings:

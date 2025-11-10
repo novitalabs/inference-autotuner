@@ -153,3 +153,4 @@ class SystemInfoResponse(BaseModel):
 	version: str
 	deployment_mode: str
 	available_runtimes: List[str]
+	timezone: str = "UTC"
