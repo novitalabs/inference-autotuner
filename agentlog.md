@@ -19171,3 +19171,151 @@ Dashboard accessible at: **http://localhost:5173** (Click "Dashboard" in navigat
 **Lines of Code:** ~600 lines total
 
 </details>
+
+---
+
+> Experiment timeline means draw a bar for every experiment on a horizontal timeline, to show their start/end time.
+
+<details>
+<summary>Rewrote timeline as Gantt-style chart with horizontal bars for individual experiments</summary>
+
+**User Feedback:** The initial timeline implementation used Recharts bar chart grouped by hour. User clarified they wanted individual horizontal bars (Gantt-style) showing each experiment's start and end time.
+
+### Changes Made
+
+**File: `frontend/src/pages/Dashboard.tsx`**
+
+**Removed:**
+- Recharts import and BarChart component
+- Hourly aggregation logic
+- `experimentsByTask` unused variable
+
+**Implemented Gantt-Style Timeline:**
+
+1. **Data Processing:**
+   - Filter experiments with valid `started_at` and `completed_at` timestamps
+   - Calculate time range: `minTime` to `maxTime`
+   - Display most recent 20 experiments (sorted, then reversed to show oldest at top)
+
+2. **Visual Layout:**
+   - **Y-axis**: Experiment labels (Task ID + Experiment ID)
+   - **X-axis**: Horizontal timeline spanning minTime to maxTime
+   - Each experiment = horizontal bar positioned by timestamps
+
+3. **Bar Positioning Logic:**
+```typescript
+const leftPercent = ((startTime - minTime) / timeRange) * 100;
+const widthPercent = (duration / timeRange) * 100;
+```
+
+4. **Color Coding by Status:**
+   - Green (`bg-green-500`): success
+   - Red (`bg-red-500`): failed
+   - Yellow (`bg-yellow-500`): other statuses
+
+5. **Interactive Features:**
+   - Hover tooltip: Shows duration, status, objective score
+   - Duration labels: Displayed inside bars (only if width > 5%)
+   - Responsive layout with proper alignment
+
+6. **Summary Statistics:**
+   - Success/Failed/Total counts below timeline
+   - Legend showing color meanings
+
+### Build Results
+
+✅ TypeScript type-check passed (removed unused variable warning)
+✅ Vite build successful
+✅ Timeline renders individual experiment bars horizontally
+
+**Status:** Timeline visualization corrected to Gantt-style format
+
+</details>
+
+---
+
+> Draw time scales on the X axis of timeline
+
+<details>
+<summary>Added time scale markers with tick marks and gridlines to timeline X axis</summary>
+
+**User Request:** Add intermediate time markers to the timeline X axis instead of just showing start and end times.
+
+### Implementation
+
+**File: `frontend/src/pages/Dashboard.tsx` (lines 309-386)**
+
+**Features Added:**
+
+1. **Adaptive Time Intervals** - Automatically chooses appropriate spacing based on time range:
+   - ≤ 1 hour → 10-minute intervals
+   - ≤ 2 hours → 15-minute intervals
+   - ≤ 4 hours → 30-minute intervals
+   - ≤ 8 hours → 1-hour intervals
+   - > 8 hours → 2-hour intervals
+
+2. **Time Marker Generation:**
+   - Start at `minTime`, increment by `intervalMs` until `maxTime`
+   - Always includes end time as final marker
+   - Positioned proportionally: `leftPercent = ((time - minTime) / timeRange) * 100`
+
+3. **Visual Elements:**
+   - **Timeline container**: Gray bottom border spanning full width
+   - **Tick marks**: Small vertical lines at each time marker (2px height)
+   - **Time labels**: HH:MM format (24-hour), centered below tick marks
+   - **Vertical gridlines**: Extend from axis through experiment bars (light gray, pointer-events disabled)
+
+4. **Layout Structure:**
+```
+[Time Axis Container with scale markers]
+  ├── Tick marks (absolute positioned at each time)
+  ├── Time labels (transform: translateX(-50%) for centering)
+  └── Vertical gridlines (absolute overlay, full height)
+[Experiment bars below]
+```
+
+### Code Implementation
+
+```typescript
+const timeRangeMs = maxTime - minTime;
+
+// Calculate interval
+let intervalMs: number;
+if (timeRangeMs <= 3600000) {
+    intervalMs = 600000;  // 10 minutes
+} else if (timeRangeMs <= 7200000) {
+    intervalMs = 900000;  // 15 minutes
+}
+// ... more intervals
+
+// Generate markers
+const markers: number[] = [];
+let currentTime = minTime;
+while (currentTime <= maxTime) {
+    markers.push(currentTime);
+    currentTime += intervalMs;
+}
+if (markers[markers.length - 1] !== maxTime) {
+    markers.push(maxTime);
+}
+
+// Render markers with tick marks, labels, and gridlines
+```
+
+### Build Results
+
+✅ TypeScript type-check passed
+✅ Vite build successful (691 KB bundle)
+✅ Time scale renders with proper spacing and alignment
+✅ Gridlines improve visual alignment with experiment bars
+
+### User Benefits
+
+- **Better time context**: See when experiments occurred within the time range
+- **Visual alignment**: Gridlines help trace experiment bars to time labels
+- **Adaptive granularity**: Scale automatically adjusts to time range for optimal readability
+- **Professional appearance**: Timeline looks like standard project management Gantt charts
+
+**Status:** Timeline now has complete time scale with tick marks, labels, and gridlines
+
+</details>

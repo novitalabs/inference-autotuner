@@ -6,7 +6,6 @@ import {
 	CircleStackIcon,
 	ClockIcon,
 } from '@heroicons/react/24/outline';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
 function formatBytes(mb: number): string {
 	if (mb >= 1024) {
@@ -260,7 +259,7 @@ export default function Dashboard() {
 		</div>
 	);
 
-	// Experiment Timeline Chart
+	// Experiment Timeline Chart (Gantt-style)
 	const renderTimelineChart = () => {
 		if (timelineLoading || !timeline) {
 			return (
@@ -271,56 +270,215 @@ export default function Dashboard() {
 			);
 		}
 
-		// Prepare data for chart - group by hour
-		const hourlyData = timeline.reduce((acc, exp) => {
-			if (!exp.created_at) return acc;
-			const date = new Date(exp.created_at);
-			const hour = `${date.getHours()}:00`;
-
-			if (!acc[hour]) {
-				acc[hour] = { hour, success: 0, failed: 0, total: 0 };
-			}
-
-			acc[hour].total++;
-			if (exp.status === 'success') {
-				acc[hour].success++;
-			} else if (exp.status === 'failed') {
-				acc[hour].failed++;
-			}
-
-			return acc;
-		}, {} as Record<string, { hour: string; success: number; failed: number; total: number }>);
-
-		const chartData = Object.values(hourlyData).sort((a, b) =>
-			parseInt(a.hour) - parseInt(b.hour)
+		// Filter experiments with valid start and end times
+		const validExperiments = timeline.filter(
+			(exp) => exp.started_at && exp.completed_at
 		);
+
+		if (validExperiments.length === 0) {
+			return (
+				<div className="bg-white shadow rounded-lg p-6">
+					<h3 className="text-lg font-medium text-gray-900 mb-4">Experiment Timeline (24h)</h3>
+					<p className="text-gray-500">No completed experiments in the last 24 hours</p>
+				</div>
+			);
+		}
+
+		// Limit display to most recent 20 experiments for readability
+		const displayExperiments = validExperiments
+			.sort((a, b) => new Date(b.started_at!).getTime() - new Date(a.started_at!).getTime())
+			.slice(0, 20)
+			.reverse(); // Reverse to show oldest at top
+
+		// Find time range from the 20 displayed experiments
+		const startTimes = displayExperiments.map((e) => new Date(e.started_at!).getTime());
+		const endTimes = displayExperiments.map((e) => new Date(e.completed_at!).getTime());
+		let minTime = Math.min(...startTimes);
+		let maxTime = Math.max(...endTimes);
+
+		// Ensure at least 1 hour duration
+		const MIN_DURATION_MS = 3600000; // 1 hour
+		const actualRange = maxTime - minTime;
+		if (actualRange < MIN_DURATION_MS) {
+			// Expand range symmetrically to reach 1 hour
+			const expansion = (MIN_DURATION_MS - actualRange) / 2;
+			minTime -= expansion;
+			maxTime += expansion;
+		}
+
+		const timeRange = maxTime - minTime;
 
 		return (
 			<div className="bg-white shadow rounded-lg p-6">
-				<h3 className="text-lg font-medium text-gray-900 mb-4">Experiment Timeline (24h)</h3>
-				<ResponsiveContainer width="100%" height={300}>
-					<BarChart data={chartData}>
-						<CartesianGrid strokeDasharray="3 3" />
-						<XAxis dataKey="hour" />
-						<YAxis />
-						<Tooltip />
-						<Legend />
-						<Bar dataKey="success" fill="#10b981" name="Success" stackId="a" />
-						<Bar dataKey="failed" fill="#ef4444" name="Failed" stackId="a" />
-					</BarChart>
-				</ResponsiveContainer>
+				<div className="flex justify-between items-center mb-4">
+					<h3 className="text-lg font-medium text-gray-900">Experiment Timeline (24h)</h3>
+					<span className="text-sm text-gray-500">
+						Showing {displayExperiments.length} most recent experiments
+					</span>
+				</div>
+
+				{/* Timeline visualization */}
+				<div className="relative" style={{ minHeight: '400px' }}>
+					{/* Time axis with scale markers */}
+					<div className="relative mb-2 ml-24">
+						{/* Generate time scale markers */}
+						{(() => {
+							const timeRangeMs = maxTime - minTime;
+
+							// Determine appropriate interval based on time range
+							let intervalMs: number;
+							if (timeRangeMs <= 3600000) {
+								// <= 1 hour: 10-minute intervals
+								intervalMs = 600000;
+							} else if (timeRangeMs <= 7200000) {
+								// <= 2 hours: 15-minute intervals
+								intervalMs = 900000;
+							} else if (timeRangeMs <= 14400000) {
+								// <= 4 hours: 30-minute intervals
+								intervalMs = 1800000;
+							} else if (timeRangeMs <= 28800000) {
+								// <= 8 hours: 1-hour intervals
+								intervalMs = 3600000;
+							} else {
+								// > 8 hours: 2-hour intervals
+								intervalMs = 7200000;
+							}
+
+							// Round minTime down to nearest interval boundary
+							const roundedMinTime = Math.floor(minTime / intervalMs) * intervalMs;
+
+							// Generate time markers starting from rounded time
+							const markers: number[] = [];
+							let currentTime = roundedMinTime;
+
+							// Start from first marker that's >= minTime
+							while (currentTime < minTime) {
+								currentTime += intervalMs;
+							}
+
+							// Add markers up to maxTime
+							while (currentTime <= maxTime) {
+								markers.push(currentTime);
+								currentTime += intervalMs;
+							}
+
+							return (
+								<>
+									{/* Timeline container */}
+									<div className="relative h-6 border-b border-gray-300">
+										{markers.map((time, idx) => {
+											const leftPercent = ((time - minTime) / timeRangeMs) * 100;
+											return (
+												<div
+													key={idx}
+													className="absolute"
+													style={{ left: `${leftPercent}%` }}
+												>
+													{/* Tick mark */}
+													<div className="absolute bottom-0 w-px h-2 bg-gray-400" style={{ left: '-0.5px' }}></div>
+													{/* Time label */}
+													<div className="absolute top-1 text-xs text-gray-600 whitespace-nowrap" style={{ transform: 'translateX(-50%)' }}>
+														{new Date(time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+													</div>
+												</div>
+											);
+										})}
+									</div>
+									{/* Vertical gridlines for better alignment */}
+									<div className="absolute top-6 left-0 right-0 bottom-0 pointer-events-none">
+										{markers.map((time, idx) => {
+											const leftPercent = ((time - minTime) / timeRangeMs) * 100;
+											return (
+												<div
+													key={idx}
+													className="absolute top-0 bottom-0 w-px bg-gray-200"
+													style={{ left: `${leftPercent}%` }}
+												></div>
+											);
+										})}
+									</div>
+								</>
+							);
+						})()}
+					</div>
+
+					{/* Experiment bars */}
+					<div className="space-y-1">
+						{displayExperiments.map((exp) => {
+							const startTime = new Date(exp.started_at!).getTime();
+							const endTime = new Date(exp.completed_at!).getTime();
+							const duration = endTime - startTime;
+							const leftPercent = ((startTime - minTime) / timeRange) * 100;
+							const widthPercent = (duration / timeRange) * 100;
+
+							const statusColor =
+								exp.status === 'success'
+									? 'bg-green-500'
+									: exp.status === 'failed'
+									? 'bg-red-500'
+									: 'bg-yellow-500';
+
+							return (
+								<div key={exp.id} className="flex items-center group">
+									{/* Experiment label */}
+									<div className="w-24 text-xs text-gray-600 font-medium text-right pr-2">
+										Task {exp.task_id} Exp {exp.experiment_id}
+									</div>
+
+									{/* Timeline bar container */}
+									<div className="flex-1 relative h-8 bg-gray-100 rounded">
+										{/* Experiment bar */}
+										<div
+											className={`absolute h-full ${statusColor} rounded cursor-pointer hover:opacity-80 transition-opacity`}
+											style={{
+												left: `${leftPercent}%`,
+												width: `${widthPercent}%`,
+											}}
+											title={`Experiment ${exp.experiment_id}\nDuration: ${Math.round(
+												duration / 1000
+											)}s\nStatus: ${exp.status}\nScore: ${exp.objective_score?.toFixed(2) || 'N/A'}`}
+										>
+											{/* Duration label (only show if wide enough) */}
+											{widthPercent > 5 && (
+												<div className="absolute inset-0 flex items-center justify-center text-xs text-white font-medium">
+													{Math.round(duration / 1000)}s
+												</div>
+											)}
+										</div>
+									</div>
+								</div>
+							);
+						})}
+					</div>
+				</div>
+
+				{/* Legend */}
+				<div className="flex gap-4 mt-4 text-sm">
+					<div className="flex items-center gap-2">
+						<div className="w-4 h-4 bg-green-500 rounded"></div>
+						<span className="text-gray-600">Success</span>
+					</div>
+					<div className="flex items-center gap-2">
+						<div className="w-4 h-4 bg-red-500 rounded"></div>
+						<span className="text-gray-600">Failed</span>
+					</div>
+					<div className="flex items-center gap-2">
+						<div className="w-4 h-4 bg-yellow-500 rounded"></div>
+						<span className="text-gray-600">Other</span>
+					</div>
+				</div>
 
 				{/* Statistics summary */}
 				<div className="grid grid-cols-3 gap-4 mt-4">
 					<div className="text-center p-3 bg-green-50 rounded">
 						<p className="text-xl font-bold text-green-600">
-							{timeline.filter(e => e.status === 'success').length}
+							{timeline.filter((e) => e.status === 'success').length}
 						</p>
 						<p className="text-xs text-gray-600">Successful</p>
 					</div>
 					<div className="text-center p-3 bg-red-50 rounded">
 						<p className="text-xl font-bold text-red-600">
-							{timeline.filter(e => e.status === 'failed').length}
+							{timeline.filter((e) => e.status === 'failed').length}
 						</p>
 						<p className="text-xs text-gray-600">Failed</p>
 					</div>
