@@ -18,6 +18,7 @@ from sqlalchemy import select, update
 from datetime import datetime
 from typing import Dict, Any
 import io
+import asyncio
 
 from src.web.config import get_settings
 from src.web.db.models import Task, Experiment, TaskStatus, ExperimentStatus
@@ -93,6 +94,53 @@ def setup_task_logging(task_id: int):
 	return logger
 
 
+async def run_experiment_with_timeout(
+	orchestrator: AutotunerOrchestrator,
+	task_config: Dict[str, Any],
+	iteration: int,
+	params: Dict[str, Any],
+	timeout_seconds: int,
+	logger: logging.Logger
+) -> Dict[str, Any]:
+	"""
+	Run a single experiment with timeout enforcement.
+
+	Args:
+		orchestrator: AutotunerOrchestrator instance
+		task_config: Task configuration
+		iteration: Experiment iteration number
+		params: Parameter configuration for this experiment
+		timeout_seconds: Maximum time allowed for this experiment
+		logger: Logger instance
+
+	Returns:
+		Result dict with status, metrics, etc.
+
+	Raises:
+		asyncio.TimeoutError: If experiment exceeds timeout
+	"""
+	# Wrap synchronous orchestrator.run_experiment in async
+	loop = asyncio.get_event_loop()
+
+	try:
+		# Run with timeout
+		result = await asyncio.wait_for(
+			loop.run_in_executor(
+				None,  # Use default executor
+				orchestrator.run_experiment,
+				task_config,
+				iteration,
+				params
+			),
+			timeout=timeout_seconds
+		)
+		return result
+
+	except asyncio.TimeoutError:
+		logger.error(f"[Experiment {iteration}] Timed out after {timeout_seconds}s")
+		raise
+
+
 async def run_autotuning_task(ctx: Dict[str, Any], task_id: int) -> Dict[str, Any]:
 	"""Run autotuning task in background.
 
@@ -140,9 +188,11 @@ async def run_autotuning_task(ctx: Dict[str, Any], task_id: int) -> Dict[str, An
 			optimization_config = task.optimization_config or {}
 			strategy_name = optimization_config.get("strategy", "grid_search")
 			max_iterations = optimization_config.get("max_iterations", 100)
+			timeout_per_iteration = optimization_config.get("timeout_per_iteration", 600)  # Default 10 minutes
 
 			logger.info(f"[ARQ Worker] Optimization strategy: {strategy_name}")
 			logger.info(f"[ARQ Worker] Max iterations: {max_iterations}")
+			logger.info(f"[ARQ Worker] Timeout per experiment: {timeout_per_iteration}s")
 
 			# Check for existing checkpoint and resume if available
 			checkpoint = TaskCheckpoint.load_checkpoint(task.task_metadata)
@@ -236,9 +286,16 @@ async def run_autotuning_task(ctx: Dict[str, Any], task_id: int) -> Dict[str, An
 
 				logger.info(f"[Experiment {iteration}] Status: DEPLOYING")
 
-				# Run experiment using orchestrator
+				# Run experiment using orchestrator with timeout
 				try:
-					result = orchestrator.run_experiment(task_config, iteration, params)
+					result = await run_experiment_with_timeout(
+						orchestrator=orchestrator,
+						task_config=task_config,
+						iteration=iteration,
+						params=params,
+						timeout_seconds=timeout_per_iteration,
+						logger=logger
+					)
 
 					logger.info(f"[Experiment {iteration}] Status: {result['status'].upper()}")
 					if result.get("metrics"):
@@ -306,6 +363,39 @@ async def run_autotuning_task(ctx: Dict[str, Any], task_id: int) -> Dict[str, An
 						task.task_metadata = updated_metadata
 						await db.commit()
 						logger.info(f"[ARQ Worker] Checkpoint saved at iteration {iteration}")
+					except Exception as checkpoint_error:
+						logger.warning(f"[ARQ Worker] Failed to save checkpoint: {checkpoint_error}")
+
+				except asyncio.TimeoutError:
+					# Experiment timed out
+					logger.error(f"[Experiment {iteration}] Timed out after {timeout_per_iteration}s")
+					db_experiment.status = ExperimentStatus.FAILED
+					db_experiment.error_message = f"Experiment timed out after {timeout_per_iteration} seconds"
+					db_experiment.completed_at = datetime.utcnow()
+					await db.commit()
+
+					# Tell strategy about failed experiment
+					objective_name = optimization_config.get("objective", "minimize_latency")
+					worst_score = float("inf") if "minimize" in objective_name else float("-inf")
+					strategy.tell_result(
+						parameters=params,
+						objective_score=worst_score,
+						metrics={}
+					)
+
+					# Save checkpoint after timeout
+					try:
+						await db.refresh(task)
+						updated_metadata = TaskCheckpoint.save_checkpoint(
+							task_metadata=task.task_metadata or {},
+							iteration=iteration,
+							best_score=best_score,
+							best_experiment_id=best_experiment_id,
+							strategy_state=strategy.get_state(),
+						)
+						task.task_metadata = updated_metadata
+						await db.commit()
+						logger.info(f"[ARQ Worker] Checkpoint saved at iteration {iteration} (after timeout)")
 					except Exception as checkpoint_error:
 						logger.warning(f"[ARQ Worker] Failed to save checkpoint: {checkpoint_error}")
 
@@ -395,5 +485,5 @@ class WorkerSettings:
 
 	# Worker config
 	max_jobs = 5  # Maximum concurrent jobs
-	job_timeout = 7200  # 2 hours timeout per job
+	job_timeout = 86400 * 30  # 720 hours timeout for entire task (rely on per-experiment timeout instead)
 	keep_result = 3600  # Keep results for 1 hour
