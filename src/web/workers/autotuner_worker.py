@@ -22,7 +22,8 @@ import io
 from src.web.config import get_settings
 from src.web.db.models import Task, Experiment, TaskStatus, ExperimentStatus
 from src.orchestrator import AutotunerOrchestrator
-from src.utils.optimizer import generate_parameter_grid, calculate_objective_score, create_optimization_strategy
+from src.utils.optimizer import generate_parameter_grid, calculate_objective_score, create_optimization_strategy, restore_optimization_strategy
+from src.web.workers.checkpoint import TaskCheckpoint
 
 settings = get_settings()
 

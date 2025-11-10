@@ -374,6 +374,31 @@ class OptimizationStrategy(ABC):
 		"""
 		return False
 
+	def get_state(self) -> Dict[str, Any]:
+		"""Serialize strategy state for checkpoint.
+
+		Returns:
+		    Dictionary containing strategy state
+		"""
+		return {
+			"parameter_spec": self.parameter_spec,
+			"objective": self.objective,
+			"history": self.history,
+		}
+
+	@classmethod
+	def from_state(cls, state: Dict[str, Any]) -> "OptimizationStrategy":
+		"""Restore strategy from serialized state.
+
+		Args:
+		    state: Dictionary containing strategy state
+
+		Returns:
+		    Restored strategy instance
+		"""
+		# Base implementation - subclasses should override
+		raise NotImplementedError("Subclass must implement from_state()")
+
 
 class GridSearchStrategy(OptimizationStrategy):
 	"""Grid search optimization - exhaustive evaluation of all combinations."""
@@ -419,6 +444,31 @@ class GridSearchStrategy(OptimizationStrategy):
 	def should_stop(self) -> bool:
 		"""Stop when all combinations evaluated."""
 		return self.current_index >= len(self.param_grid)
+
+	def get_state(self) -> Dict[str, Any]:
+		"""Serialize GridSearch state for checkpoint."""
+		base_state = super().get_state()
+		base_state.update({
+			"strategy_class": "GridSearchStrategy",
+			"current_index": self.current_index,
+			"param_grid": self.param_grid,
+		})
+		return base_state
+
+	@classmethod
+	def from_state(cls, state: Dict[str, Any]) -> "GridSearchStrategy":
+		"""Restore GridSearch from serialized state."""
+		# Create instance with basic parameters
+		strategy = cls(
+			parameter_spec=state["parameter_spec"],
+			objective=state["objective"],
+			max_iterations=None  # Already limited in param_grid
+		)
+		# Restore state
+		strategy.current_index = state["current_index"]
+		strategy.param_grid = state["param_grid"]
+		strategy.history = state.get("history", [])
+		return strategy
 
 
 class BayesianStrategy(OptimizationStrategy):
@@ -599,6 +649,50 @@ class BayesianStrategy(OptimizationStrategy):
 		"""Get best objective score found so far."""
 		return self.study.best_value
 
+	def get_state(self) -> Dict[str, Any]:
+		"""Serialize Bayesian state for checkpoint."""
+		base_state = super().get_state()
+		base_state.update({
+			"strategy_class": "BayesianStrategy",
+			"trial_count": self.trial_count,
+			"max_iterations": self.max_iterations,
+			"n_initial_random": self.n_initial_random,
+		})
+		return base_state
+
+	@classmethod
+	def from_state(cls, state: Dict[str, Any]) -> "BayesianStrategy":
+		"""Restore Bayesian from serialized state."""
+		# Create instance (Optuna study will be restored from history)
+		strategy = cls(
+			parameter_spec=state["parameter_spec"],
+			objective=state["objective"],
+			max_iterations=state["max_iterations"],
+			n_initial_random=state.get("n_initial_random", 5),
+		)
+		# Restore trial count
+		strategy.trial_count = state["trial_count"]
+		strategy.history = state.get("history", [])
+
+		# Re-populate Optuna study with history
+		for entry in strategy.history:
+			if entry.get("objective_score") is not None:
+				# Create a completed trial from history
+				trial = strategy.study.ask()
+				# Set parameters from history
+				for param_name, param_value in entry["parameters"].items():
+					if param_name in strategy.search_space:
+						space_def = strategy.search_space[param_name]
+						if space_def["type"] == "categorical":
+							trial.suggest_categorical(param_name, space_def["choices"])
+						elif space_def["type"] == "continuous":
+							trial.suggest_float(param_name, space_def["low"], space_def["high"])
+						elif space_def["type"] == "integer":
+							trial.suggest_int(param_name, space_def["low"], space_def["high"])
+				strategy.study.tell(trial, entry["objective_score"])
+
+		return strategy
+
 
 class RandomSearchStrategy(OptimizationStrategy):
 	"""Random search - random sampling from parameter space."""
@@ -686,6 +780,28 @@ class RandomSearchStrategy(OptimizationStrategy):
 		"""Stop after max iterations."""
 		return self.trial_count >= self.max_iterations
 
+	def get_state(self) -> Dict[str, Any]:
+		"""Serialize Random state for checkpoint."""
+		base_state = super().get_state()
+		base_state.update({
+			"strategy_class": "RandomSearchStrategy",
+			"trial_count": self.trial_count,
+			"max_iterations": self.max_iterations,
+		})
+		return base_state
+
+	@classmethod
+	def from_state(cls, state: Dict[str, Any]) -> "RandomSearchStrategy":
+		"""Restore Random from serialized state."""
+		strategy = cls(
+			parameter_spec=state["parameter_spec"],
+			objective=state["objective"],
+			max_iterations=state["max_iterations"],
+		)
+		strategy.trial_count = state["trial_count"]
+		strategy.history = state.get("history", [])
+		return strategy
+
 
 # ============================================================================
 # Strategy Factory
@@ -746,3 +862,24 @@ def create_optimization_strategy(
 			f"Unsupported optimization strategy: {strategy_name}. "
 			f"Supported: grid_search, bayesian, random"
 		)
+
+
+def restore_optimization_strategy(state: Dict[str, Any]) -> OptimizationStrategy:
+	"""Restore optimization strategy from serialized state.
+
+	Args:
+	    state: Serialized strategy state (from strategy.get_state())
+
+	Returns:
+	    Restored OptimizationStrategy instance
+	"""
+	strategy_class = state.get("strategy_class")
+
+	if strategy_class == "GridSearchStrategy":
+		return GridSearchStrategy.from_state(state)
+	elif strategy_class == "BayesianStrategy":
+		return BayesianStrategy.from_state(state)
+	elif strategy_class == "RandomSearchStrategy":
+		return RandomSearchStrategy.from_state(state)
+	else:
+		raise ValueError(f"Unknown strategy class: {strategy_class}")
