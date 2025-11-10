@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { useState, useEffect } from 'react';
 import { dashboardApi } from '../services/dashboardApi';
 import {
 	CpuChipIcon,
@@ -21,13 +22,35 @@ function formatUptime(seconds: number | null): string {
 	return `${hours}h ${minutes}m`;
 }
 
+// Store GPU utilization history (last 12 data points = 1 minute at 5s intervals)
+const MAX_HISTORY_LENGTH = 12;
+type GPUHistory = Record<number, number[]>;
+
 export default function Dashboard() {
+	// Track GPU utilization history
+	const [gpuHistory, setGpuHistory] = useState<GPUHistory>({});
+
 	// Fetch dashboard data with auto-refresh
 	const { data: gpuStatus, isLoading: gpuLoading } = useQuery({
 		queryKey: ['gpuStatus'],
 		queryFn: dashboardApi.getGPUStatus,
 		refetchInterval: 5000, // Refresh every 5 seconds
 	});
+
+	// Update GPU history when new data arrives
+	useEffect(() => {
+		if (gpuStatus?.gpus) {
+			setGpuHistory((prev) => {
+				const updated = { ...prev };
+				gpuStatus.gpus!.forEach((gpu) => {
+					const history = prev[gpu.index] || [];
+					const newHistory = [...history, gpu.utilization_percent].slice(-MAX_HISTORY_LENGTH);
+					updated[gpu.index] = newHistory;
+				});
+				return updated;
+			});
+		}
+	}, [gpuStatus]);
 
 	const { data: workerStatus, isLoading: workerLoading } = useQuery({
 		queryKey: ['workerStatus'],
@@ -49,52 +72,80 @@ export default function Dashboard() {
 
 	// GPU Status Card
 	const renderGPUCard = () => (
-		<div className="bg-white shadow rounded-lg p-6">
-			<div className="flex items-center justify-between mb-4">
-				<h3 className="text-lg font-medium text-gray-900 flex items-center">
-					<CpuChipIcon className="h-6 w-6 mr-2 text-blue-500" />
+		<div className="bg-white shadow rounded-lg p-4">
+			<div className="flex items-center justify-between mb-3">
+				<h3 className="text-base font-medium text-gray-900 flex items-center">
+					<CpuChipIcon className="h-5 w-5 mr-2 text-blue-500" />
 					GPU Status
 				</h3>
 				{gpuStatus && (
-					<span className={`px-2 py-1 text-xs rounded-full ${gpuStatus.available ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+					<span className={`px-2 py-0.5 text-xs rounded-full ${gpuStatus.available ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
 						{gpuStatus.available ? 'Available' : 'Unavailable'}
 					</span>
 				)}
 			</div>
 
-			{gpuLoading && <p className="text-gray-500">Loading...</p>}
-			{gpuStatus?.error && <p className="text-red-500">Error: {gpuStatus.error}</p>}
+			{gpuLoading && <p className="text-gray-500 text-sm">Loading...</p>}
+			{gpuStatus?.error && <p className="text-red-500 text-sm">Error: {gpuStatus.error}</p>}
 
 			{gpuStatus?.gpus && (
-				<div className="space-y-4">
-					{gpuStatus.gpus.map((gpu) => (
-						<div key={gpu.index} className="border rounded p-3">
-							<div className="flex justify-between items-start mb-2">
-								<div>
-									<p className="font-medium">GPU {gpu.index}: {gpu.name}</p>
-									<p className="text-sm text-gray-500">{gpu.temperature_c}°C</p>
+				<div className="space-y-2">
+					{gpuStatus.gpus.map((gpu) => {
+						const history = gpuHistory[gpu.index] || [];
+						return (
+							<div key={gpu.index} className="border rounded p-2">
+								<div className="flex justify-between items-center">
+									<div className="flex items-center gap-2">
+										<strong className="text-sm font-medium">GPU {gpu.index}: {gpu.name}</strong>
+										<span className="text-xs text-gray-500">{gpu.temperature_c}°C</span>
+									</div>
+									<div className="flex items-center gap-2">
+										<span className={`px-1.5 py-0.5 text-xs rounded ${gpu.utilization_percent > 80 ? 'bg-red-100 text-red-800' : gpu.utilization_percent > 50 ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800'}`}>
+											{gpu.utilization_percent}%
+										</span>
+										{/* Tiny utilization history sparkline */}
+										{history.length > 1 && (
+											<div className="flex items-end gap-px" style={{ height: '16px' }}>
+												{history.map((util, idx) => (
+													<div
+														key={idx}
+														className={`${
+															util > 80
+																? 'bg-red-400'
+																: util > 50
+																? 'bg-yellow-400'
+																: 'bg-green-400'
+														}`}
+														style={{
+															width: '2px',
+															height: `${Math.max(util * 0.16, 2)}px`,
+															minHeight: '2px'
+														}}
+														title={`${util}%`}
+													></div>
+												))}
+											</div>
+										)}
+									</div>
 								</div>
-								<span className={`px-2 py-1 text-xs rounded ${gpu.utilization_percent > 80 ? 'bg-red-100 text-red-800' : gpu.utilization_percent > 50 ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800'}`}>
-									{gpu.utilization_percent}% Util
-								</span>
-							</div>
 
-							{/* Memory Usage Bar */}
-							<div className="mt-2">
-								<div className="flex justify-between text-sm text-gray-600 mb-1">
+								{/* Memory Usage Bar */}
+								<div className="mt-1">
+								<div className="flex justify-between text-xs text-gray-600 mb-1">
 									<span>Memory</span>
 									<span>{formatBytes(gpu.memory_used_mb)} / {formatBytes(gpu.memory_total_mb)}</span>
 								</div>
-								<div className="w-full bg-gray-200 rounded-full h-2.5">
+								<div className="w-full bg-gray-200 rounded-full h-2">
 									<div
-										className={`h-2.5 rounded-full ${gpu.memory_usage_percent > 90 ? 'bg-red-600' : gpu.memory_usage_percent > 70 ? 'bg-yellow-500' : 'bg-blue-600'}`}
+										className={`h-2 rounded-full ${gpu.memory_usage_percent > 90 ? 'bg-red-600' : gpu.memory_usage_percent > 70 ? 'bg-yellow-500' : 'bg-blue-600'}`}
 										style={{ width: `${gpu.memory_usage_percent}%` }}
 									></div>
 								</div>
-								<p className="text-xs text-gray-500 mt-1">{gpu.memory_usage_percent.toFixed(1)}% used</p>
+								<p className="text-xs text-gray-500 mt-0.5">{gpu.memory_usage_percent.toFixed(1)}% used</p>
 							</div>
 						</div>
-					))}
+						);
+					})}
 				</div>
 			)}
 		</div>
@@ -499,19 +550,21 @@ export default function Dashboard() {
 			</div>
 
 			{/* Grid layout */}
-			<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-6">
-				{renderGPUCard()}
-				{renderWorkerCard()}
-				{renderDBStatsCard()}
-			</div>
-
+			{/* First row: GPU Status and Timeline */}
 			<div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
 				<div className="lg:col-span-1">
-					{renderRunningTasksCard()}
+					{renderGPUCard()}
 				</div>
 				<div className="lg:col-span-2">
 					{renderTimelineChart()}
 				</div>
+			</div>
+
+			{/* Second row: Worker Status, DB Statistics, Running Tasks */}
+			<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-6">
+				{renderWorkerCard()}
+				{renderDBStatsCard()}
+				{renderRunningTasksCard()}
 			</div>
 		</div>
 	);
