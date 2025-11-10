@@ -19040,3 +19040,134 @@ Previous design used ARQ `job_timeout` for the entire task:
 **Breaking Changes:** None (backward compatible - default 600s if not specified)
 
 </details>
+
+---
+
+## Dashboard Implementation - System Monitoring Features
+
+<details>
+<summary>Comprehensive Dashboard with real-time monitoring</summary>
+
+### Features Implemented
+
+**1. GPU Status Monitoring**
+- Real-time GPU metrics via nvidia-smi
+- Per-GPU cards showing:
+  - GPU name, index, temperature
+  - Memory usage (used/total) with visual progress bar
+  - Utilization percentage with color-coded status badges
+  - Color coding: Red (>90%), Yellow (>70%), Blue (normal)
+- Refresh interval: 5 seconds
+
+**2. ARQ Worker Status**
+- Worker process monitoring via psutil
+- Displays:
+  - Running/Stopped status badge
+  - Process ID
+  - CPU usage percentage
+  - Memory consumption (MB)
+  - Uptime (hours:minutes)
+  - Redis connection status
+- Refresh interval: 5 seconds
+
+**3. Database Statistics**
+- Task and experiment counts
+- Status breakdown (completed, pending, running, failed)
+- 24-hour activity metrics
+- Average experiment duration
+- Refresh interval: 10 seconds
+
+**4. Running Tasks Widget**
+- Shows currently executing tasks
+- Real-time progress bars
+- Experiment completion (X / Y format)
+- Task start timestamp
+
+**5. Experiment Timeline Chart**
+- 24-hour experiment activity visualization
+- Stacked bar chart (success/failed)
+- Grouped by hour
+- Summary statistics (total, success, failed counts)
+- Uses Recharts library
+- Refresh interval: 30 seconds
+
+### Backend API Endpoints Created
+
+**File: `src/web/routes/dashboard.py`**
+
+1. **GET `/api/dashboard/gpu-status`**
+   - Calls nvidia-smi via subprocess
+   - Parses GPU metrics (memory, utilization, temperature)
+   - Returns JSON with per-GPU data
+
+2. **GET `/api/dashboard/worker-status`**
+   - Uses psutil to find ARQ worker process
+   - Calculates uptime from process create_time
+   - Tests Redis connection
+   - Returns process metrics
+
+3. **GET `/api/dashboard/db-statistics`**
+   - Queries database for task/experiment counts
+   - Aggregates by status
+   - Calculates 24h activity
+   - Computes average experiment duration
+   - Lists running tasks with progress
+
+4. **GET `/api/dashboard/experiment-timeline?hours=24`**
+   - Returns experiment records from last N hours
+   - Includes timestamps, status, scores
+   - Sorted chronologically for charting
+
+### Frontend Implementation
+
+**Files Created:**
+- `frontend/src/types/dashboard.ts` - TypeScript types
+- `frontend/src/services/dashboardApi.ts` - API client with axios
+- `frontend/src/pages/Dashboard.tsx` - Full dashboard UI (360 lines)
+
+**Technologies Used:**
+- React Query - Auto-refreshing data fetching
+- Recharts - Bar chart visualization
+- Heroicons - Icon components
+- Tailwind CSS - Styling and responsive layout
+
+**Layout:**
+- Responsive grid layout (1/2/3 columns based on screen size)
+- Top row: GPU Status | Worker Status | DB Statistics
+- Bottom row: Running Tasks (1/3 width) | Timeline Chart (2/3 width)
+
+### Testing Results
+
+✅ All backend endpoints working:
+- GPU status: Returns 8 NVIDIA H20 GPUs with metrics
+- Worker status: Detects PID 2722278, uptime 2272s, Redis connected
+- DB statistics: 7 tasks, 88 experiments, various statuses
+- Timeline: Returns last 24h of experiments with hourly aggregation
+
+✅ Frontend build successful:
+- TypeScript type-check passed
+- Vite build completed (688 KB bundle)
+- Dev server running on port 5173
+
+✅ Real-time updates working:
+- GPU/Worker: 5s refresh
+- DB Stats: 10s refresh  
+- Timeline: 30s refresh
+
+### User Benefits
+
+1. **At-a-glance system health** - See GPU, worker, and database status instantly
+2. **Resource monitoring** - Track GPU memory and utilization to prevent OOM
+3. **Progress tracking** - Monitor running tasks with real-time progress bars
+4. **Historical insights** - View 24h experiment trends and success rates
+5. **Troubleshooting** - Quickly identify worker issues or GPU problems
+
+### Access
+
+Dashboard accessible at: **http://localhost:5173** (Click "Dashboard" in navigation)
+
+**Status:** Fully implemented and operational
+**Files Modified:** 4 backend, 3 frontend
+**Lines of Code:** ~600 lines total
+
+</details>
