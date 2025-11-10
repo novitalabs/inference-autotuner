@@ -476,6 +476,9 @@ export default function Dashboard() {
 								? 'bg-red-500'
 								: 'bg-yellow-500';
 
+							// Running experiments have no right border radius
+							const borderRadius = isRunning ? 'rounded-l' : 'rounded';
+
 							return (
 								<div key={exp.id} className="flex items-center group">
 									{/* Experiment label */}
@@ -487,7 +490,7 @@ export default function Dashboard() {
 									<div className="flex-1 relative h-8 bg-gray-100 rounded">
 										{/* Experiment bar */}
 										<div
-											className={`absolute h-full ${statusColor} rounded cursor-pointer hover:opacity-80 transition-opacity`}
+											className={`absolute h-full ${statusColor} ${borderRadius} cursor-pointer hover:opacity-80 transition-opacity`}
 											style={{
 												left: `${leftPercent}%`,
 												width: `${widthPercent}%`,
