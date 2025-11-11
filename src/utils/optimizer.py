@@ -4,6 +4,7 @@ Utility functions and classes for parameter optimization.
 
 import itertools
 import math
+import random
 from abc import ABC, abstractmethod
 from typing import Dict, List, Any, Optional, Tuple
 import optuna
@@ -501,6 +502,9 @@ class BayesianStrategy(OptimizationStrategy):
 		# Parse parameter specification into Optuna search space
 		self.search_space = self._parse_search_space(parameter_spec)
 
+		# Track tried parameter combinations to avoid duplicates
+		self.tried_params = set()
+
 		# Create Optuna study
 		direction = "minimize"  # All objectives use minimize (throughput is negated)
 		sampler = optuna.samplers.TPESampler(n_startup_trials=n_initial_random)
@@ -578,17 +582,20 @@ class BayesianStrategy(OptimizationStrategy):
 		return search_space
 
 	def suggest_parameters(self) -> Optional[Dict[str, Any]]:
-		"""Suggest next parameter configuration using Optuna."""
+		"""Suggest next parameter configuration using Optuna.
+
+		Ensures no duplicate parameter combinations are tried by adding
+		random perturbation if sampler suggests a duplicate.
+		"""
 		if self.trial_count >= self.max_iterations:
 			print(f"[Bayesian] Reached max iterations ({self.max_iterations})")
 			return None
 
-		# Create Optuna trial
+		# Create Optuna trial - only called ONCE
 		trial = self.study.ask()
 		self.current_trial = trial
-		self.trial_count += 1
 
-		# Extract parameter suggestions
+		# Extract parameter suggestions from the trial
 		params = {}
 		for param_name, space_def in self.search_space.items():
 			if space_def["type"] == "categorical":
@@ -608,8 +615,90 @@ class BayesianStrategy(OptimizationStrategy):
 					log=space_def.get("log", False)
 				)
 
-		print(f"[Bayesian] Trial {self.trial_count}/{self.max_iterations}: {params}")
+		# Create hashable representation for duplicate checking
+		params_tuple = tuple(sorted(params.items()))
+
+		# Check if these parameters have been tried before
+		if params_tuple not in self.tried_params:
+			# New parameter combination - use it
+			self.tried_params.add(params_tuple)
+			self.trial_count += 1
+			print(f"[Bayesian] Trial {self.trial_count}/{self.max_iterations}: {params}")
+			return params
+
+		# Duplicate detected - try perturbations
+		print(f"[Bayesian] Duplicate detected: {params}")
+
+		# Try up to 10 perturbations to find non-duplicate
+		max_attempts = 10
+		for attempt in range(max_attempts):
+			# Apply perturbation based on parameter type
+			perturbed_params = self._perturb_parameters(params)
+			perturbed_tuple = tuple(sorted(perturbed_params.items()))
+
+			if perturbed_tuple not in self.tried_params:
+				# Use perturbed parameters
+				self.tried_params.add(perturbed_tuple)
+				self.trial_count += 1
+				print(f"[Bayesian] Using perturbed params (attempt {attempt + 1}): {perturbed_params}")
+				return perturbed_params
+
+		# After max_attempts, use the original suggestion even if duplicate
+		# Better to run a duplicate than to stop optimization early
+		print(f"[Bayesian] Could not find non-duplicate after {max_attempts} perturbation attempts")
+		print(f"[Bayesian] Using sampler's suggestion anyway: {params}")
+		params_tuple = tuple(sorted(params.items()))
+		self.tried_params.add(params_tuple)
+		self.trial_count += 1
 		return params
+
+	def _perturb_parameters(self, params: Dict[str, Any]) -> Dict[str, Any]:
+		"""Add random perturbation to parameters to avoid exact duplicates.
+
+		Args:
+		    params: Original parameter dictionary
+
+		Returns:
+		    New parameter dictionary with random perturbation
+		"""
+		perturbed = params.copy()
+
+		# Choose a random parameter to perturb
+		param_names = list(self.search_space.keys())
+		if not param_names:
+			return perturbed
+
+		param_to_perturb = random.choice(param_names)
+		space_def = self.search_space[param_to_perturb]
+
+		if space_def["type"] == "categorical":
+			# For categorical, choose a different value if possible
+			choices = space_def["choices"]
+			if len(choices) > 1:
+				current_value = perturbed[param_to_perturb]
+				other_choices = [c for c in choices if c != current_value]
+				if other_choices:
+					perturbed[param_to_perturb] = random.choice(other_choices)
+
+		elif space_def["type"] == "continuous":
+			# For continuous, add small random noise (1-5% of range)
+			low, high = space_def["low"], space_def["high"]
+			range_size = high - low
+			noise = random.uniform(0.01, 0.05) * range_size * random.choice([-1, 1])
+			new_value = perturbed[param_to_perturb] + noise
+			# Clamp to valid range
+			perturbed[param_to_perturb] = max(low, min(high, new_value))
+
+		elif space_def["type"] == "integer":
+			# For integer, add ±1 or ±2
+			low, high = space_def["low"], space_def["high"]
+			current_value = perturbed[param_to_perturb]
+			delta = random.choice([-2, -1, 1, 2])
+			new_value = current_value + delta
+			# Clamp to valid range
+			perturbed[param_to_perturb] = max(low, min(high, new_value))
+
+		return perturbed
 
 	def tell_result(self, parameters: Dict[str, Any], objective_score: float, metrics: Dict[str, Any]):
 		"""Update Optuna study with experiment result."""
@@ -657,6 +746,7 @@ class BayesianStrategy(OptimizationStrategy):
 			"trial_count": self.trial_count,
 			"max_iterations": self.max_iterations,
 			"n_initial_random": self.n_initial_random,
+			"tried_params": [list(p) for p in self.tried_params],  # Convert tuples to lists for JSON serialization
 		})
 		return base_state
 
@@ -673,6 +763,10 @@ class BayesianStrategy(OptimizationStrategy):
 		# Restore trial count
 		strategy.trial_count = state["trial_count"]
 		strategy.history = state.get("history", [])
+
+		# Restore tried_params set
+		tried_params_list = state.get("tried_params", [])
+		strategy.tried_params = {tuple(p) for p in tried_params_list}
 
 		# Re-populate Optuna study with history
 		for entry in strategy.history:
