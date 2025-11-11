@@ -79,13 +79,14 @@ class AutotunerOrchestrator:
 
 		self.results = []
 
-	def run_experiment(self, task: Dict[str, Any], experiment_id: int, parameters: Dict[str, Any]) -> Dict[str, Any]:
+	def run_experiment(self, task: Dict[str, Any], experiment_id: int, parameters: Dict[str, Any], on_benchmark_start=None) -> Dict[str, Any]:
 		"""Run a single tuning experiment.
 
 		Args:
 		    task: Task configuration
 		    experiment_id: Unique experiment identifier
 		    parameters: Parameter values for this experiment
+		    on_benchmark_start: Optional callback function called when benchmark phase starts
 
 		Returns:
 		    Experiment results dictionary
@@ -149,6 +150,10 @@ class AutotunerOrchestrator:
 
 		# Step 3: Run benchmark
 		print(f"\n[Step 3/4] Running benchmark...")
+
+		# Notify that benchmark phase is starting
+		if on_benchmark_start:
+			on_benchmark_start()
 
 		if self.use_direct_benchmark:
 			# Get endpoint URL (differs between Docker and OME modes)

@@ -100,7 +100,8 @@ async def run_experiment_with_timeout(
 	iteration: int,
 	params: Dict[str, Any],
 	timeout_seconds: int,
-	logger: logging.Logger
+	logger: logging.Logger,
+	on_benchmark_start=None
 ) -> Dict[str, Any]:
 	"""
 	Run a single experiment with timeout enforcement.
@@ -112,6 +113,7 @@ async def run_experiment_with_timeout(
 		params: Parameter configuration for this experiment
 		timeout_seconds: Maximum time allowed for this experiment
 		logger: Logger instance
+		on_benchmark_start: Optional callback when benchmark phase starts
 
 	Returns:
 		Result dict with status, metrics, etc.
@@ -130,7 +132,8 @@ async def run_experiment_with_timeout(
 				orchestrator.run_experiment,
 				task_config,
 				iteration,
-				params
+				params,
+				on_benchmark_start  # Pass the callback
 			),
 			timeout=timeout_seconds
 		)
@@ -286,6 +289,24 @@ async def run_autotuning_task(ctx: Dict[str, Any], task_id: int) -> Dict[str, An
 
 				logger.info(f"[Experiment {iteration}] Status: DEPLOYING")
 
+				# Shared flag to signal when benchmark starts
+				benchmark_started = {'value': False}
+
+				# Define callback to update status when benchmark starts
+				def on_benchmark_start():
+					benchmark_started['value'] = True
+
+				# Start a background task to monitor and update status
+				async def monitor_benchmark_status():
+					while not benchmark_started['value']:
+						await asyncio.sleep(0.1)  # Check every 100ms
+					# Update status to BENCHMARKING
+					db_experiment.status = ExperimentStatus.BENCHMARKING
+					await db.commit()
+					logger.info(f"[Experiment {iteration}] Status: BENCHMARKING")
+
+				monitor_task = asyncio.create_task(monitor_benchmark_status())
+
 				# Run experiment using orchestrator with timeout
 				try:
 					result = await run_experiment_with_timeout(
@@ -294,12 +315,21 @@ async def run_autotuning_task(ctx: Dict[str, Any], task_id: int) -> Dict[str, An
 						iteration=iteration,
 						params=params,
 						timeout_seconds=timeout_per_iteration,
-						logger=logger
+						logger=logger,
+						on_benchmark_start=on_benchmark_start
 					)
 
 					logger.info(f"[Experiment {iteration}] Status: {result['status'].upper()}")
 					if result.get("metrics"):
 						logger.info(f"[Experiment {iteration}] Metrics: {result['metrics']}")
+
+					# Cancel monitor task since experiment is done
+					if not monitor_task.done():
+						monitor_task.cancel()
+						try:
+							await monitor_task
+						except asyncio.CancelledError:
+							pass
 
 					# Save container logs if available (Docker mode)
 					if result.get("container_logs"):
@@ -367,6 +397,14 @@ async def run_autotuning_task(ctx: Dict[str, Any], task_id: int) -> Dict[str, An
 						logger.warning(f"[ARQ Worker] Failed to save checkpoint: {checkpoint_error}")
 
 				except asyncio.TimeoutError:
+					# Cancel monitor task
+					if not monitor_task.done():
+						monitor_task.cancel()
+						try:
+							await monitor_task
+						except asyncio.CancelledError:
+							pass
+
 					# Experiment timed out
 					logger.error(f"[Experiment {iteration}] Timed out after {timeout_per_iteration}s")
 					db_experiment.status = ExperimentStatus.FAILED
@@ -400,6 +438,14 @@ async def run_autotuning_task(ctx: Dict[str, Any], task_id: int) -> Dict[str, An
 						logger.warning(f"[ARQ Worker] Failed to save checkpoint: {checkpoint_error}")
 
 				except Exception as e:
+					# Cancel monitor task
+					if not monitor_task.done():
+						monitor_task.cancel()
+						try:
+							await monitor_task
+						except asyncio.CancelledError:
+							pass
+
 					logger.error(f"[Experiment {iteration}] Failed: {e}", exc_info=True)
 					db_experiment.status = ExperimentStatus.FAILED
 					db_experiment.error_message = str(e)

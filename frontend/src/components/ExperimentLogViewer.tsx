@@ -26,17 +26,45 @@ export default function ExperimentLogViewer({ taskId, experimentId, onClose }: E
     if (!logs) return '';
 
     const lines = logs.split('\n');
-    const experimentPrefix = `[Experiment ${experimentId}]`;
+    const experimentStartMarker = `Experiment ${experimentId}`;
+    const experimentStatusMarker = `[Experiment ${experimentId}]`;
 
-    // Filter lines that contain the experiment prefix
-    const filteredLines = lines.filter(line => line.includes(experimentPrefix));
+    // Find the start of this experiment (the header with ====)
+    let startIndex = -1;
+    let endIndex = lines.length;
 
-    // If no specific logs found, show a message
-    if (filteredLines.length === 0) {
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+
+      // Look for experiment start: "Experiment N" followed by "===="
+      if (line.includes(experimentStatusMarker) && line.includes('Status: DEPLOYING')) {
+        startIndex = i;
+      }
+
+      // Look for next experiment start to mark our end
+      if (startIndex !== -1 && i > startIndex) {
+        // Check if this is a new experiment starting
+        const match = line.match(/\[Experiment (\d+)\].*Status: DEPLOYING/);
+        if (match && parseInt(match[1]) !== experimentId) {
+          endIndex = i;
+          break;
+        }
+        // Also check for completion
+        if (line.includes(experimentStatusMarker) && (line.includes('Status: SUCCESS') || line.includes('Status: FAILED'))) {
+          endIndex = i + 1;
+          break;
+        }
+      }
+    }
+
+    if (startIndex === -1) {
       return `No logs found for Experiment ${experimentId}.\n\nThis could mean:\n- The experiment hasn't started yet\n- The experiment was skipped\n- Logs are still being written`;
     }
 
-    return filteredLines.join('\n');
+    // Extract all lines between start and end
+    const experimentLines = lines.slice(startIndex, endIndex);
+
+    return experimentLines.join('\n');
   };
 
   const filteredLogs = logData?.logs ? filterExperimentLogs(logData.logs) : '';

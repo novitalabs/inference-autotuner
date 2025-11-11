@@ -19891,3 +19891,396 @@ useEffect(() => {
 **Status:** Task duplication feature fully implemented and ready for use
 
 </details>
+
+---
+
+## 2025-11-11: BENCHMARKING Status Bug Fix and Experiment Log Viewer Enhancement
+
+> User: "Why I didn't see a benchmarking experiment, check recent experiments' status"
+> 
+> User: "No, the GPU util is high, I'm sure it's on benchmarking, check bug about experiment status."
+
+<details>
+<summary>Fixed missing BENCHMARKING status update and improved experiment log filtering</summary>
+
+### Problem
+
+**Bug Discovered:** Experiments never showed `BENCHMARKING` status in the database, even though GPU utilization indicated benchmarks were running. The status went directly from `DEPLOYING` → `SUCCESS/FAILED` without the intermediate `BENCHMARKING` state.
+
+**Investigation:**
+1. Checked database - all experiments showed either DEPLOYING, SUCCESS, or FAILED
+2. Verified GPU was active during benchmark phase
+3. Found `BENCHMARKING` status was defined in enum but never actually set
+4. Identified root cause: Worker calls blocking `orchestrator.run_experiment()` function
+
+### Root Cause Analysis
+
+**Architecture Issue:**
+
+```python
+# Worker flow (autotuner_worker.py)
+db_experiment.status = ExperimentStatus.DEPLOYING  # Set at line 283
+await db.commit()
+
+# Call orchestrator - BLOCKS until entire experiment completes
+result = await run_experiment_with_timeout(
+    orchestrator=orchestrator,
+    task_config=task_config,
+    iteration=iteration,
+    params=params,
+    timeout_seconds=timeout_per_iteration,
+    logger=logger
+)
+
+# Update with final status only
+db_experiment.status = ExperimentStatus.SUCCESS or ExperimentStatus.FAILED
+```
+
+**The Problem:**
+- `orchestrator.run_experiment()` is synchronous and runs in executor thread
+- Executes: Deploy → Wait for Ready → Benchmark → Return result
+- Worker has no visibility into orchestrator's internal progress
+- No way to update status when benchmark phase starts
+- Status jumps from DEPLOYING directly to final state
+
+### Solution: Callback-Based Status Update
+
+**Implementation Strategy:**
+
+1. **Add callback parameter to orchestrator** (`src/orchestrator.py`)
+2. **Invoke callback when benchmark starts**
+3. **Worker monitors callback via shared flag**
+4. **Background task updates database asynchronously**
+
+**Code Changes:**
+
+#### 1. Orchestrator - Add Callback Support
+
+```python
+# src/orchestrator.py
+def run_experiment(
+    self, 
+    task: Dict[str, Any], 
+    experiment_id: int, 
+    parameters: Dict[str, Any], 
+    on_benchmark_start=None  # NEW: Optional callback
+) -> Dict[str, Any]:
+    """Run a single tuning experiment."""
+    
+    # ... deployment code ...
+    
+    # Step 3: Run benchmark
+    print(f"\n[Step 3/4] Running benchmark...")
+    
+    # Notify that benchmark phase is starting
+    if on_benchmark_start:
+        on_benchmark_start()  # INVOKE CALLBACK
+    
+    # ... benchmark execution ...
+```
+
+#### 2. Worker - Add Monitoring Task
+
+```python
+# src/web/workers/autotuner_worker.py
+
+# Shared flag to signal when benchmark starts
+benchmark_started = {'value': False}
+
+# Callback sets flag (runs in executor thread)
+def on_benchmark_start():
+    benchmark_started['value'] = True
+
+# Background task monitors flag and updates DB
+async def monitor_benchmark_status():
+    while not benchmark_started['value']:
+        await asyncio.sleep(0.1)  # Poll every 100ms
+    # Update status to BENCHMARKING
+    db_experiment.status = ExperimentStatus.BENCHMARKING
+    await db.commit()
+    logger.info(f"[Experiment {iteration}] Status: BENCHMARKING")
+
+# Start monitoring task
+monitor_task = asyncio.create_task(monitor_benchmark_status())
+
+# Run experiment with callback
+result = await run_experiment_with_timeout(
+    orchestrator=orchestrator,
+    task_config=task_config,
+    iteration=iteration,
+    params=params,
+    timeout_seconds=timeout_per_iteration,
+    logger=logger,
+    on_benchmark_start=on_benchmark_start  # PASS CALLBACK
+)
+
+# Cleanup monitor task
+if not monitor_task.done():
+    monitor_task.cancel()
+    try:
+        await monitor_task
+    except asyncio.CancelledError:
+        pass
+```
+
+#### 3. Pass Callback Through Timeout Wrapper
+
+```python
+# src/web/workers/autotuner_worker.py
+async def run_experiment_with_timeout(
+    orchestrator: AutotunerOrchestrator,
+    task_config: Dict[str, Any],
+    iteration: int,
+    params: Dict[str, Any],
+    timeout_seconds: int,
+    logger: logging.Logger,
+    on_benchmark_start=None  # NEW: Accept callback
+) -> Dict[str, Any]:
+    """Run a single experiment with timeout enforcement."""
+    loop = asyncio.get_event_loop()
+    
+    try:
+        result = await asyncio.wait_for(
+            loop.run_in_executor(
+                None,
+                orchestrator.run_experiment,
+                task_config,
+                iteration,
+                params,
+                on_benchmark_start  # PASS TO ORCHESTRATOR
+            ),
+            timeout=timeout_seconds
+        )
+        return result
+    except asyncio.TimeoutError:
+        logger.error(f"[Experiment {iteration}] Timed out")
+        raise
+```
+
+### Worker Restart Issues Encountered
+
+**Problem:** Multiple workers running simultaneously from previous restarts
+
+**Root Cause:** When restarting worker during development:
+1. Old worker process not killed properly
+2. New worker started while old one still active
+3. Both workers tried to process same task
+4. Redis job locks caused conflicts
+5. Orphaned Docker containers from crashed workers
+
+**Cleanup Required:**
+
+```bash
+# 1. Kill all ARQ workers
+pkill -f "arq web.workers.autotuner_worker"
+
+# 2. Clear Redis job locks
+redis-cli DEL "arq:job:154e0fda5da443be9b0e45c235694695"
+redis-cli DEL "arq:in-progress:154e0fda5da443be9b0e45c235694695"
+
+# 3. Stop orphaned containers
+docker stop autotuner-Mistral-Nemo-Instruct-2407_v1111-exp2
+docker stop autotuner-Mistral-Nemo-Instruct-2407_v1111-exp3
+
+# 4. Mark orphaned experiments as failed
+sqlite3 ~/.local/share/inference-autotuner/autotuner.db \
+  "UPDATE experiments SET status = 'FAILED', 
+   error_message = 'Worker crashed, cleaned up orphaned experiment', 
+   completed_at = datetime('now') 
+   WHERE id IN (139, 140, 141);"
+
+# 5. Start fresh worker
+./scripts/start_worker.sh
+```
+
+**Lesson Learned:** Always kill existing workers before starting new ones (documented in agentlog from yesterday's duplicate experiment issue)
+
+### Testing and Verification
+
+**Test Case: Experiment 3, Task 8**
+
+```
+11:21:39 - [Experiment 3] Status: DEPLOYING
+11:21:39 - [Step 1/4] Deploying InferenceService...
+11:21:41 - Container started (ID: 1fc2d49ea3ab)
+11:21:41 - [Step 2/4] Waiting for InferenceService to be ready...
+11:21:41 - [Docker] Waiting for service... (0s)
+11:22:32 - [Docker] Service is ready! URL: http://localhost:8002
+11:22:32 - [Step 3/4] Running benchmark...
+11:22:32 - [Experiment 3] Status: BENCHMARKING  ← STATUS UPDATED!
+```
+
+**Database Verification:**
+```sql
+SELECT id, experiment_id, status, started_at 
+FROM experiments 
+WHERE id = 142;
+
+-- Result:
+142|3|BENCHMARKING|2025-11-11 03:21:39.776088
+```
+
+**API Verification:**
+```bash
+curl http://localhost:8000/api/experiments/task/8 | jq '.[] | select(.experiment_id == 3)'
+# Returns: "status": "benchmarking"
+```
+
+✅ **Status transitions now working:**
+1. PENDING → Created in database
+2. DEPLOYING → Container creation and startup
+3. **BENCHMARKING** → Benchmark execution (NEW!)
+4. SUCCESS/FAILED → Final result
+
+### Experiment Log Viewer Enhancement
+
+**Secondary Issue:** Experiment log viewer only showed lines with `[Experiment N]` prefix, missing most logs.
+
+**Problem:**
+- ExperimentLogViewer filtered by exact prefix match: `[Experiment 6]`
+- Most logs use different prefixes: `[Docker]`, `[Step 1/4]`, `[Benchmark]`
+- Only 4 lines per experiment visible (status updates)
+- Missed deployment, model loading, benchmark execution logs
+
+**Solution:** Range-based log extraction
+
+```typescript
+// frontend/src/components/ExperimentLogViewer.tsx
+
+const filterExperimentLogs = (logs: string) => {
+  const lines = logs.split('\n');
+  let startIndex = -1;
+  let endIndex = lines.length;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    // Find experiment start: "[Experiment N] Status: DEPLOYING"
+    if (line.includes(`[Experiment ${experimentId}]`) && 
+        line.includes('Status: DEPLOYING')) {
+      startIndex = i;
+    }
+
+    // Find experiment end: next experiment starts OR completion
+    if (startIndex !== -1 && i > startIndex) {
+      // Next experiment starting
+      const match = line.match(/\[Experiment (\d+)\].*Status: DEPLOYING/);
+      if (match && parseInt(match[1]) !== experimentId) {
+        endIndex = i;
+        break;
+      }
+      
+      // Current experiment completed
+      if (line.includes(`[Experiment ${experimentId}]`) && 
+          (line.includes('Status: SUCCESS') || line.includes('Status: FAILED'))) {
+        endIndex = i + 1;
+        break;
+      }
+    }
+  }
+
+  // Extract all lines between start and end
+  return lines.slice(startIndex, endIndex).join('\n');
+};
+```
+
+**Now Shows Complete Experiment Lifecycle:**
+- ✅ Deployment logs (`[Docker] Deploying container...`)
+- ✅ Model loading (`[Docker] Waiting for service... (45s)`)
+- ✅ Benchmark execution (`[Benchmark] Running genai-bench...`)
+- ✅ Status transitions (`[Experiment N] Status: BENCHMARKING`)
+- ✅ All steps (`[Step 1/4]`, `[Step 2/4]`, etc.)
+
+### Log Streaming Already Working
+
+**User Concern:** "It should streaming log when a experiment is in benchmarking or deploying"
+
+**Finding:** Log streaming was already fully implemented!
+
+**Backend** (`src/web/routes/tasks.py`):
+```python
+@router.get("/{task_id}/logs")
+async def get_task_logs(
+    task_id: int,
+    follow: bool = False,  # Enable streaming with ?follow=true
+    db: AsyncSession = Depends(get_db)
+):
+    if follow:
+        return StreamingResponse(
+            stream_log_file(log_file, follow=True),
+            media_type="text/event-stream",  # Server-Sent Events
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+            }
+        )
+```
+
+**Frontend** (`LogViewer.tsx`):
+- Auto-starts streaming on mount
+- Uses EventSource for Server-Sent Events
+- Real-time updates with auto-scroll
+- "Live" indicator when streaming
+- Works during DEPLOYING and BENCHMARKING phases
+
+**Verified Working:**
+```bash
+# Test streaming endpoint
+curl -N http://localhost:8000/api/tasks/8/logs?follow=true
+
+# Output (real-time):
+data: [2025-11-11 11:38:35] [INFO] [Experiment 6] Status: DEPLOYING
+data: [2025-11-11 11:38:37] [INFO] [Step 2/4] Waiting for service...
+data: [2025-11-11 11:39:23] [INFO] [Experiment 6] Status: BENCHMARKING
+... (continues streaming)
+```
+
+### Files Modified
+
+**Backend:**
+- `src/orchestrator.py` - Added `on_benchmark_start` callback parameter
+- `src/web/workers/autotuner_worker.py` - Monitoring task for status update
+
+**Frontend:**
+- `frontend/src/components/ExperimentLogViewer.tsx` - Range-based log filtering
+
+**No changes needed:**
+- Log streaming API already working
+- Task log viewer already streaming
+- Server-Sent Events implementation complete
+
+### Benefits
+
+**Before:**
+- ❌ No visibility into benchmark phase
+- ❌ Status jumped from DEPLOYING → SUCCESS/FAILED
+- ❌ Experiment logs only showed 4 status lines
+- ❌ Could not tell if benchmark was running
+
+**After:**
+- ✅ Clear BENCHMARKING status in database and UI
+- ✅ Complete experiment logs visible
+- ✅ Real-time streaming during all phases
+- ✅ Full lifecycle visibility: PENDING → DEPLOYING → BENCHMARKING → SUCCESS/FAILED
+
+### Status Summary
+
+✅ **BENCHMARKING status implemented** - Callback mechanism working
+✅ **Experiment logs enhanced** - Shows complete lifecycle
+✅ **Log streaming verified** - Already working for all phases
+✅ **Worker management** - Proper cleanup procedures documented
+✅ **Task 8 resumed** - Successfully running with new status updates
+
+**Testing Checklist:**
+- [x] Experiment 3 showed BENCHMARKING status
+- [x] Experiment 5 completed successfully
+- [x] Experiment 6 showed BENCHMARKING status
+- [x] Database reflects correct statuses
+- [x] API returns BENCHMARKING status
+- [x] Logs show all deployment/benchmark steps
+- [x] Streaming works in real-time
+- [x] Worker properly updates status mid-execution
+
+**Status:** BENCHMARKING status bug fixed and verified working in production
+
+</details>
