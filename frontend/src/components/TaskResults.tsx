@@ -46,6 +46,26 @@ export default function TaskResults({ task, onClose }: TaskResultsProps) {
   const successfulExperiments = experiments.filter((exp) => exp.status === 'success');
   const bestExperiment = experiments.find((exp) => exp.id === task.best_experiment_id);
 
+  // Helper function to get parameter differences
+  const getParameterDiff = (expParams: any, bestParams: any): string[] => {
+    if (!expParams || !bestParams) return [];
+    const diffs: string[] = [];
+
+    // Get all parameter keys from both experiments
+    const allKeys = new Set([...Object.keys(expParams), ...Object.keys(bestParams)]);
+
+    for (const key of allKeys) {
+      const expValue = expParams[key];
+      const bestValue = bestParams[key];
+
+      if (expValue !== bestValue) {
+        diffs.push(`${key}: ${expValue} (best: ${bestValue})`);
+      }
+    }
+
+    return diffs;
+  };
+
   // Helper function to format metric value for display
   const formatMetricValue = (value: any): string => {
     if (value === null || value === undefined) return 'N/A';
@@ -72,6 +92,7 @@ export default function TaskResults({ task, onClose }: TaskResultsProps) {
     name: `Exp ${exp.experiment_id}`,
     experiment_id: exp.experiment_id,
     objective_score: exp.objective_score || 0,
+    parameters: exp.parameters, // Include parameters for comparison
     ...getPrimitiveMetrics(exp.metrics),
   }));
 
@@ -233,15 +254,32 @@ export default function TaskResults({ task, onClose }: TaskResultsProps) {
                       <Tooltip
                         content={({ active, payload }) => {
                           if (active && payload && payload.length) {
-                            const isBest = payload[0].payload.experiment_id === bestExperiment?.experiment_id;
+                            const data = payload[0].payload;
+                            const isBest = data.experiment_id === bestExperiment?.experiment_id;
+                            const paramDiffs = !isBest && bestExperiment
+                              ? getParameterDiff(data.parameters, bestExperiment.parameters)
+                              : [];
+
                             return (
-                              <div className="bg-white border border-gray-200 rounded shadow-lg p-2">
-                                <p className="text-sm font-semibold text-gray-900">{payload[0].payload.name}</p>
+                              <div className="bg-white border border-gray-200 rounded shadow-lg p-3 max-w-sm">
+                                <p className="text-sm font-semibold text-gray-900">{data.name}</p>
                                 <p className="text-sm text-gray-600">
                                   Score: <span className="font-mono">{(payload[0].value as number).toFixed(4)}</span>
                                 </p>
                                 {isBest && (
                                   <p className="text-xs text-green-600 font-semibold mt-1">⭐ Best Experiment</p>
+                                )}
+                                {paramDiffs.length > 0 && (
+                                  <div className="mt-2 pt-2 border-t border-gray-200">
+                                    <p className="text-xs font-semibold text-gray-700 mb-1">Parameter Differences vs Best:</p>
+                                    <div className="space-y-1">
+                                      {paramDiffs.map((diff, idx) => (
+                                        <p key={idx} className="text-xs text-gray-600 font-mono">
+                                          {diff}
+                                        </p>
+                                      ))}
+                                    </div>
+                                  </div>
                                 )}
                               </div>
                             );
