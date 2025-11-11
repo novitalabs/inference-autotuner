@@ -3,6 +3,7 @@ import { apiClient } from '@/services/api';
 import type { Task } from '@/types/api';
 import toast from 'react-hot-toast';
 import { useEscapeKey } from '@/hooks/useEscapeKey';
+import { useState, useMemo, useEffect } from 'react';
 import {
   BarChart,
   Bar,
@@ -13,6 +14,9 @@ import {
   Legend,
   ResponsiveContainer,
   Cell,
+  ScatterChart,
+  Scatter,
+  ZAxis,
 } from 'recharts';
 
 interface TaskResultsProps {
@@ -23,6 +27,25 @@ interface TaskResultsProps {
 export default function TaskResults({ task, onClose }: TaskResultsProps) {
   // Handle Escape key to close modal
   useEscapeKey(onClose);
+
+  // State for scatter plot axis selection (initialized from localStorage or defaults)
+  const [scatterXAxis, setScatterXAxis] = useState<string>(() => {
+    return localStorage.getItem('taskResults.scatterXAxis') || 'mean_output_throughput_tokens_per_s';
+  });
+  const [scatterYAxis, setScatterYAxis] = useState<string>(() => {
+    return localStorage.getItem('taskResults.scatterYAxis') || 'num_concurrency';
+  });
+  const [hoveredExperiment, setHoveredExperiment] = useState<number | null>(null);
+
+  // Save axis selections to localStorage whenever they change
+  useEffect(() => {
+    localStorage.setItem('taskResults.scatterXAxis', scatterXAxis);
+  }, [scatterXAxis]);
+
+  useEffect(() => {
+    localStorage.setItem('taskResults.scatterYAxis', scatterYAxis);
+  }, [scatterYAxis]);
+
   // Fetch experiments for this task
   const {
     data: experiments = [],
@@ -96,13 +119,6 @@ export default function TaskResults({ task, onClose }: TaskResultsProps) {
     ...getPrimitiveMetrics(exp.metrics),
   }));
 
-  // Get all numeric metric keys from successful experiments
-  const metricKeys = successfulExperiments.length > 0 && successfulExperiments[0].metrics
-    ? Object.keys(successfulExperiments[0].metrics).filter(key =>
-        successfulExperiments[0].metrics && typeof successfulExperiments[0].metrics[key] === 'number'
-      )
-    : [];
-
   const formatDuration = (seconds: number | null) => {
     if (!seconds) return 'N/A';
     const hours = Math.floor(seconds / 3600);
@@ -128,7 +144,86 @@ export default function TaskResults({ task, onClose }: TaskResultsProps) {
     }
   };
 
-  const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
+  // Extract raw_results for scatter plot (sub-rounds of focused experiment)
+  const getScatterDataForExperiment = (exp: any) => {
+    if (!exp?.metrics?.raw_results || !Array.isArray(exp.metrics.raw_results)) {
+      return [];
+    }
+
+    return exp.metrics.raw_results.map((rawResult: any, index: number) => {
+      // Flatten nested stats into top-level for easier access
+      const flatData: any = {
+        round_index: index,
+        round_name: `Round ${index + 1}`,
+        num_concurrency: rawResult.num_concurrency,
+        batch_size: rawResult.batch_size,
+        scenario: rawResult.scenario,
+        mean_output_throughput_tokens_per_s: rawResult.mean_output_throughput_tokens_per_s,
+        mean_input_throughput_tokens_per_s: rawResult.mean_input_throughput_tokens_per_s,
+        mean_total_tokens_throughput_tokens_per_s: rawResult.mean_total_tokens_throughput_tokens_per_s,
+        requests_per_second: rawResult.requests_per_second,
+        error_rate: rawResult.error_rate,
+        num_requests: rawResult.num_requests,
+        num_completed_requests: rawResult.num_completed_requests,
+      };
+
+      // Flatten stats.* fields
+      if (rawResult.stats) {
+        // Extract mean values from each stat category
+        if (rawResult.stats.ttft) {
+          Object.entries(rawResult.stats.ttft).forEach(([key, value]) => {
+            flatData[`ttft_${key}`] = value;
+          });
+        }
+        if (rawResult.stats.tpot) {
+          Object.entries(rawResult.stats.tpot).forEach(([key, value]) => {
+            flatData[`tpot_${key}`] = value;
+          });
+        }
+        if (rawResult.stats.e2e_latency) {
+          Object.entries(rawResult.stats.e2e_latency).forEach(([key, value]) => {
+            flatData[`e2e_latency_${key}`] = value;
+          });
+        }
+        if (rawResult.stats.num_input_tokens) {
+          Object.entries(rawResult.stats.num_input_tokens).forEach(([key, value]) => {
+            flatData[`input_tokens_${key}`] = value;
+          });
+        }
+        if (rawResult.stats.num_output_tokens) {
+          Object.entries(rawResult.stats.num_output_tokens).forEach(([key, value]) => {
+            flatData[`output_tokens_${key}`] = value;
+          });
+        }
+      }
+
+      return flatData;
+    });
+  };
+
+  // Get scatter data for best experiment (always show in green)
+  const bestExperimentData = useMemo(() => {
+    return bestExperiment ? getScatterDataForExperiment(bestExperiment) : [];
+  }, [bestExperiment]);
+
+  // Get scatter data for hovered experiment (show in blue if different from best)
+  const hoveredExperimentData = useMemo(() => {
+    if (!hoveredExperiment || hoveredExperiment === bestExperiment?.experiment_id) {
+      return [];
+    }
+    const hoveredExp = experiments.find(exp => exp.experiment_id === hoveredExperiment);
+    return hoveredExp ? getScatterDataForExperiment(hoveredExp) : [];
+  }, [hoveredExperiment, experiments, bestExperiment]);
+
+  // Get all available numeric fields from scatter data for axis selection
+  const scatterAxisOptions = useMemo(() => {
+    const data = bestExperimentData.length > 0 ? bestExperimentData : hoveredExperimentData;
+    return data.length > 0
+      ? Object.keys(data[0]).filter(key =>
+          typeof data[0][key] === 'number' && key !== 'round_index'
+        )
+      : [];
+  }, [bestExperimentData, hoveredExperimentData]);
 
   return (
     <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto z-50">
@@ -306,7 +401,18 @@ export default function TaskResults({ task, onClose }: TaskResultsProps) {
                           return null;
                         }}
                       />
-                      <Bar dataKey="objective_score" name="Objective Score" label={(props: any) => {
+                      <Bar
+                        dataKey="objective_score"
+                        name="Objective Score"
+                        onMouseEnter={(data: any) => {
+                          if (data && data.experiment_id) {
+                            setHoveredExperiment(data.experiment_id);
+                          }
+                        }}
+                        onMouseLeave={() => {
+                          setHoveredExperiment(null);
+                        }}
+                        label={(props: any) => {
                         const { x, y, width, index } = props;
                         if (x === undefined || y === undefined || width === undefined || index === undefined) return null;
                         const isBest = chartData[index]?.experiment_id === bestExperiment?.experiment_id;
@@ -331,20 +437,167 @@ export default function TaskResults({ task, onClose }: TaskResultsProps) {
                 </div>
 
                 {/* Metrics Comparison */}
-                {metricKeys.length > 0 && (
+                {(bestExperimentData.length > 0 || hoveredExperimentData.length > 0) && scatterAxisOptions.length > 0 && (
                   <div className="bg-white border border-gray-200 rounded-lg p-4">
-                    <h3 className="text-lg font-semibold text-gray-900 mb-4">Performance Metrics</h3>
+                    {/* Title and Legend */}
+                    <div className="mb-3">
+                      <h3 className="text-lg font-semibold text-gray-900">
+                        Performance Metrics - Sub-Rounds
+                      </h3>
+                      <div className="flex items-center gap-4 mt-2">
+                        {bestExperimentData.length > 0 && (
+                          <p className="text-xs text-green-600">
+                            <span className="inline-block w-3 h-3 bg-green-500 rounded-full mr-1"></span>
+                            Best Exp #{bestExperiment?.experiment_id} ({bestExperimentData.length} rounds)
+                          </p>
+                        )}
+                        {hoveredExperimentData.length > 0 && (
+                          <p className="text-xs text-blue-600">
+                            <span className="inline-block w-3 h-3 bg-blue-500 rounded-full mr-1"></span>
+                            Hovered Exp #{hoveredExperiment} ({hoveredExperimentData.length} rounds)
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Axis Controls */}
+                    <div className="flex items-center gap-4 mb-4 pb-3 border-b border-gray-200">
+                      <div className="flex items-center gap-2">
+                        <label className="text-xs font-medium text-gray-700">X-Axis:</label>
+                        <select
+                          value={scatterXAxis}
+                          onChange={(e) => setScatterXAxis(e.target.value)}
+                          className="text-xs border border-gray-300 rounded px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                          {scatterAxisOptions.map((key) => (
+                            <option key={key} value={key}>
+                              {key}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <label className="text-xs font-medium text-gray-700">Y-Axis:</label>
+                        <select
+                          value={scatterYAxis}
+                          onChange={(e) => setScatterYAxis(e.target.value)}
+                          className="text-xs border border-gray-300 rounded px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                          {scatterAxisOptions.map((key) => (
+                            <option key={key} value={key}>
+                              {key}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Chart */}
                     <ResponsiveContainer width="100%" height={300}>
-                      <BarChart data={chartData}>
+                      <ScatterChart key={`${bestExperiment?.id}-${hoveredExperiment}`}>
                         <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="name" />
-                        <YAxis />
-                        <Tooltip />
+                        <XAxis
+                          type="number"
+                          dataKey={scatterXAxis}
+                          name={scatterXAxis}
+                          label={{ value: scatterXAxis, position: 'insideBottom', offset: -5, fontSize: 11 }}
+                        />
+                        <YAxis
+                          type="number"
+                          dataKey={scatterYAxis}
+                          name={scatterYAxis}
+                          label={{ value: scatterYAxis, angle: -90, position: 'insideLeft', fontSize: 11 }}
+                        />
+                        <ZAxis range={[100, 400]} />
+                        <Tooltip
+                          content={({ active, payload }) => {
+                            if (active && payload && payload.length) {
+                              const data = payload[0].payload;
+                              const isFromBest = payload[0].name === 'Best Experiment';
+                              return (
+                                <div className="bg-white border border-gray-200 rounded shadow-lg p-3 max-w-sm">
+                                  <p className="text-sm font-semibold text-gray-900">
+                                    {data.round_name} (Concurrency: {data.num_concurrency})
+                                  </p>
+                                  {isFromBest && (
+                                    <p className="text-xs text-green-600 font-semibold">⭐ Best Experiment #{bestExperiment?.experiment_id}</p>
+                                  )}
+                                  {!isFromBest && (
+                                    <p className="text-xs text-blue-600 font-semibold">Experiment #{hoveredExperiment}</p>
+                                  )}
+                                  <div className="mt-2 space-y-1">
+                                    <p className="text-xs text-gray-600">
+                                      {scatterXAxis}: <span className="font-mono font-semibold">{data[scatterXAxis]?.toFixed(2)}</span>
+                                    </p>
+                                    <p className="text-xs text-gray-600">
+                                      {scatterYAxis}: <span className="font-mono font-semibold">{data[scatterYAxis]?.toFixed(2)}</span>
+                                    </p>
+                                    <p className="text-xs text-gray-600">
+                                      Scenario: <span className="font-mono">{data.scenario}</span>
+                                    </p>
+                                    <p className="text-xs text-gray-600">
+                                      Requests: <span className="font-mono">{data.num_completed_requests}/{data.num_requests}</span>
+                                    </p>
+                                    {data.error_rate > 0 && (
+                                      <p className="text-xs text-red-600">
+                                        Error Rate: <span className="font-mono">{(data.error_rate * 100).toFixed(2)}%</span>
+                                      </p>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            }
+                            return null;
+                          }}
+                        />
                         <Legend />
-                        {metricKeys.slice(0, 3).map((key, idx) => (
-                          <Bar key={key} dataKey={key} fill={COLORS[idx % COLORS.length]} />
-                        ))}
-                      </BarChart>
+
+                        {/* Best experiment data (green dots) */}
+                        {bestExperimentData.length > 0 && (
+                          <Scatter
+                            name="Best Experiment"
+                            data={bestExperimentData}
+                            fill="#10b981"
+                            shape={(props: any) => {
+                              const { cx, cy } = props;
+                              return (
+                                <circle
+                                  cx={cx}
+                                  cy={cy}
+                                  r={6}
+                                  fill="#10b981"
+                                  stroke="#059669"
+                                  strokeWidth={1.5}
+                                  opacity={0.8}
+                                />
+                              );
+                            }}
+                          />
+                        )}
+
+                        {/* Hovered experiment data (blue dots) */}
+                        {hoveredExperimentData.length > 0 && (
+                          <Scatter
+                            name="Hovered Experiment"
+                            data={hoveredExperimentData}
+                            fill="#3b82f6"
+                            shape={(props: any) => {
+                              const { cx, cy } = props;
+                              return (
+                                <circle
+                                  cx={cx}
+                                  cy={cy}
+                                  r={6}
+                                  fill="#3b82f6"
+                                  stroke="#2563eb"
+                                  strokeWidth={1.5}
+                                  opacity={0.8}
+                                />
+                              );
+                            }}
+                          />
+                        )}
+                      </ScatterChart>
                     </ResponsiveContainer>
                   </div>
                 )}

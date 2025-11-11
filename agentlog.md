@@ -20284,3 +20284,313 @@ data: [2025-11-11 11:39:23] [INFO] [Experiment 6] Status: BENCHMARKING
 **Status:** BENCHMARKING status bug fixed and verified working in production
 
 </details>
+</details>
+
+---
+
+> Add a 2D scatter plot to visualize performance metrics for individual experiments, showing sub-rounds (different concurrency levels) instead of comparing all experiments. The plot should display best experiment by default with hover interactions to compare with other experiments.
+
+<details>
+<summary>Implemented interactive scatter plot for sub-round performance visualization with dual-dataset display</summary>
+
+* *User*: Show a 2D plot in cell of Performance Metrics in task result view, 2 default axis field is tokens per user and tokens per GPU, allow other options in select controls. Display plot for best experiment by default, when hover another experiment, show for the focus one.
+
+* *Claude*: I implemented a scatter plot visualization showing sub-rounds (individual concurrency levels) for experiments. Initially created single-dataset view with experiment selector, but refined based on feedback.
+
+### Implementation Evolution
+
+**Phase 1: Initial Implementation**
+- Created scatter plot showing experiment sub-rounds
+- Added experiment selector dropdown
+- Default axes: tokens_per_user (x) vs tokens_per_gpu (y)
+- Color coding: green for best, blue for others
+
+**Phase 2: Refinement - Removed Selector**
+* *User*: Refactor it as this, remove `Experiment:` choices control, plot the best experiment as green dots, and when mouse hover another experiment in `Objective Scores by Experiment`, show the focus experiment as blue dots.
+
+* *Claude*: Removed dropdown selector and implemented hover-driven interaction:
+- Best experiment always shown in green
+- Hovering over bar chart switches to that experiment in blue
+- Direct hover synchronization between charts
+
+**Phase 3: Dual Display**
+* *User*: It's working now, remove debug info, and show green dots and blue dots together.
+
+* *Claude*: Implemented dual-dataset visualization:
+- Green dots: Best experiment (always visible)
+- Blue dots: Hovered experiment (overlaid when hovering)
+- Both datasets rendered simultaneously for comparison
+
+**Phase 4: Layout Refinement**
+* *User*: Refine layout of Performance Metrics - Sub-Rounds, place axes to a new row
+
+* *Claude*: Reorganized layout structure:
+```
+┌─ Title + Legend ─────────────────────────┐
+├─ X-Axis/Y-Axis Controls (separate row) ─┤
+├─ Scatter Plot Chart ────────────────────┤
+└──────────────────────────────────────────┘
+```
+
+**Phase 5: Persistence**
+* *User*: Save axis choice values into localStorage, and restore when open dialog
+
+* *Claude*: Added localStorage persistence for axis selections
+
+### Technical Details
+
+**Data Extraction (`frontend/src/components/TaskResults.tsx:134-200`)**
+```typescript
+const getScatterDataForExperiment = (exp: any) => {
+  if (!exp?.metrics?.raw_results || !Array.isArray(exp.metrics.raw_results)) {
+    return [];
+  }
+
+  return exp.metrics.raw_results.map((rawResult: any, index: number) => {
+    const flatData: any = {
+      round_index: index,
+      round_name: `Round ${index + 1}`,
+      num_concurrency: rawResult.num_concurrency,
+      batch_size: rawResult.batch_size,
+      scenario: rawResult.scenario,
+      mean_output_throughput_tokens_per_s: rawResult.mean_output_throughput_tokens_per_s,
+      // ... other top-level metrics
+    };
+
+    // Flatten nested stats.* fields
+    if (rawResult.stats) {
+      if (rawResult.stats.ttft) {
+        Object.entries(rawResult.stats.ttft).forEach(([key, value]) => {
+          flatData[`ttft_${key}`] = value;
+        });
+      }
+      // ... flatten tpot, e2e_latency, tokens, etc.
+    }
+
+    return flatData;
+  });
+};
+```
+
+**Dual Dataset Management (`TaskResults.tsx:202-224`)**
+```typescript
+// Best experiment data (always show in green)
+const bestExperimentData = useMemo(() => {
+  return bestExperiment ? getScatterDataForExperiment(bestExperiment) : [];
+}, [bestExperiment]);
+
+// Hovered experiment data (show in blue if different from best)
+const hoveredExperimentData = useMemo(() => {
+  if (!hoveredExperiment || hoveredExperiment === bestExperiment?.experiment_id) {
+    return [];
+  }
+  const hoveredExp = experiments.find(exp => exp.experiment_id === hoveredExperiment);
+  return hoveredExp ? getScatterDataForExperiment(hoveredExp) : [];
+}, [hoveredExperiment, experiments, bestExperiment]);
+```
+
+**Hover Event Handling (`TaskResults.tsx:391-401`)**
+```typescript
+<Bar
+  dataKey="objective_score"
+  name="Objective Score"
+  onMouseEnter={(data: any) => {
+    if (data && data.experiment_id) {
+      setHoveredExperiment(data.experiment_id);
+    }
+  }}
+  onMouseLeave={() => {
+    setHoveredExperiment(null);
+  }}
+  // ...
+>
+```
+
+**Note:** Initially tried `BarChart.onMouseMove` but it didn't fire. Solution: Use `Bar.onMouseEnter/onMouseLeave` events directly.
+
+**Dual Scatter Rendering (`TaskResults.tsx:552-596`)**
+```typescript
+{/* Best experiment data (green dots) */}
+{bestExperimentData.length > 0 && (
+  <Scatter
+    name="Best Experiment"
+    data={bestExperimentData}
+    fill="#10b981"
+    shape={(props: any) => {
+      const { cx, cy } = props;
+      return (
+        <circle cx={cx} cy={cy} r={6} fill="#10b981" 
+                stroke="#059669" strokeWidth={1.5} opacity={0.8} />
+      );
+    }}
+  />
+)}
+
+{/* Hovered experiment data (blue dots) */}
+{hoveredExperimentData.length > 0 && (
+  <Scatter
+    name="Hovered Experiment"
+    data={hoveredExperimentData}
+    fill="#3b82f6"
+    shape={(props: any) => {
+      const { cx, cy } = props;
+      return (
+        <circle cx={cx} cy={cy} r={6} fill="#3b82f6" 
+                stroke="#2563eb" strokeWidth={1.5} opacity={0.8} />
+      );
+    }}
+  />
+)}
+```
+
+**LocalStorage Persistence (`TaskResults.tsx:31-47`)**
+```typescript
+// Initialize from localStorage
+const [scatterXAxis, setScatterXAxis] = useState<string>(() => {
+  return localStorage.getItem('taskResults.scatterXAxis') || 'mean_output_throughput_tokens_per_s';
+});
+
+const [scatterYAxis, setScatterYAxis] = useState<string>(() => {
+  return localStorage.getItem('taskResults.scatterYAxis') || 'num_concurrency';
+});
+
+// Auto-save on change
+useEffect(() => {
+  localStorage.setItem('taskResults.scatterXAxis', scatterXAxis);
+}, [scatterXAxis]);
+
+useEffect(() => {
+  localStorage.setItem('taskResults.scatterYAxis', scatterYAxis);
+}, [scatterYAxis]);
+```
+
+### Available Metrics for Axes
+
+**Top-level metrics:**
+- `num_concurrency` - Concurrency level
+- `batch_size` - Batch size
+- `mean_output_throughput_tokens_per_s` - Output throughput
+- `mean_input_throughput_tokens_per_s` - Input throughput
+- `mean_total_tokens_throughput_tokens_per_s` - Total throughput
+- `requests_per_second` - Request rate
+- `error_rate` - Error percentage
+- `num_requests`, `num_completed_requests` - Request counts
+
+**Flattened stats metrics:**
+- `ttft_*` - Time to First Token (min, max, mean, p25, p50, p75, p90, p95, p99)
+- `tpot_*` - Time Per Output Token (min, max, mean, p25, p50, p75, p90, p95, p99)
+- `e2e_latency_*` - End-to-End Latency (min, max, mean, p25, p50, p75, p90, p95, p99)
+- `input_tokens_*` - Input token stats (min, max, mean, etc.)
+- `output_tokens_*` - Output token stats (min, max, mean, etc.)
+
+### Data Flow
+
+**Database Storage:**
+```
+experiments.metrics = {
+  "raw_results": [
+    {
+      "num_concurrency": 1,
+      "mean_output_throughput_tokens_per_s": 54.26,
+      "stats": {
+        "ttft": {"mean": 0.123, "p50": 0.120, "p90": 0.145, ...},
+        "tpot": {"mean": 0.018, "p50": 0.017, "p90": 0.021, ...},
+        "e2e_latency": {"mean": 1.85, "p50": 1.82, "p90": 2.10, ...},
+        ...
+      }
+    },
+    // ... more rounds for different concurrency levels
+  ],
+  "mean_e2e_latency": 1.85,  // Aggregated across all rounds
+  "mean_ttft": 0.123,
+  // ... other aggregated metrics
+}
+```
+
+**Frontend Transformation:**
+```
+raw_results[] → getScatterDataForExperiment() → flatData[] → ScatterChart
+```
+
+Each raw_result becomes a flattened object with all nested stats promoted to top-level fields (e.g., `stats.ttft.mean` → `ttft_mean`).
+
+### Debugging Process
+
+**Issue:** Hover events not working initially
+
+**Debug Steps:**
+1. Added console.log statements
+2. Added visual debug panel showing state values
+3. Discovered `BarChart.onMouseMove` not firing
+4. Solution: Use `Bar.onMouseEnter/onMouseLeave` instead
+
+**Debugging Tools Used:**
+- Yellow debug panel (temporarily shown state values)
+- Browser console logging
+- React Developer Tools
+
+### Files Modified
+
+- `frontend/src/components/TaskResults.tsx`
+  - Added scatter plot with dual-dataset rendering
+  - Implemented hover synchronization between bar chart and scatter plot
+  - Added localStorage persistence for axis selections
+  - Flattened raw_results data structure for easy axis selection
+
+### User Experience
+
+**Default View:**
+- Best experiment shown in green dots (7 concurrency levels)
+- Title shows: "Best Exp #26 (7 rounds)"
+- Default axes: throughput vs concurrency
+
+**Hover Interaction:**
+- Hover over any experiment bar in objective scores chart
+- Blue dots appear overlaid on green dots
+- Title updates: "Best Exp #26 (7 rounds)" + "Hovered Exp #28 (7 rounds)"
+- Compare performance characteristics at each concurrency level
+
+**Axis Selection:**
+- Change X/Y axes via dropdowns
+- All available numeric fields from raw_results
+- Selections persist across sessions (localStorage)
+
+**Tooltip:**
+- Shows round name and concurrency level
+- Displays selected X/Y axis values
+- Shows scenario, request stats, error rate
+- Identifies whether point is from best or hovered experiment
+
+### Benefits
+
+**Before:**
+- ❌ Only aggregated metrics visible (mean across all concurrency)
+- ❌ No way to see performance at different concurrency levels
+- ❌ Couldn't compare sub-round characteristics between experiments
+
+**After:**
+- ✅ Detailed sub-round visualization (7 data points per experiment)
+- ✅ Direct comparison between best and other experiments
+- ✅ Interactive exploration via hover
+- ✅ Flexible axis selection (40+ metric fields available)
+- ✅ Persistent user preferences
+
+### Example Use Cases
+
+1. **Find optimal concurrency:** See how throughput scales with num_concurrency
+2. **Identify latency patterns:** Plot e2e_latency_p90 vs num_concurrency
+3. **Compare TTFT/TPOT:** Visualize ttft_mean vs tpot_mean relationship
+4. **Detect bottlenecks:** Compare best vs suboptimal experiments' scaling curves
+5. **Verify stability:** Check error_rate across different concurrency levels
+
+### Status
+
+✅ **Scatter plot implemented** - Dual-dataset visualization working
+✅ **Hover interaction** - Synchronized between bar chart and scatter plot
+✅ **Layout refined** - Axes in separate row for clarity
+✅ **Persistence added** - LocalStorage for axis selections
+✅ **Raw_results data** - All 7 concurrency levels visible per experiment
+✅ **Comprehensive metrics** - 40+ fields available for axis selection
+
+**Frontend URL:** http://localhost:3001/
+</details>

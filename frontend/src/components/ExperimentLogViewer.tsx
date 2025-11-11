@@ -26,7 +26,6 @@ export default function ExperimentLogViewer({ taskId, experimentId, onClose }: E
     if (!logs) return '';
 
     const lines = logs.split('\n');
-    const experimentStartMarker = `Experiment ${experimentId}`;
     const experimentStatusMarker = `[Experiment ${experimentId}]`;
 
     // Find the start of this experiment (the header with ====)
