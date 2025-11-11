@@ -7,6 +7,7 @@ import TaskResults from "@/components/TaskResults";
 import ExperimentProgressBar from "@/components/ExperimentProgressBar";
 import { navigateTo } from "@/components/Layout";
 import { setEditingTaskId } from "@/utils/editTaskStore";
+import toast from "react-hot-toast";
 
 export default function Tasks() {
 	const queryClient = useQueryClient();
@@ -461,27 +462,75 @@ function TaskDetailModal({ task, onClose }: { task: Task; onClose: () => void })
 		return `${secs}s`;
 	};
 
+	const handleDuplicateTask = () => {
+		// Extract task configuration for duplication
+		const taskConfig = {
+			task_name: `${task.task_name}_copy`,
+			description: task.description || "",
+			model: task.model,
+			base_runtime: task.base_runtime,
+			runtime_image_tag: task.runtime_image_tag,
+			parameters: task.parameters,
+			optimization: task.optimization,
+			benchmark: task.benchmark,
+			deployment_mode: task.deployment_mode,
+			...(task.slo && { slo: task.slo }), // Include SLO configuration if present
+		};
+
+		// Store in sessionStorage for the new task form to pick up
+		sessionStorage.setItem("duplicateTaskConfig", JSON.stringify(taskConfig));
+
+		// Close modal and navigate to new task form
+		onClose();
+		navigateTo("new-task");
+
+		// Show success message
+		toast.success("Task configuration loaded for duplication");
+	};
+
 	return (
 		<div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center p-4 z-50">
 			<div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
 				<div className="px-6 py-4 border-b border-gray-200">
 					<div className="flex items-center justify-between">
 						<h2 className="text-xl font-bold text-gray-900">{task.task_name}</h2>
-						<button onClick={onClose} className="text-gray-400 hover:text-gray-500">
-							<svg
-								className="h-6 w-6"
-								fill="none"
-								viewBox="0 0 24 24"
-								stroke="currentColor"
+						<div className="flex items-center gap-2">
+							<button
+								onClick={handleDuplicateTask}
+								className="inline-flex items-center px-3 py-1.5 text-sm font-medium text-blue-600 bg-blue-50 rounded-md hover:bg-blue-100 transition-colors"
+								title="Duplicate this task"
 							>
-								<path
-									strokeLinecap="round"
-									strokeLinejoin="round"
-									strokeWidth={2}
-									d="M6 18L18 6M6 6l12 12"
-								/>
-							</svg>
-						</button>
+								<svg
+									className="w-4 h-4 mr-1.5"
+									fill="none"
+									viewBox="0 0 24 24"
+									stroke="currentColor"
+								>
+									<path
+										strokeLinecap="round"
+										strokeLinejoin="round"
+										strokeWidth={2}
+										d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
+									/>
+								</svg>
+								Duplicate
+							</button>
+							<button onClick={onClose} className="text-gray-400 hover:text-gray-500">
+								<svg
+									className="h-6 w-6"
+									fill="none"
+									viewBox="0 0 24 24"
+									stroke="currentColor"
+								>
+									<path
+										strokeLinecap="round"
+										strokeLinejoin="round"
+										strokeWidth={2}
+										d="M6 18L18 6M6 6l12 12"
+									/>
+								</svg>
+							</button>
+						</div>
 					</div>
 				</div>
 

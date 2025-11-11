@@ -57,6 +57,119 @@ export default function NewTask() {
     if (taskId) {
       setEditingTaskId(taskId);
     }
+
+    // Check for duplicate task configuration from sessionStorage
+    const duplicateConfigStr = sessionStorage.getItem('duplicateTaskConfig');
+    if (duplicateConfigStr) {
+      try {
+        const duplicateConfig = JSON.parse(duplicateConfigStr);
+
+        // Load the duplicate configuration into form
+        setTaskName(duplicateConfig.task_name || '');
+        setDescription(duplicateConfig.description || '');
+        setDeploymentMode(duplicateConfig.deployment_mode || 'docker');
+        setBaseRuntime(duplicateConfig.base_runtime || 'sglang');
+        setRuntimeImageTag(duplicateConfig.runtime_image_tag || '');
+
+        // Model config
+        if (duplicateConfig.model) {
+          setModelIdOrPath(duplicateConfig.model.id_or_path || '');
+          setModelNamespace(duplicateConfig.model.namespace || 'autotuner');
+        }
+
+        // Parameters - convert from API format to form format
+        if (duplicateConfig.parameters) {
+          const params: ParamField[] = [];
+          for (const [key, value] of Object.entries(duplicateConfig.parameters)) {
+            if (Array.isArray(value)) {
+              params.push({ name: key, values: value.join(', ') });
+            }
+          }
+          if (params.length > 0) {
+            setParameters(params);
+          }
+        }
+
+        // Optimization
+        if (duplicateConfig.optimization) {
+          setStrategy(duplicateConfig.optimization.strategy || 'grid_search');
+          setObjective(duplicateConfig.optimization.objective || 'minimize_latency');
+          setMaxIterations(duplicateConfig.optimization.max_iterations || 2);
+          setTimeoutPerIteration(duplicateConfig.optimization.timeout_per_iteration || 600);
+        }
+
+        // Benchmark
+        if (duplicateConfig.benchmark) {
+          setBenchmarkTask(duplicateConfig.benchmark.task || 'text-to-text');
+          setBenchmarkModelName(duplicateConfig.benchmark.model_name || '');
+          setModelTokenizer(duplicateConfig.benchmark.model_tokenizer || '');
+          setTrafficScenarios(duplicateConfig.benchmark.traffic_scenarios?.join(', ') || 'D(100,100)');
+          setNumConcurrency(duplicateConfig.benchmark.num_concurrency?.join(', ') || '1, 4');
+          setMaxTimePerIteration(duplicateConfig.benchmark.max_time_per_iteration || 10);
+          setMaxRequestsPerIteration(duplicateConfig.benchmark.max_requests_per_iteration || 50);
+          setTemperature(duplicateConfig.benchmark.additional_params?.temperature?.toString() || '0.0');
+        }
+
+        // SLO Configuration
+        if (duplicateConfig.slo) {
+          setEnableSLO(true);
+
+          // Latency metrics
+          if (duplicateConfig.slo.latency) {
+            const latency = duplicateConfig.slo.latency;
+
+            if (latency.p50) {
+              setEnableP50(true);
+              setSloP50Threshold(latency.p50.threshold?.toString() || '2.0');
+              setSloP50Weight(latency.p50.weight?.toString() || '1.0');
+            }
+
+            if (latency.p90) {
+              setEnableP90(true);
+              setSloP90Threshold(latency.p90.threshold?.toString() || '5.0');
+              setSloP90Weight(latency.p90.weight?.toString() || '2.0');
+              setSloP90HardFail(latency.p90.hard_fail || false);
+              setSloP90FailRatio(latency.p90.fail_ratio?.toString() || '0.2');
+            }
+
+            if (latency.p99) {
+              setEnableP99(true);
+              setSloP99Threshold(latency.p99.threshold?.toString() || '10.0');
+              setSloP99Weight(latency.p99.weight?.toString() || '3.0');
+              setSloP99HardFail(latency.p99.hard_fail || false);
+              setSloP99FailRatio(latency.p99.fail_ratio?.toString() || '0.5');
+            }
+          }
+
+          // TTFT
+          if (duplicateConfig.slo.ttft) {
+            setEnableTTFT(true);
+            setSloTtftThreshold(duplicateConfig.slo.ttft.threshold?.toString() || '1.0');
+            setSloTtftWeight(duplicateConfig.slo.ttft.weight?.toString() || '2.0');
+          }
+
+          // TPOT
+          if (duplicateConfig.slo.tpot) {
+            setEnableTPOT(true);
+            setSloTpotThreshold(duplicateConfig.slo.tpot.threshold?.toString() || '0.05');
+            setSloTpotWeight(duplicateConfig.slo.tpot.weight?.toString() || '2.0');
+          }
+
+          // Steepness
+          if (duplicateConfig.slo.steepness !== undefined) {
+            setSloSteepness(duplicateConfig.slo.steepness.toString());
+          }
+        }
+
+        // Clear the sessionStorage after loading
+        sessionStorage.removeItem('duplicateTaskConfig');
+
+        toast.success('Task configuration loaded for duplication');
+      } catch (error) {
+        console.error('Failed to parse duplicate task config:', error);
+        sessionStorage.removeItem('duplicateTaskConfig');
+      }
+    }
   }, []);
 
   // Fetch task if editing
