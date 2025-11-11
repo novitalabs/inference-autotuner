@@ -19425,3 +19425,469 @@ $ curl http://localhost:8000/api/system/info | jq .timezone
 **Status:** Timezone configuration fully implemented and tested
 
 </details>
+
+---
+
+
+## 2025/11/11
+
+
+---
+
+## Task Results Panel - Parameter Comparison in Tooltips
+
+> User: "In the panel of Objective Scores by Experiment, when hover a experiment column, show its difference of tuning parameters against the best one."
+
+<details>
+<summary>Enhanced experiment chart tooltips to show parameter differences vs best experiment</summary>
+
+**User Requirement:** When hovering over an experiment bar in the "Objective Scores by Experiment" chart, display how its tuning parameters differ from the best experiment's parameters.
+
+### Implementation Overview
+
+The chart tooltip now shows not just the objective score, but also highlights which parameters differ from the best experiment and by how much. This helps users quickly understand why certain experiments performed differently.
+
+### Changes Made
+
+**File: `frontend/src/components/TaskResults.tsx`**
+
+**1. Added `getParameterDiff()` Helper Function**
+
+```typescript
+const getParameterDiff = (expParams: any, bestParams: any): string[] => {
+  if (!expParams || !bestParams) return [];
+  const diffs: string[] = [];
+
+  // Get all parameter keys from both experiments
+  const allKeys = new Set([...Object.keys(expParams), ...Object.keys(bestParams)]);
+
+  for (const key of allKeys) {
+    const expValue = expParams[key];
+    const bestValue = bestParams[key];
+
+    if (expValue !== bestValue) {
+      diffs.push(`${key}: ${expValue} (best: ${bestValue})`);
+    }
+  }
+
+  return diffs;
+};
+```
+
+**Purpose:**
+- Compares two parameter objects (current experiment vs best)
+- Returns array of difference strings
+- Format: `"param-name: current-value (best: best-value)"`
+- Handles cases where parameters might only exist in one experiment
+
+**2. Updated Chart Data to Include Parameters**
+
+```typescript
+const chartData = successfulExperiments.map((exp) => ({
+  name: `Exp ${exp.experiment_id}`,
+  experiment_id: exp.experiment_id,
+  objective_score: exp.objective_score || 0,
+  parameters: exp.parameters, // Include for comparison
+  ...getPrimitiveMetrics(exp.metrics),
+}));
+```
+
+**3. Enhanced Tooltip Component**
+
+```typescript
+<Tooltip
+  content={({ active, payload }) => {
+    if (active && payload && payload.length) {
+      const data = payload[0].payload;
+      const isBest = data.experiment_id === bestExperiment?.experiment_id;
+      const paramDiffs = !isBest && bestExperiment
+        ? getParameterDiff(data.parameters, bestExperiment.parameters)
+        : [];
+
+      return (
+        <div className="bg-white border border-gray-200 rounded shadow-lg p-3 max-w-sm">
+          <p className="text-sm font-semibold text-gray-900">{data.name}</p>
+          <p className="text-sm text-gray-600">
+            Score: <span className="font-mono">{(payload[0].value as number).toFixed(4)}</span>
+          </p>
+          {isBest && (
+            <p className="text-xs text-green-600 font-semibold mt-1">⭐ Best Experiment</p>
+          )}
+          {paramDiffs.length > 0 && (
+            <div className="mt-2 pt-2 border-t border-gray-200">
+              <p className="text-xs font-semibold text-gray-700 mb-1">
+                Parameter Differences vs Best:
+              </p>
+              <div className="space-y-1">
+                {paramDiffs.map((diff, idx) => (
+                  <p key={idx} className="text-xs text-gray-600 font-mono">
+                    {diff}
+                  </p>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+    return null;
+  }}
+/>
+```
+
+### Tooltip Display Logic
+
+**For Best Experiment:**
+- Shows experiment name and score
+- Displays "⭐ Best Experiment" badge
+- No parameter differences (comparing to itself)
+
+**For Other Experiments:**
+- Shows experiment name and score
+- If parameters differ from best, shows "Parameter Differences vs Best:" section
+- Lists each differing parameter with format:
+  - `tp-size: 2 (best: 4)`
+  - `mem-fraction-static: 0.7 (best: 0.85)`
+  - `schedule-policy: fcfs (best: lpm)`
+
+**If No Differences:**
+- Only shows name and score
+- No parameter difference section
+- Indicates parameters match best experiment
+
+### Visual Design
+
+```
+┌─────────────────────────────────┐
+│ Exp 3                          │
+│ Score: 2.1537                  │
+│                                 │
+│ Parameter Differences vs Best:  │
+│ --------------------------------│
+│ tp-size: 2 (best: 4)           │
+│ mem-fraction-static: 0.7 (0.85)│
+└─────────────────────────────────┘
+```
+
+### Use Cases
+
+**1. Debugging Poor Performance:**
+User hovers over high-latency experiment:
+```
+mem-fraction-static: 0.6 (best: 0.85)
+tp-size: 1 (best: 4)
+```
+→ Clearly shows insufficient memory allocation and no tensor parallelism
+
+**2. Validating Similar Performance:**
+User hovers over experiment with similar score:
+```
+schedule-policy: fcfs (best: lpm)
+```
+→ Shows only scheduling differs, other params optimal
+
+**3. Identifying Bottlenecks:**
+User compares multiple experiments:
+```
+Exp 1: tp-size: 1 (best: 4) → score: 3.2
+Exp 2: tp-size: 2 (best: 4) → score: 2.1
+Exp 3: tp-size: 4 (best: 4) → score: 1.5 ⭐
+```
+→ Clear correlation between tp-size and performance
+
+### Technical Details
+
+**Parameter Comparison Logic:**
+- Uses strict equality (`!==`) for comparison
+- Compares all parameters from both experiments
+- Handles different types (numbers, strings, booleans)
+- Safe against undefined/null parameters
+
+**Chart Integration:**
+- Works with existing Recharts BarChart component
+- Tooltip appears on hover automatically
+- Responsive design (max-width constrains large tooltips)
+- Clean separation with border-top divider
+
+**Performance:**
+- Comparison runs on hover (minimal overhead)
+- Only compares against best experiment once
+- No re-renders of chart data
+
+### Files Modified
+
+**Frontend:**
+- `frontend/src/components/TaskResults.tsx`
+  - Added `getParameterDiff()` function
+  - Updated `chartData` to include parameters
+  - Enhanced Tooltip content with parameter comparison
+  - Added visual styling for parameter differences section
+
+**No backend changes required**
+
+### Benefits
+
+- **Immediate insights** - See why experiments differ without manual comparison
+- **Reduces analysis time** - No need to cross-reference experiment details table
+- **Visual learning** - Hover pattern teaches parameter impact intuitively
+- **Better decisions** - Quickly identify which parameters to tune further
+- **Debug failed experiments** - Understand what went wrong at a glance
+
+### Example Scenarios
+
+**Scenario 1: Memory Configuration Impact**
+```
+Experiment 5: 
+Score: 2.8
+Parameter Differences vs Best:
+mem-fraction-static: 0.6 (best: 0.85)
+```
+→ User learns 0.85 is optimal for this model
+
+**Scenario 2: Tensor Parallelism Testing**
+```
+Experiment 2:
+Score: 2.1
+Parameter Differences vs Best:
+tp-size: 2 (best: 4)
+schedule-policy: fcfs (best: lpm)
+```
+→ User sees both TP and scheduling affect performance
+
+**Scenario 3: No Significant Difference**
+```
+Experiment 7:
+Score: 1.52
+Parameter Differences vs Best:
+schedule-policy: random (best: lpm)
+```
+→ User learns scheduling has minimal impact (scores 1.52 vs 1.50)
+
+### Testing Checklist
+
+- [x] Tooltip shows for all experiments
+- [x] Best experiment shows star badge, no differences
+- [x] Parameter differences correctly calculated
+- [x] Formatting displays clearly (param: value (best: value))
+- [x] Handles experiments with different parameter sets
+- [x] Handles null/undefined parameters gracefully
+- [x] Visual styling with proper spacing and borders
+- [x] Tooltip repositions correctly on screen edges
+- [x] Works with all parameter types (string, number, float)
+- [x] Font-mono styling for parameter values
+
+**Status:** Parameter comparison tooltips fully implemented and enhancing user experience
+
+</details>
+
+
+## Task Duplication Feature
+
+> User: "In task details view, added a button that create a new task duplicate from this."
+> 
+> User clarification: "Not Task results view, the one I mentioned is that open by `View Details`."
+
+<details>
+<summary>Added task duplication button to TaskDetailModal for easy task cloning</summary>
+
+**User Requirement:** Add a "Duplicate" button in the task details modal (opened by "View Details") that creates a new task with the same configuration.
+
+### Implementation Overview
+
+The feature allows users to quickly create a copy of an existing task with all its configuration pre-filled in the new task form. This is useful for:
+- Running similar experiments with slight variations
+- Testing different parameter values on the same model
+- Creating task templates
+
+### Changes Made
+
+**1. Tasks.tsx - TaskDetailModal Component**
+
+Added "Duplicate" button to modal header:
+- Positioned between task name and close button
+- Blue background with copy/duplicate icon
+- Calls `handleDuplicateTask()` on click
+
+**`handleDuplicateTask()` function:**
+```typescript
+const handleDuplicateTask = () => {
+  const taskConfig = {
+    task_name: `${task.task_name}_copy`,
+    description: task.description || "",
+    model: task.model,
+    base_runtime: task.base_runtime,
+    runtime_image_tag: task.runtime_image_tag,
+    parameters: task.parameters,
+    optimization: task.optimization,
+    benchmark: task.benchmark,
+    deployment_mode: task.deployment_mode,
+    ...(task.slo && { slo: task.slo }), // Include SLO if present
+  };
+  
+  sessionStorage.setItem("duplicateTaskConfig", JSON.stringify(taskConfig));
+  onClose();
+  navigateTo("new-task");
+  toast.success("Task configuration loaded for duplication");
+};
+```
+
+**2. NewTask.tsx - Component Mount Logic**
+
+Enhanced mount useEffect to check for duplicate configuration:
+```typescript
+useEffect(() => {
+  // Existing edit mode check...
+  
+  // Check for duplicate task configuration
+  const duplicateConfigStr = sessionStorage.getItem('duplicateTaskConfig');
+  if (duplicateConfigStr) {
+    try {
+      const duplicateConfig = JSON.parse(duplicateConfigStr);
+      
+      // Load basic info
+      setTaskName(duplicateConfig.task_name || '');
+      setDescription(duplicateConfig.description || '');
+      // ... load all other fields
+      
+      // Load SLO configuration if present
+      if (duplicateConfig.slo) {
+        setEnableSLO(true);
+        // Load P50, P90, P99, TTFT, TPOT settings
+        // ...
+      }
+      
+      sessionStorage.removeItem('duplicateTaskConfig');
+      toast.success('Task configuration loaded for duplication');
+    } catch (error) {
+      console.error('Failed to parse duplicate task config:', error);
+      sessionStorage.removeItem('duplicateTaskConfig');
+    }
+  }
+}, []);
+```
+
+### Configuration Fields Duplicated
+
+**Basic Information:**
+- Task name (with "_copy" suffix)
+- Description
+- Deployment mode (docker/ome)
+- Base runtime (sglang/vllm)
+- Runtime image tag
+
+**Model Configuration:**
+- Model ID or path
+- Model namespace
+
+**Parameters:**
+- All tuning parameters with their value arrays
+- Converted to form format (comma-separated strings)
+
+**Optimization Settings:**
+- Strategy (grid_search/bayesian/random)
+- Objective (minimize_latency/maximize_throughput/etc.)
+- Max iterations
+- Timeout per iteration
+
+**Benchmark Configuration:**
+- Benchmark task
+- Model name
+- Model tokenizer
+- Traffic scenarios
+- Concurrency levels
+- Max time/requests per iteration
+- Temperature and other additional params
+
+**SLO Configuration (if present):**
+- P50, P90, P99 latency thresholds and weights
+- TTFT (Time to First Token) settings
+- TPOT (Time Per Output Token) settings
+- Hard fail flags and fail ratios
+- Steepness parameter
+
+### User Flow
+
+1. User views task list on Tasks page
+2. Clicks "View Details" button on a task
+3. TaskDetailModal opens showing full task configuration
+4. User clicks "Duplicate" button in modal header
+5. Modal closes and navigates to New Task form
+6. Form is pre-filled with all configuration from original task
+7. Task name has "_copy" suffix
+8. User can modify any fields as needed
+9. User submits to create new task
+
+### Technical Details
+
+**Data Transfer Method:**
+- Uses browser `sessionStorage` to pass data between pages
+- Storage key: `"duplicateTaskConfig"`
+- Cleared immediately after reading to prevent stale data
+
+**Why sessionStorage:**
+- Persists across navigation (unlike React state)
+- Cleared on tab close (unlike localStorage)
+- Perfect for one-time data transfer between pages
+- No URL pollution or query parameters needed
+
+**Toast Notifications:**
+- Shows "Task configuration loaded for duplication" when form loads config
+- Provides user feedback that duplication was successful
+
+### Files Modified
+
+**Frontend:**
+- `frontend/src/pages/Tasks.tsx`
+  - Added `toast` import from 'react-hot-toast'
+  - Added `handleDuplicateTask()` function to TaskDetailModal
+  - Added "Duplicate" button to modal header
+  - Included SLO configuration in duplicated data
+  
+- `frontend/src/pages/NewTask.tsx`
+  - Enhanced mount useEffect to check for `duplicateTaskConfig`
+  - Added SLO configuration loading logic
+  - All form fields populated from duplicate config
+
+**No backend changes required** - all handled client-side
+
+### Button Design
+
+```tsx
+<button
+  onClick={handleDuplicateTask}
+  className="inline-flex items-center px-3 py-1.5 text-sm font-medium 
+             text-blue-600 bg-blue-50 rounded-md hover:bg-blue-100 
+             transition-colors"
+  title="Duplicate this task"
+>
+  <svg className="w-4 h-4 mr-1.5" /* copy icon */ />
+  Duplicate
+</button>
+```
+
+### Benefits
+
+- **Fast task creation** - No need to manually re-enter configuration
+- **Reduce errors** - Copy exact configuration without typos
+- **Experimentation** - Easy to create variations of working tasks
+- **Template-like usage** - Duplicate well-configured tasks as starting points
+- **Includes SLO** - Full configuration including optional SLO settings
+
+### Testing Checklist
+
+- [x] Duplicate button appears in TaskDetailModal
+- [x] Button click stores config in sessionStorage
+- [x] Navigation to new task form works
+- [x] Form pre-fills with all basic configuration
+- [x] Parameters converted correctly (array to comma-separated)
+- [x] Optimization settings loaded
+- [x] Benchmark configuration loaded
+- [x] SLO configuration loaded (if present)
+- [x] Task name has "_copy" suffix
+- [x] SessionStorage cleared after loading
+- [x] Toast notification displayed
+- [x] Can modify and submit duplicated task
+
+**Status:** Task duplication feature fully implemented and ready for use
+
+</details>
