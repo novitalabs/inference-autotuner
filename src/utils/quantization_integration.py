@@ -212,33 +212,31 @@ def expand_quant_config_to_parameter_spec(
     This function handles quant_config that contains arrays of values and converts them
     into the format expected by generate_parameter_grid (simple list format).
 
+    IMPORTANT: This function keeps the dtype field names (gemm_dtype, etc.) as-is.
+    They will be converted to runtime-specific CLI args later in prepare_experiment_parameters.
+
     Args:
         quant_config: Quantization config with possible arrays
                      Example: {"gemm_dtype": ["auto", "fp8"], "kvcache_dtype": ["auto", "fp8_e5m2"]}
 
     Returns:
-        Parameter spec dict in generate_parameter_grid format
-        Example: {"gemm-dtype": ["auto", "fp8"], "kv-cache-dtype": ["auto", "fp8_e5m2"]}
+        Parameter spec dict in generate_parameter_grid format with original field names
+        Example: {"__quant__gemm_dtype": ["auto", "fp8"], "__quant__kvcache_dtype": ["auto", "fp8_e5m2"]}
 
     Note:
         - Single values are wrapped in lists
-        - Keys are converted to CLI flag format (underscore -> hyphen)
-        - 'auto' values are filtered out (they mean "use default")
+        - Keys are prefixed with __quant__ to distinguish from regular parameters
+        - All values (including 'auto') are kept for grid expansion
     """
     if not quant_config:
         return {}
 
-    # Fields that map to runtime parameters
-    dtype_fields = {
-        "gemm_dtype": "gemm-dtype",
-        "kvcache_dtype": "kv-cache-dtype",
-        "attention_dtype": "attention-dtype",
-        "moe_dtype": "moe-dtype"
-    }
+    # Fields that should be expanded into parameter grid
+    dtype_fields = ["gemm_dtype", "kvcache_dtype", "attention_dtype", "moe_dtype"]
 
     param_spec = {}
 
-    for field, cli_name in dtype_fields.items():
+    for field in dtype_fields:
         if field not in quant_config:
             continue
 
@@ -248,13 +246,12 @@ def expand_quant_config_to_parameter_spec(
         if not isinstance(value, list):
             value = [value]
 
-        # Filter out 'auto' as it means "use default" (no CLI flag needed)
-        # Keep other values for parameter grid
-        filtered_values = [v for v in value if v != "auto"]
+        # Skip if empty list
+        if not value:
+            continue
 
-        # Only add to spec if there are non-auto values
-        if filtered_values:
-            param_spec[cli_name] = filtered_values
+        # Add with __quant__ prefix to distinguish from regular CLI parameters
+        param_spec[f"__quant__{field}"] = value
 
     return param_spec
 
@@ -293,3 +290,80 @@ def merge_parameters_with_quant_config(
     merged.update(quant_params)
 
     return merged
+
+
+def extract_quant_config_from_params(params: Dict[str, Any]) -> tuple[Dict[str, Any], Dict[str, Any]]:
+    """
+    Extract quantization config from experiment parameters and separate regular parameters.
+
+    Experiment parameters may contain __quant__ prefixed fields from grid expansion.
+    This function separates them and reconstructs the quant_config.
+
+    Args:
+        params: Experiment parameters dict, may contain __quant__ prefixed keys
+                Example: {"tp-size": 1, "__quant__gemm_dtype": "fp8", "__quant__kvcache_dtype": "fp8_e5m2"}
+
+    Returns:
+        Tuple of (regular_params, quant_config)
+        Example: ({"tp-size": 1}, {"gemm_dtype": "fp8", "kvcache_dtype": "fp8_e5m2"})
+    """
+    regular_params = {}
+    quant_config = {}
+
+    for key, value in params.items():
+        if key.startswith("__quant__"):
+            # Extract dtype field name
+            field_name = key.replace("__quant__", "")
+            quant_config[field_name] = value
+        else:
+            regular_params[key] = value
+
+    return regular_params, quant_config if quant_config else None
+
+
+def prepare_runtime_parameters(
+    base_runtime: str,
+    params: Dict[str, Any],
+    model_path: str,
+    model_config: Optional[Dict] = None
+) -> Dict[str, Any]:
+    """
+    Prepare runtime-specific CLI parameters from experiment parameters.
+
+    This function:
+    1. Extracts quant_config from __quant__ prefixed parameters
+    2. Converts quant_config to runtime-specific CLI arguments
+    3. Merges with regular parameters
+
+    Args:
+        base_runtime: Runtime engine ("vllm", "sglang", "tensorrt_llm")
+        params: Experiment parameters (may contain __quant__ prefixed fields)
+        model_path: Model path for detecting offline quantization
+        model_config: Optional model configuration
+
+    Returns:
+        Runtime-ready parameter dict with correct CLI argument names
+
+    Example:
+        >>> prepare_runtime_parameters(
+        ...     "sglang",
+        ...     {"tp-size": 1, "__quant__gemm_dtype": "fp8", "__quant__kvcache_dtype": "fp8_e5m2"},
+        ...     "meta-llama/Llama-3.2-1B-Instruct"
+        ... )
+        {"tp-size": 1, "quantization": "fp8", "dtype": "auto", "kv-cache-dtype": "fp8_e5m2"}
+    """
+    # Separate regular params and quant config
+    regular_params, quant_config = extract_quant_config_from_params(params)
+
+    if not quant_config:
+        # No quantization config, return as-is
+        return regular_params
+
+    # Use prepare_experiment_parameters to convert quant_config to runtime args
+    return prepare_experiment_parameters(
+        base_runtime=base_runtime,
+        quant_config=quant_config,
+        param_combination=regular_params,
+        model_path=model_path,
+        model_config=model_config
+    )

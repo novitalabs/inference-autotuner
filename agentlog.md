@@ -25229,3 +25229,212 @@ Checked task 9 which had a quantization configuration, found that **quant_config
 - ARQ worker restarted (PID: 4092903) with updated code
 
 </details>
+
+</details>
+
+## Fixed SGLang parameter mapping - Two-phase parameter conversion
+
+<details>
+<summary>User Report: "SGLang 参数有误：launch_server.py: error: unrecognized arguments: --gemm-dtype int8 --attention-dtype fp8 --moe-dtype mxfp4" → Redesigned parameter conversion</summary>
+
+### Problem Discovery
+
+After implementing the quant_config expansion, user reported that SGLang rejected the parameters:
+```
+SGLang 参数有误：launch_server.py: error: unrecognized arguments: --gemm-dtype int8 --attention-dtype fp8 --moe-dtype mxfp4
+```
+
+**Root Cause:** The first implementation incorrectly converted dtype field names directly to CLI parameter names during the parameter grid expansion phase:
+- `gemm_dtype` → `--gemm-dtype` ❌
+- `attention_dtype` → `--attention-dtype` ❌  
+- `moe_dtype` → `--moe-dtype` ❌
+
+But SGLang doesn't accept these arguments! It only accepts:
+- `--quantization` (for GEMM dtype)
+- `--dtype` (for model dtype)
+- `--kv-cache-dtype` (for KV cache)
+- `--attention-backend` (not direct dtype)
+- `--moe-runner-backend` (not direct dtype)
+
+The existing `quantization_mapper.py` already has the correct mapping logic, but my first implementation bypassed it by converting field names too early.
+
+### Solution: Two-Phase Parameter Processing
+
+Redesigned to use a two-phase approach:
+
+**Phase 1: Parameter Grid Expansion** (in worker)
+- Keep abstract dtype field names with `__quant__` prefix
+- Example: `__quant__gemm_dtype`, `__quant__kvcache_dtype`
+- This allows cartesian product without knowing runtime specifics
+
+**Phase 2: Runtime Conversion** (in orchestrator)
+- Convert `__quant__` prefixed parameters to runtime-specific CLI args
+- Use existing `quantization_mapper.py` logic via new wrapper function
+- Happens just before deploying inference service
+
+### Implementation
+
+**1. Updated `quantization_integration.py`:**
+
+Added `__quant__` prefix in expansion:
+```python
+def expand_quant_config_to_parameter_spec(quant_config):
+    """
+    Convert quant_config with arrays into parameter spec format.
+    
+    IMPORTANT: Keeps dtype field names (gemm_dtype, etc.) as-is with __quant__ prefix.
+    They will be converted to runtime-specific CLI args later.
+    """
+    param_spec = {}
+    dtype_fields = ["gemm_dtype", "kvcache_dtype", "attention_dtype", "moe_dtype"]
+    
+    for field in dtype_fields:
+        if field in quant_config:
+            value = quant_config[field]
+            if not isinstance(value, list):
+                value = [value]
+            if value:
+                # Add with __quant__ prefix to distinguish from regular CLI parameters
+                param_spec[f"__quant__{field}"] = value
+    
+    return param_spec
+```
+
+Added extraction and conversion functions:
+```python
+def extract_quant_config_from_params(params):
+    """
+    Extract quantization config from experiment parameters.
+    
+    Args:
+        params: {"tp-size": 1, "__quant__gemm_dtype": "fp8", "__quant__kvcache_dtype": "fp8_e5m2"}
+    
+    Returns:
+        (regular_params, quant_config)
+        Example: ({"tp-size": 1}, {"gemm_dtype": "fp8", "kvcache_dtype": "fp8_e5m2"})
+    """
+    regular_params = {}
+    quant_config = {}
+    
+    for key, value in params.items():
+        if key.startswith("__quant__"):
+            field_name = key.replace("__quant__", "")
+            quant_config[field_name] = value
+        else:
+            regular_params[key] = value
+    
+    return regular_params, quant_config if quant_config else None
+
+
+def prepare_runtime_parameters(base_runtime, params, model_path, model_config=None):
+    """
+    Prepare runtime-specific CLI parameters from experiment parameters.
+    
+    This function:
+    1. Extracts quant_config from __quant__ prefixed parameters
+    2. Converts quant_config to runtime-specific CLI arguments
+    3. Merges with regular parameters
+    
+    Example:
+        Input: {"tp-size": 1, "__quant__gemm_dtype": "fp8", "__quant__kvcache_dtype": "fp8_e5m2"}
+        Output: {"tp-size": 1, "quantization": "fp8", "dtype": "auto", "kv-cache-dtype": "fp8_e5m2"}
+    """
+    regular_params, quant_config = extract_quant_config_from_params(params)
+    
+    if not quant_config:
+        return regular_params
+    
+    # Use existing prepare_experiment_parameters which calls quantization_mapper
+    return prepare_experiment_parameters(
+        base_runtime=base_runtime,
+        quant_config=quant_config,
+        param_combination=regular_params,
+        model_path=model_path,
+        model_config=model_config
+    )
+```
+
+**2. Updated `orchestrator.py`:**
+
+Added import:
+```python
+from utils.quantization_integration import prepare_runtime_parameters
+```
+
+Modified `run_experiment()` method (line 109-149):
+```python
+# Convert __quant__ prefixed parameters to runtime-specific CLI args
+runtime_parameters = prepare_runtime_parameters(
+    base_runtime=runtime_name,
+    params=parameters,
+    model_path=model_name,
+    model_config=task.get("model")
+)
+
+print(f"Runtime-specific parameters: {runtime_parameters}")
+
+# Pass runtime_parameters to controller instead of parameters
+isvc_name = self.model_controller.deploy_inference_service(
+    task_name=task_name,
+    experiment_id=experiment_id,
+    namespace=namespace,
+    model_name=model_name,
+    runtime_name=runtime_name,
+    parameters=runtime_parameters,  # Use converted parameters
+    image_tag=image_tag,
+)
+```
+
+### Testing
+
+**Test 1: Parameter Conversion Logic**
+```python
+# Input from grid
+params = {
+    "tp-size": 1,
+    "__quant__gemm_dtype": "fp8",
+    "__quant__kvcache_dtype": "fp8_e5m2"
+}
+
+# After conversion for SGLang
+runtime_params = {
+    "tp-size": 1,
+    "quantization": "fp8",           # Converted correctly ✓
+    "dtype": "auto",                 # Default added ✓
+    "kv-cache-dtype": "fp8_e5m2"     # Converted correctly ✓
+}
+```
+
+**Test 2: Parameter Grid Expansion**
+```
+Test 1: Simple config → 4 combinations (with __quant__ prefixes)
+Test 2: With tp-size [1,2] → 8 combinations
+Test 3: Task 9's config → 1960 combinations ✓
+```
+
+### Files Modified
+- `src/utils/quantization_integration.py`:
+  - Redesigned `expand_quant_config_to_parameter_spec()` to use `__quant__` prefix (lines 206-256)
+  - Added `extract_quant_config_from_params()` (lines 295-321)
+  - Added `prepare_runtime_parameters()` (lines 324-369)
+  
+- `src/orchestrator.py`:
+  - Added import for `prepare_runtime_parameters` (line 21)
+  - Added parameter conversion before deployment (lines 109-117)
+  - Pass `runtime_parameters` to controllers instead of raw `parameters` (lines 138, 148)
+
+### Result
+- ✅ Parameter grid uses abstract `__quant__` prefixed field names
+- ✅ Conversion to runtime-specific args happens at deployment time
+- ✅ Leverages existing `quantization_mapper.py` logic for correct SGLang/vLLM mapping
+- ✅ SGLang now receives correct arguments: `--quantization fp8 --kv-cache-dtype fp8_e5m2`
+- ✅ ARQ worker restarted (PID: 4186471) with updated code
+
+### Key Insight
+
+The two-phase approach separates concerns:
+1. **Grid Expansion**: Abstract, runtime-agnostic dtype specifications
+2. **Runtime Deployment**: Concrete, runtime-specific CLI arguments
+
+This allows the parameter grid to work across different runtimes (SGLang, vLLM, TensorRT-LLM) while ensuring each runtime receives the correct arguments at deployment time.
+</details>

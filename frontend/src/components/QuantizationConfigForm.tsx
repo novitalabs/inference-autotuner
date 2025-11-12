@@ -264,6 +264,11 @@ export const QuantizationConfigForm: React.FC<QuantizationConfigFormProps> = ({ 
 								⚠️ FP8 applies W8A8 dynamic quantization (only for unquantized models)
 							</p>
 						)}
+						{(isFieldValueSelected('gemm_dtype', 'int8') || (Array.isArray(value.gemm_dtype) && value.gemm_dtype.includes('int8'))) && (
+							<p className="mt-1 text-sm text-red-600">
+								⚠️ WARNING: Plain 'int8' is not supported by SGLang. Use 'fp8' for dynamic quantization or pre-quantized models (AWQ, GPTQ) instead.
+							</p>
+						)}
 					</div>
 
 					{/* KV Cache dtype */}
@@ -372,6 +377,11 @@ export const QuantizationConfigForm: React.FC<QuantizationConfigFormProps> = ({ 
 						  (Array.isArray(value.moe_dtype) && (value.moe_dtype.includes('w4afp8') || value.moe_dtype.includes('mxfp4')))) && (
 							<p className="mt-1 text-sm text-purple-600">
 								ℹ️ w4afp8/mxfp4 are SGLang-specific (not supported by vLLM or TensorRT-LLM)
+							</p>
+						)}
+						{(isFieldValueSelected('moe_dtype', 'int8') || (Array.isArray(value.moe_dtype) && value.moe_dtype.includes('int8'))) && (
+							<p className="mt-1 text-sm text-red-600">
+								⚠️ WARNING: Plain 'int8' for MoE is not supported by SGLang. Consider using 'w4afp8' or 'mxfp4' instead.
 							</p>
 						)}
 					</div>

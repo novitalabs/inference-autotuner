@@ -18,6 +18,7 @@ from controllers.docker_controller import DockerController
 from controllers.benchmark_controller import BenchmarkController
 from controllers.direct_benchmark_controller import DirectBenchmarkController
 from utils.optimizer import generate_parameter_grid, calculate_objective_score, create_optimization_strategy
+from utils.quantization_integration import prepare_runtime_parameters
 
 
 class AutotunerOrchestrator:
@@ -105,9 +106,19 @@ class AutotunerOrchestrator:
 		print(f"Parameters: {parameters}")
 		print(f"{'='*80}\n")
 
+		# Convert __quant__ prefixed parameters to runtime-specific CLI args
+		runtime_parameters = prepare_runtime_parameters(
+			base_runtime=runtime_name,
+			params=parameters,
+			model_path=model_name,
+			model_config=task.get("model")
+		)
+
+		print(f"Runtime-specific parameters: {runtime_parameters}")
+
 		experiment_result = {
 			"experiment_id": experiment_id,
-			"parameters": parameters,
+			"parameters": parameters,  # Keep original for database
 			"status": "failed",
 			"metrics": None,
 			"container_logs": None,  # Will store container logs for Docker mode
@@ -124,7 +135,7 @@ class AutotunerOrchestrator:
 				namespace=namespace,
 				model_name=model_name,
 				runtime_name=runtime_name,
-				parameters=parameters,
+				parameters=runtime_parameters,  # Use converted parameters
 				image_tag=image_tag,
 			)
 		else:  # OMEController doesn't support image_tag yet
@@ -134,7 +145,7 @@ class AutotunerOrchestrator:
 				namespace=namespace,
 				model_name=model_name,
 				runtime_name=runtime_name,
-				parameters=parameters,
+				parameters=runtime_parameters,  # Use converted parameters
 			)
 
 		if not isvc_name:
