@@ -1,5 +1,15 @@
 // API Response Types based on backend schemas
 
+// Quantization Configuration Types
+export interface QuantizationConfig {
+	preset?: string;
+	presets?: string[];
+	gemm_dtype?: string | string[];
+	kvcache_dtype?: string | string[];
+	attention_dtype?: string | string[];
+	moe_dtype?: string | string[];
+}
+
 // SLO Configuration Types
 export interface SLOMetricConfig {
 	threshold: number;
@@ -33,6 +43,7 @@ export interface Task {
 	optimization: Record<string, any>;  // API returns as "optimization", not "optimization_config"
 	benchmark: Record<string, any>;  // API returns as "benchmark", not "benchmark_config"
 	slo?: SLOConfig;  // Optional SLO configuration
+	quant_config?: QuantizationConfig;  // Optional quantization configuration
 	deployment_mode: string;
 	total_experiments: number;
 	successful_experiments: number;
@@ -102,6 +113,7 @@ export interface TaskCreate {
 	optimization: Record<string, any>;
 	benchmark: Record<string, any>;
 	slo?: SLOConfig;  // Optional SLO configuration
+	quant_config?: QuantizationConfig;  // Optional quantization configuration
 	deployment_mode?: string;
 }
 

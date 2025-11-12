@@ -23301,3 +23301,441 @@ The implementation is production-ready pending orchestrator integration.
 
 </details>
 
+
+---
+
+## 20251112
+
+> Now implement quant_config relevant UI features.
+
+<details>
+<summary>Solution: Created and integrated quantization configuration UI component</summary>
+
+### Context
+User requested to implement frontend UI features for the quantization configuration that was previously added to the backend. The quantization system supports four fields (gemm_dtype, kvcache_dtype, attention_dtype, moe_dtype) with multiple modes (None, Preset, Multi-Preset, Custom).
+
+### Implementation
+
+**1. Updated Type Definitions** (`frontend/src/types/api.ts`):
+- Added `QuantizationConfig` interface with all quantization fields (preset, presets, gemm_dtype, kvcache_dtype, attention_dtype, moe_dtype)
+- Updated `Task` interface to include `quant_config?: QuantizationConfig`
+- Updated `TaskCreate` interface to include `quant_config?: QuantizationConfig`
+
+**2. Created QuantizationConfigForm Component** (`frontend/src/components/QuantizationConfigForm.tsx`):
+- Comprehensive React component with four configuration modes:
+  - **None Mode**: No quantization configuration
+  - **Preset Mode**: Select single preset with radio buttons (5 presets available)
+  - **Multi-Preset Mode**: Select multiple presets with checkboxes for comparison
+  - **Custom Mode**: Four independent dropdowns for each quantization field
+- Features:
+  - 5 built-in presets with descriptions:
+    - `default`: No runtime quantization (baseline)
+    - `kv-cache-fp8`: FP8 KV cache only (recommended)
+    - `dynamic-fp8`: Full FP8 (GEMM + KV + Attention)
+    - `bf16-stable`: BF16 computation with FP8 KV cache
+    - `aggressive-moe`: Aggressive MoE quantization (SGLang only)
+  - Contextual help text and warnings:
+    - FP8 warnings for dynamic quantization (only for unquantized models)
+    - Memory savings info for KV cache FP8 (~50% savings)
+    - Engine compatibility notes (FP8 attention only for TensorRT-LLM/SGLang)
+    - SGLang-specific MoE options (w4afp8, mxfp4)
+  - Parameter priority explanation panel
+  - Auto-detection of initial mode based on config value
+
+**3. Integrated Component into NewTask Page** (`frontend/src/pages/NewTask.tsx`):
+- Imported `QuantizationConfigForm` component and `QuantizationConfig` type
+- Added `quant_config?: QuantizationConfig` to `TaskFormData` interface
+- Added `quantConfig` state variable
+- Added quantization config loading logic for both edit mode and duplicate mode
+- Added new "Quantization Configuration (Optional)" section in the form
+- Included quantization config in form submission payload (only if any field is set)
+
+**4. Verification**:
+- TypeScript type checking: ✅ No errors
+- Frontend build: ✅ Successful (724.54 kB bundle)
+
+### Files Modified
+- `frontend/src/types/api.ts`: Added QuantizationConfig interface (lines 4-11, updated Task/TaskCreate interfaces)
+- `frontend/src/components/QuantizationConfigForm.tsx`: Created new component (353 lines)
+- `frontend/src/pages/NewTask.tsx`: Integrated quantization config UI (added imports, state, loading logic, form section, submission)
+
+### Result
+Users can now configure quantization settings through the web UI:
+- Easy preset selection for common scenarios
+- Multi-preset comparison for experimentation
+- Advanced custom mode for fine-grained control
+- Proper state management for edit/duplicate operations
+- Clear help text explaining parameter priority and engine compatibility
+
+The quantization UI implementation is now complete and ready for use.
+
+</details>
+
+---
+
+> Display mapped runtime arguments of the current Quantization Configuration values in UI, and for the current selected base runtime.
+
+<details>
+<summary>Solution: Added dynamic runtime arguments preview in quantization form</summary>
+
+### Context
+User requested to display the actual CLI arguments that will be generated from the quantization configuration, based on the selected runtime engine. This provides immediate feedback to users about what arguments will be passed to vLLM, SGLang, or TensorRT-LLM.
+
+### Implementation
+
+**1. Created TypeScript Mapping Module** (`frontend/src/utils/quantizationMapper.ts` - 193 lines):
+- Ported Python mapping logic from `src/utils/quantization_mapper.py` to TypeScript
+- Functions implemented:
+  - `QUANTIZATION_PRESETS`: All 5 presets matching backend
+  - `expandPreset()`: Expand preset name to full config
+  - `resolveQuantConfig()`: Handle preset/multi-preset/custom modes
+  - `mapToVllmArgs()`: Map config to vLLM CLI arguments
+  - `mapToSglangArgs()`: Map config to SGLang CLI arguments (with MoE support)
+  - `mapToTensorrtLlmArgs()`: Map config to TensorRT-LLM arguments (with FMHA)
+  - `getRuntimeArgs()`: Unified interface for all runtimes
+  - `formatArgsForDisplay()`: Pretty-print arguments for UI display
+
+**2. Enhanced QuantizationConfigForm Component** (`frontend/src/components/QuantizationConfigForm.tsx`):
+- Added `baseRuntime` prop (optional, defaults to 'sglang')
+- Computed mapped arguments using `useMemo` for performance
+- Added "Mapped Arguments" display section showing:
+  - Engine-specific CLI arguments in monospace code block
+  - Real-time updates as user changes configuration
+  - Special note for multi-preset mode (shows first preset with explanation)
+  - Clean visual design with gray background and info icon
+
+**3. Updated NewTask Page** (`frontend/src/pages/NewTask.tsx`):
+- Passed `baseRuntime` prop to `QuantizationConfigForm`
+- Arguments display now updates when runtime is changed
+
+### Mapping Logic Examples
+
+**kv-cache-fp8 preset on vLLM**:
+```
+--kv-cache-dtype fp8_e5m2
+```
+
+**dynamic-fp8 preset on SGLang**:
+```
+--quantization fp8 --dtype auto --kv-cache-dtype fp8_e5m2 --attention-backend flashinfer
+```
+
+**aggressive-moe preset on SGLang**:
+```
+--quantization w4afp8 --moe-runner-backend flashinfer_cutlass --kv-cache-dtype fp8_e5m2 --attention-backend flashinfer
+```
+
+**Custom FP8 config on TensorRT-LLM**:
+```
+--quant-algo FP8 --kv-cache-quant-algo FP8 --fmha-quant-algo FP8
+```
+
+### User Benefits
+
+1. **Immediate Feedback**: Users see exactly what arguments will be generated
+2. **Runtime-Aware**: Arguments change based on selected engine
+3. **Educational**: Helps users understand engine differences
+4. **Validation**: Users can verify configuration before submission
+5. **Debugging**: Easy to identify parameter mapping issues
+
+### Verification
+- TypeScript type checking: ✅ No errors
+- Frontend build: ✅ Successful (728.47 kB bundle)
+- Mapping logic: ✅ Matches Python backend implementation
+
+### Files Modified
+- `frontend/src/utils/quantizationMapper.ts`: Created new TypeScript mapping module (193 lines)
+- `frontend/src/components/QuantizationConfigForm.tsx`: Added runtime args display and baseRuntime prop
+- `frontend/src/pages/NewTask.tsx`: Pass baseRuntime to form component
+
+The quantization configuration UI now provides real-time preview of mapped runtime arguments, helping users understand exactly how their configuration will be translated to CLI arguments for each inference engine.
+
+</details>
+
+---
+
+> The custom mode of Quantization Configuration should allow multiple choices for every field.
+
+<details>
+<summary>Solution: Enabled multi-selection in custom quantization mode with checkbox interface</summary>
+
+### Context
+User requested that custom mode should allow selecting multiple values for each quantization field (gemm_dtype, kvcache_dtype, attention_dtype, moe_dtype), similar to how parameters can have multiple values. This enables the autotuner to create multiple experiments testing different quantization combinations.
+
+### Implementation
+
+**1. Updated Type Definitions** (`frontend/src/types/api.ts`):
+- Changed field types from `string` to `string | string[]` to support arrays
+- Fields: gemm_dtype, kvcache_dtype, attention_dtype, moe_dtype now accept single value or array
+
+**2. Enhanced QuantizationConfigForm Component** (`frontend/src/components/QuantizationConfigForm.tsx`):
+- Replaced single-select dropdowns with checkbox grids in custom mode
+- Added `handleCustomFieldToggle()` function to handle checkbox selection
+- Added `isFieldValueSelected()` function to check if value is selected
+- Implemented smart array/single value handling (single value when only one selected, array when multiple)
+- Updated help text: "Select multiple values to test different combinations"
+- Added `hasMultipleValues` computed property to detect when arrays are present
+- Added note in runtime arguments display when multiple values selected
+
+**3. Updated Mapping Logic** (`frontend/src/utils/quantizationMapper.ts`):
+- Created `ResolvedQuantConfig` interface with strict string types
+- Updated `expandPreset()` to convert string | string[] to string
+- Updated `resolveQuantConfig()` to take first value from arrays for display
+- Updated all mapping functions to use `ResolvedQuantConfig` type
+- Ensures type safety while supporting both single and multiple values
+
+**4. UI Design**:
+- Checkbox grid layout (2-4 columns based on field)
+- Visual feedback: blue border and background when selected
+- Hover effects for better UX
+- Consistent with multi-preset mode design
+- Runtime arguments display shows note when multiple values present
+
+### Example Usage
+
+**Single selection** (behaves like before):
+```typescript
+{
+  gemm_dtype: "fp8",
+  kvcache_dtype: "fp8_e5m2"
+}
+```
+
+**Multiple selections** (new feature):
+```typescript
+{
+  gemm_dtype: ["fp8", "bfloat16"],
+  kvcache_dtype: ["fp8_e5m2", "fp8_e4m3", "auto"],
+  attention_dtype: ["fp8", "auto"],
+  moe_dtype: "auto"
+}
+```
+
+The autotuner will create experiments for all combinations: 2 × 3 × 2 × 1 = 12 experiments.
+
+### Benefits
+
+1. **More experimentation**: Test multiple quantization strategies in one task
+2. **Grid search**: Combine with parameter grid search for comprehensive tuning
+3. **Consistency**: Matches the parameter multi-value pattern
+4. **Flexibility**: Single values for known-good settings, arrays for exploration
+5. **Clear feedback**: Runtime args display shows which values will be tested
+
+### Verification
+- TypeScript type checking: ✅ No errors
+- Frontend build: ✅ Successful (730.87 kB bundle)
+- Type safety maintained with ResolvedQuantConfig interface
+
+### Files Modified
+- `frontend/src/types/api.ts`: Changed quantization field types to `string | string[]`
+- `frontend/src/components/QuantizationConfigForm.tsx`: Replaced dropdowns with checkbox grids, added multi-selection logic
+- `frontend/src/utils/quantizationMapper.ts`: Added ResolvedQuantConfig interface, updated mapping functions
+
+The custom quantization mode now supports multi-selection, enabling comprehensive quantization experimentation alongside parameter grid search.
+
+</details>
+
+---
+
+> In Mapped Arguments for, list all valid arguments combinations, if more than 10, list first 10 combinations and with ellipsis.
+
+<details>
+<summary>Solution: Display all argument combinations with smart truncation</summary>
+
+### Context
+User requested to show all valid argument combinations in the "Mapped Arguments" display instead of just the first one. When there are more than 10 combinations, show the first 10 with ellipsis indicating more exist.
+
+### Implementation
+
+**1. Enhanced Mapping Module** (`frontend/src/utils/quantizationMapper.ts`):
+
+Created new functions to handle combination generation:
+
+- **`generateCombinations()`**: Generates all possible combinations from array values
+  - Uses nested loops to create cartesian product
+  - Handles single values and arrays uniformly
+  - Returns array of `ResolvedQuantConfig` objects
+
+- **`getAllRuntimeArgCombinations()`**: Main entry point for getting combinations
+  - Handles preset mode (single combination)
+  - Handles multi-preset mode (one per preset)
+  - Handles custom mode (all field combinations)
+  - Returns: `{ combinations, total, truncated }`
+  - Default limit: 10 combinations
+
+- **`mapConfigToArgs()`**: Helper to map resolved config to runtime args
+  - Routes to correct engine mapper
+  - Used for each combination
+
+- **`formatMultipleCombinationsForDisplay()`**: Formats combinations for display
+  - Shows single line for 1 combination
+  - Shows numbered list for multiple combinations
+  - Adds ellipsis line when truncated: `... and N more combinations`
+
+**2. Updated Component** (`frontend/src/components/QuantizationConfigForm.tsx`):
+
+- Replaced `getRuntimeArgs()` with `getAllRuntimeArgCombinations()`
+- Display now shows:
+  - Total count in header: `(N combinations)`
+  - Numbered list: `[1]`, `[2]`, etc.
+  - Ellipsis when truncated
+- Removed redundant notes since the display is now self-explanatory
+
+### Example Output
+
+**Single combination** (preset or single values):
+```
+--kv-cache-dtype fp8_e5m2
+```
+
+**Multiple combinations** (multi-preset):
+```
+Mapped Arguments for SGLANG (3 combinations)
+[1] --kv-cache-dtype auto
+[2] --kv-cache-dtype fp8_e5m2
+[3] --quantization fp8 --dtype auto --kv-cache-dtype fp8_e5m2 --attention-backend flashinfer
+```
+
+**Large grid** (custom with arrays):
+```
+Mapped Arguments for SGLANG (24 combinations)
+[1] --quantization fp8 --dtype auto --kv-cache-dtype fp8_e5m2
+[2] --quantization fp8 --dtype auto --kv-cache-dtype fp8_e4m3
+[3] --quantization fp8 --dtype auto --kv-cache-dtype auto
+[4] --quantization fp8 --dtype auto --kv-cache-dtype fp8_e5m2 --attention-backend flashinfer
+[5] --quantization fp8 --dtype auto --kv-cache-dtype fp8_e4m3 --attention-backend flashinfer
+[6] --quantization fp8 --dtype auto --kv-cache-dtype auto --attention-backend flashinfer
+[7] --dtype bfloat16 --kv-cache-dtype fp8_e5m2
+[8] --dtype bfloat16 --kv-cache-dtype fp8_e4m3
+[9] --dtype bfloat16 --kv-cache-dtype auto
+[10] --dtype bfloat16 --kv-cache-dtype fp8_e5m2 --attention-backend flashinfer
+... and 14 more combinations
+```
+
+### Algorithm Details
+
+**Combination Generation**:
+- For each field, get array of values (or convert single to array)
+- Generate cartesian product: `gemm × kvcache × attention × moe`
+- Example: 2 × 3 × 2 × 1 = 12 combinations
+
+**Preset Mode**:
+- Single preset → 1 combination
+- Multi-preset → N combinations (one per preset)
+
+**Custom Mode**:
+- Arrays → Full cartesian product
+- Single values → Just 1 combination
+- Mixed → Product of array lengths
+
+### Benefits
+
+1. **Complete visibility**: See all argument combinations that will be tested
+2. **Grid size awareness**: Immediately see how many experiments will be created
+3. **Smart truncation**: Prevents UI overflow with large grids
+4. **Consistent formatting**: Numbered list makes it easy to reference
+5. **Clear indication**: Ellipsis shows when more combinations exist
+
+### Verification
+- TypeScript type checking: ✅ No errors
+- Frontend build: ✅ Successful (731.18 kB bundle)
+- Combination generation tested for all modes
+
+### Files Modified
+- `frontend/src/utils/quantizationMapper.ts`: Added combination generation and formatting functions
+- `frontend/src/components/QuantizationConfigForm.tsx`: Updated to use new functions, display total count
+
+Users can now see exactly what argument combinations will be generated before submitting the task, with clear indication of grid size and smart truncation for large grids.
+
+</details>
+
+---
+
+> Allow Parameters to Tune is empty.
+
+<details>
+<summary>Solution: Enabled empty parameters configuration</summary>
+
+### Context
+User requested to allow the "Parameters to Tune" section to be empty. Previously, the form required at least one parameter to be configured, which prevented users from testing configurations without parameter grid search.
+
+### Implementation
+
+**Changes Made** (`frontend/src/pages/NewTask.tsx`):
+
+1. **Changed Initial State**:
+   - Changed from: `useState<ParamField[]>([{ name: 'tp-size', values: '1' }, ...])`
+   - Changed to: `useState<ParamField[]>([])`
+   - Form now starts with no parameters
+
+2. **Removed Minimum Constraint**:
+   - Removed `disabled={parameters.length === 1}` from Remove button
+   - Users can now remove all parameters
+
+3. **Updated Preset Handler**:
+   - Removed fallback to default parameters when no presets selected
+   - Now allows empty parameter list
+
+4. **Added Empty State Display**:
+   - Shows message when no parameters configured: "No parameters configured. The model will use default runtime parameters."
+   - Clear visual feedback in gray box
+   - Consistent with other sections (e.g., quantization "None" mode)
+
+### User Experience
+
+**Before**:
+- Always required at least one parameter
+- Remove button disabled on last parameter
+- Could not test with default parameters only
+
+**After**:
+- Can start with zero parameters
+- Can remove all parameters
+- Empty state shows clear message
+- Useful for testing:
+  - Only quantization configuration
+  - Only default runtime parameters
+  - Specific single configuration without grid search
+
+### Use Cases
+
+1. **Quantization-only tuning**: Test different quantization strategies without parameter variations
+2. **Baseline testing**: Test model with default parameters
+3. **Single configuration**: Deploy specific settings without grid search
+4. **Progressive tuning**: Start simple, add parameters later
+
+### Example Configuration
+
+**Empty parameters with quantization**:
+```json
+{
+  "parameters": {},
+  "quant_config": {
+    "presets": ["default", "kv-cache-fp8", "dynamic-fp8"]
+  }
+}
+```
+Result: 3 experiments (one per quantization preset, no parameter variations)
+
+**Empty parameters with single quantization**:
+```json
+{
+  "parameters": {},
+  "quant_config": {
+    "preset": ["kv-cache-fp8"]
+  }
+}
+```
+Result: 1 experiment (single configuration)
+
+### Verification
+- TypeScript type checking: ✅ No errors
+- Frontend build: ✅ Successful (729.73 kB)
+- Empty state rendering: ✅ Shows appropriate message
+
+### Files Modified
+- `frontend/src/pages/NewTask.tsx`: Changed initial state, removed constraints, added empty state display
+
+Users can now create tasks with empty parameters, enabling quantization-only testing, baseline measurements, and single-configuration deployments without parameter grid search.
+
+</details>

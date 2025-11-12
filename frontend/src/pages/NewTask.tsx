@@ -5,8 +5,9 @@ import toast from 'react-hot-toast';
 import { navigateTo } from '../components/Layout';
 import { getEditingTaskId } from '../utils/editTaskStore';
 import { useEscapeKey } from '@/hooks/useEscapeKey';
-import type { Task } from '../types/api';
+import type { Task, QuantizationConfig } from '../types/api';
 import PresetSelector from '../components/PresetSelector';
+import { QuantizationConfigForm } from '../components/QuantizationConfigForm';
 
 interface TaskFormData {
   task_name: string;
@@ -19,6 +20,7 @@ interface TaskFormData {
     namespace: string;
   };
   parameters: Record<string, any[]>;
+  quant_config?: QuantizationConfig;
   optimization: {
     strategy: string;
     objective: string;
@@ -161,6 +163,11 @@ export default function NewTask() {
           }
         }
 
+        // Quantization Configuration
+        if (duplicateConfig.quant_config) {
+          setQuantConfig(duplicateConfig.quant_config);
+        }
+
         // Clear the sessionStorage after loading
         sessionStorage.removeItem('duplicateTaskConfig');
 
@@ -227,6 +234,11 @@ export default function NewTask() {
         setMaxRequestsPerIteration(taskToEdit.benchmark.max_requests_per_iteration || 50);
         setTemperature(taskToEdit.benchmark.additional_params?.temperature?.toString() || '0.0');
       }
+
+      // Quantization Configuration
+      if (taskToEdit.quant_config) {
+        setQuantConfig(taskToEdit.quant_config);
+      }
     }
   }, [taskToEdit]);
 
@@ -242,10 +254,7 @@ export default function NewTask() {
   const [modelNamespace, setModelNamespace] = useState('autotuner');
 
   // Parameters (dynamic list)
-  const [parameters, setParameters] = useState<ParamField[]>([
-    { name: 'tp-size', values: '1' },
-    { name: 'mem-fraction-static', values: '0.7, 0.8' },
-  ]);
+  const [parameters, setParameters] = useState<ParamField[]>([]);
   const [usePresets, setUsePresets] = useState(false);
 
   // Optimization
@@ -300,6 +309,9 @@ export default function NewTask() {
 
   // Steepness
   const [sloSteepness, setSloSteepness] = useState('0.1');
+
+  // Quantization Configuration
+  const [quantConfig, setQuantConfig] = useState<QuantizationConfig>({});
 
   // Auto-update benchmarkModelName when modelIdOrPath changes
   useEffect(() => {
@@ -358,15 +370,7 @@ export default function NewTask() {
       values: values.join(', ')
     }));
 
-    if (paramFields.length > 0) {
-      setParameters(paramFields);
-    } else {
-      // Reset to default when no presets selected
-      setParameters([
-        { name: 'tp-size', values: '1' },
-        { name: 'mem-fraction-static', values: '0.7, 0.8' },
-      ]);
-    }
+    setParameters(paramFields);
   };
 
   const parseNumberArray = (str: string): number[] => {
@@ -429,6 +433,8 @@ export default function NewTask() {
         namespace: modelNamespace,
       },
       parameters: parsedParams,
+      // Include quantization config if any field is set
+      ...(Object.keys(quantConfig).length > 0 && { quant_config: quantConfig }),
       optimization: {
         strategy,
         objective,
@@ -644,6 +650,19 @@ export default function NewTask() {
           </div>
         </div>
 
+        {/* Quantization Configuration */}
+        <div className="bg-white shadow-sm rounded-lg p-6">
+          <h2 className="text-xl font-semibold mb-4">Quantization Configuration (Optional)</h2>
+          <p className="text-sm text-gray-600 mb-4">
+            Configure runtime quantization for fine-grained control over model precision.
+          </p>
+          <QuantizationConfigForm
+            value={quantConfig}
+            onChange={setQuantConfig}
+            baseRuntime={baseRuntime}
+          />
+        </div>
+
         {/* Parameters */}
         <div className="bg-white shadow-sm rounded-lg p-6">
           <div className="flex justify-between items-center mb-4">
@@ -678,8 +697,15 @@ export default function NewTask() {
             </div>
           )}
 
-          <div className="space-y-3">
-            {parameters.map((param, index) => (
+          {parameters.length === 0 ? (
+            <div className="p-4 bg-gray-50 rounded-md border border-gray-200">
+              <p className="text-sm text-gray-600">
+                No parameters configured. The model will use default runtime parameters.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {parameters.map((param, index) => (
               <div key={index} className="flex gap-3 items-start">
                 <div className="flex-1">
                   <input
@@ -703,13 +729,13 @@ export default function NewTask() {
                   type="button"
                   onClick={() => removeParameter(index)}
                   className="px-3 py-2 bg-red-600 text-white rounded-md hover:bg-red-700"
-                  disabled={parameters.length === 1}
                 >
                   Remove
                 </button>
               </div>
             ))}
-          </div>
+            </div>
+          )}
           <p className="text-sm text-gray-500 mt-2">
             {usePresets
               ? "Parameters from presets are pre-filled below. You can still edit them manually."
