@@ -39,6 +39,7 @@ class Task(Base):
 	parameters = Column(JSON, nullable=False)  # parameter grid
 	optimization_config = Column(JSON, nullable=False)  # strategy, objective
 	benchmark_config = Column(JSON, nullable=False)  # benchmark settings
+	quant_config = Column(JSON, nullable=True)  # runtime quantization config (gemm_dtype, kvcache_dtype, attention_dtype, moe_dtype)
 
 	# Deployment mode
 	deployment_mode = Column(String, default="docker")  # docker, ome
