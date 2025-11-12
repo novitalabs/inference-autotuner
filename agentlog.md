@@ -25168,3 +25168,64 @@ Added functionality to the Experiment Timeline on the Dashboard to show experime
 Users can now quickly investigate experiment details and logs with a single click on the timeline.
 
 </details>
+
+## 2025-11-12: Fixed quant_config not being applied to experiments
+
+<details>
+<summary>User Request: "Check recent experiment log, ensure quant_config task effects" → Fix quant_config expansion</summary>
+
+### Problem Discovery
+Checked task 9 which had a quantization configuration, found that **quant_config was not being applied** to experiments:
+
+1. **Database Analysis:**
+   - Task 9 had `quant_config` with arrays of values for each dtype field
+   - Task's `parameters` field was empty: `{}`
+   - All 10 experiments had empty `parameters`: `{}`
+
+2. **Root Cause:**
+   The worker (`autotuner_worker.py`) only used the `parameters` field from the task to generate experiments. It completely ignored the `quant_config` field, so no quantization parameters were being tested.
+
+3. **Expected Behavior:**
+   Task 9's quant_config should generate a cartesian product:
+   ```json
+   {
+     "gemm_dtype": ["auto", "float16", "float32", "bfloat16", "int8"],
+     "kvcache_dtype": ["auto", "fp8_e4m3", "fp16", "fp8_e5m2", "bfloat16", "int8", "int4", "fp8"],
+     "attention_dtype": ["auto", "float16", "fp8", "bfloat16", "fp8_block", "fp8_e4m3", "fp8_e5m2"],
+     "moe_dtype": ["auto", "float16", "w4afp8", "mxfp4", "int8", "bfloat16", "fp8"]
+   }
+   ```
+   Should generate 1008 unique combinations (after filtering "auto" values).
+
+### Solution Implemented
+
+**1. Added quant_config expansion functions** (`src/utils/quantization_integration.py`):
+   - `expand_quant_config_to_parameter_spec()`: Converts quant_config arrays into parameter spec format
+   - `merge_parameters_with_quant_config()`: Combines base parameters with quantization parameters
+   - Filters out "auto" values (they mean "use default")
+   - Converts field names to CLI format (e.g., `kvcache_dtype` → `kv-cache-dtype`)
+
+**2. Updated ARQ worker** (`src/web/workers/autotuner_worker.py`):
+   - Added import: `from src.utils.quantization_integration import merge_parameters_with_quant_config`
+   - Modified strategy creation to merge quant_config with parameters before generating grid
+   - Applied to both fresh starts and checkpoint restore fallback
+   - Logs merged parameters for visibility
+
+**3. Testing:**
+   Created test script that verified:
+   - Simple quant_config with 2 values each: 1 combination (after filtering "auto")
+   - Merged with base parameters: 2 combinations  
+   - Task 9's actual config: **1008 combinations** correctly generated
+
+### Files Modified
+- `src/utils/quantization_integration.py`: Added expansion and merge functions
+- `src/web/workers/autotuner_worker.py`: Integrated quant_config merging into parameter grid generation
+- `test_quant_expansion.py`: Created test script to verify logic
+
+### Result
+- Quant_config arrays are now properly expanded into parameter combinations
+- Each experiment will test a different quantization configuration
+- Worker logs show merged parameters for debugging
+- ARQ worker restarted (PID: 4092903) with updated code
+
+</details>

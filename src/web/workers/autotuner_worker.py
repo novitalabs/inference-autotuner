@@ -24,6 +24,7 @@ from src.web.config import get_settings
 from src.web.db.models import Task, Experiment, TaskStatus, ExperimentStatus
 from src.orchestrator import AutotunerOrchestrator
 from src.utils.optimizer import generate_parameter_grid, create_optimization_strategy, restore_optimization_strategy
+from src.utils.quantization_integration import merge_parameters_with_quant_config
 from src.web.workers.checkpoint import TaskCheckpoint
 
 settings = get_settings()
@@ -210,7 +211,12 @@ async def run_autotuning_task(ctx: Dict[str, Any], task_id: int) -> Dict[str, An
 				except Exception as e:
 					logger.error(f"[ARQ Worker] Failed to restore strategy from checkpoint: {e}")
 					logger.info(f"[ARQ Worker] Creating fresh strategy instead")
-					strategy = create_optimization_strategy(optimization_config, task.parameters)
+					# Merge quant_config with parameters for fresh strategy
+					merged_parameters = merge_parameters_with_quant_config(
+						task.parameters or {},
+						task.quant_config
+					)
+					strategy = create_optimization_strategy(optimization_config, merged_parameters)
 
 				# Restore progress from checkpoint
 				best_score = checkpoint["best_score"]
@@ -221,9 +227,16 @@ async def run_autotuning_task(ctx: Dict[str, Any], task_id: int) -> Dict[str, An
 			else:
 				logger.info(f"[ARQ Worker] No checkpoint found, starting fresh")
 
-				# Create fresh strategy
+				# Merge quant_config with parameters to create full parameter spec
+				merged_parameters = merge_parameters_with_quant_config(
+					task.parameters or {},
+					task.quant_config
+				)
+				logger.info(f"[ARQ Worker] Merged parameters (base + quant_config): {merged_parameters}")
+
+				# Create fresh strategy with merged parameters
 				try:
-					strategy = create_optimization_strategy(optimization_config, task.parameters)
+					strategy = create_optimization_strategy(optimization_config, merged_parameters)
 				except Exception as e:
 					logger.error(f"[ARQ Worker] Failed to create optimization strategy: {e}")
 					raise
@@ -236,7 +249,12 @@ async def run_autotuning_task(ctx: Dict[str, Any], task_id: int) -> Dict[str, An
 			# Set initial total_experiments (may be less for grid search, unknown for Bayesian)
 			if strategy_name == "grid_search":
 				# Grid search knows total upfront
-				param_grid = generate_parameter_grid(task.parameters)
+				# Use merged parameters to calculate total
+				merged_parameters = merge_parameters_with_quant_config(
+					task.parameters or {},
+					task.quant_config
+				)
+				param_grid = generate_parameter_grid(merged_parameters)
 				total_experiments = min(len(param_grid), max_iterations)
 			else:
 				# Bayesian/random: use max_iterations as upper bound

@@ -6,6 +6,7 @@ with the autotuner orchestrator and parameter grid expansion.
 """
 
 import logging
+import itertools
 from typing import Dict, Any, Optional, List
 
 from utils.quantization_mapper import (
@@ -200,3 +201,95 @@ def get_quant_config_summary(quant_config: Optional[Dict[str, Any]]) -> str:
     moe = resolved.get("moe_dtype", "auto")
 
     return f"GEMM: {gemm}, KV Cache: {kvcache}, Attention: {attention}, MoE: {moe}"
+
+
+def expand_quant_config_to_parameter_spec(
+    quant_config: Optional[Dict[str, Any]]
+) -> Dict[str, Any]:
+    """
+    Convert quant_config with arrays into parameter spec format for generate_parameter_grid.
+
+    This function handles quant_config that contains arrays of values and converts them
+    into the format expected by generate_parameter_grid (simple list format).
+
+    Args:
+        quant_config: Quantization config with possible arrays
+                     Example: {"gemm_dtype": ["auto", "fp8"], "kvcache_dtype": ["auto", "fp8_e5m2"]}
+
+    Returns:
+        Parameter spec dict in generate_parameter_grid format
+        Example: {"gemm-dtype": ["auto", "fp8"], "kv-cache-dtype": ["auto", "fp8_e5m2"]}
+
+    Note:
+        - Single values are wrapped in lists
+        - Keys are converted to CLI flag format (underscore -> hyphen)
+        - 'auto' values are filtered out (they mean "use default")
+    """
+    if not quant_config:
+        return {}
+
+    # Fields that map to runtime parameters
+    dtype_fields = {
+        "gemm_dtype": "gemm-dtype",
+        "kvcache_dtype": "kv-cache-dtype",
+        "attention_dtype": "attention-dtype",
+        "moe_dtype": "moe-dtype"
+    }
+
+    param_spec = {}
+
+    for field, cli_name in dtype_fields.items():
+        if field not in quant_config:
+            continue
+
+        value = quant_config[field]
+
+        # Convert to list if single value
+        if not isinstance(value, list):
+            value = [value]
+
+        # Filter out 'auto' as it means "use default" (no CLI flag needed)
+        # Keep other values for parameter grid
+        filtered_values = [v for v in value if v != "auto"]
+
+        # Only add to spec if there are non-auto values
+        if filtered_values:
+            param_spec[cli_name] = filtered_values
+
+    return param_spec
+
+
+def merge_parameters_with_quant_config(
+    base_parameters: Dict[str, Any],
+    quant_config: Optional[Dict[str, Any]]
+) -> Dict[str, Any]:
+    """
+    Merge base parameters with quant_config parameter spec.
+
+    This combines user-defined parameters with quantization parameters,
+    preparing a unified parameter specification for grid expansion.
+
+    Args:
+        base_parameters: User-defined parameters (e.g., {"tp-size": [1, 2]})
+        quant_config: Quantization configuration with arrays
+
+    Returns:
+        Merged parameter specification
+
+    Example:
+        >>> merge_parameters_with_quant_config(
+        ...     {"tp-size": [1, 2]},
+        ...     {"gemm_dtype": ["auto", "fp8"], "kvcache_dtype": ["fp8_e5m2"]}
+        ... )
+        {"tp-size": [1, 2], "gemm-dtype": ["fp8"], "kv-cache-dtype": ["fp8_e5m2"]}
+    """
+    # Start with base parameters
+    merged = base_parameters.copy() if base_parameters else {}
+
+    # Add quant_config parameters
+    quant_params = expand_quant_config_to_parameter_spec(quant_config)
+
+    # Merge (quant_params can override base_parameters if same key exists)
+    merged.update(quant_params)
+
+    return merged
