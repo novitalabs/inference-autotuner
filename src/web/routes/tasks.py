@@ -40,6 +40,8 @@ async def create_task(task_data: TaskCreate, db: AsyncSession = Depends(get_db))
 		parameters=task_data.parameters,
 		optimization_config=task_data.optimization,
 		benchmark_config=task_data.benchmark,
+		slo_config=task_data.slo,
+		quant_config=task_data.quant_config,
 		deployment_mode=task_data.deployment_mode,
 		status=TaskStatus.PENDING,
 	)
@@ -147,6 +149,8 @@ async def replace_task(task_id: int, task_data: TaskCreate, db: AsyncSession = D
 	task.parameters = task_data.parameters
 	task.optimization_config = task_data.optimization
 	task.benchmark_config = task_data.benchmark
+	task.slo_config = task_data.slo
+	task.quant_config = task_data.quant_config
 	task.deployment_mode = task_data.deployment_mode
 	# Keep status and timestamps
 

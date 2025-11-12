@@ -48,6 +48,8 @@ class TaskCreate(BaseModel):
 	parameters: Dict[str, Any] = Field(..., description="Parameter grid")
 	optimization: Dict[str, Any] = Field(..., description="Optimization settings")
 	benchmark: Dict[str, Any] = Field(..., description="Benchmark configuration")
+	slo: Optional[Dict[str, Any]] = Field(None, description="SLO configuration")
+	quant_config: Optional[Dict[str, Any]] = Field(None, description="Quantization configuration")
 	deployment_mode: str = Field("docker", description="Deployment mode")
 
 
@@ -73,6 +75,8 @@ class TaskResponse(BaseModel):
 	parameters: Dict[str, Any]
 	optimization: Dict[str, Any] = Field(alias="optimization_config", serialization_alias="optimization")
 	benchmark: Dict[str, Any] = Field(alias="benchmark_config", serialization_alias="benchmark")
+	slo: Optional[Dict[str, Any]] = Field(None, alias="slo_config", serialization_alias="slo")
+	quant_config: Optional[Dict[str, Any]] = None
 	deployment_mode: str
 	total_experiments: int
 	successful_experiments: int
