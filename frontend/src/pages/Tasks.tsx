@@ -475,6 +475,7 @@ function TaskDetailModal({ task, onClose }: { task: Task; onClose: () => void })
 			benchmark: task.benchmark,
 			deployment_mode: task.deployment_mode,
 			...(task.slo && { slo: task.slo }), // Include SLO configuration if present
+			...(task.quant_config && { quant_config: task.quant_config }), // Include quantization config if present
 		};
 
 		// Store in sessionStorage for the new task form to pick up
@@ -541,6 +542,10 @@ function TaskDetailModal({ task, onClose }: { task: Task; onClose: () => void })
 							Basic Information
 						</h3>
 						<div className="grid grid-cols-2 gap-4">
+							<div>
+								<span className="text-sm text-gray-500">Task ID:</span>
+								<span className="ml-2 text-sm font-mono text-gray-900">{task.id}</span>
+							</div>
 							<div>
 								<span className="text-sm text-gray-500">Status:</span>
 								<span className="ml-2 text-sm text-gray-900">{task.status}</span>
@@ -631,6 +636,34 @@ function TaskDetailModal({ task, onClose }: { task: Task; onClose: () => void })
 							</pre>
 						</div>
 					</div>
+
+					{/* Quantization Config */}
+					{task.quant_config && Object.keys(task.quant_config).length > 0 && (
+						<div>
+							<h3 className="text-sm font-medium text-gray-900 mb-3">
+								Quantization Configuration
+							</h3>
+							<div className="bg-gray-50 rounded-lg p-4">
+								<pre className="text-sm text-gray-900 overflow-x-auto">
+									{JSON.stringify(task.quant_config, null, 2)}
+								</pre>
+							</div>
+						</div>
+					)}
+
+					{/* SLO Config */}
+					{task.slo && (
+						<div>
+							<h3 className="text-sm font-medium text-gray-900 mb-3">
+								SLO Configuration
+							</h3>
+							<div className="bg-gray-50 rounded-lg p-4">
+								<pre className="text-sm text-gray-900 overflow-x-auto">
+									{JSON.stringify(task.slo, null, 2)}
+								</pre>
+							</div>
+						</div>
+					)}
 
 					{/* Timeline */}
 					<div>
