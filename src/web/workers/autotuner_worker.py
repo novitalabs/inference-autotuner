@@ -483,7 +483,15 @@ async def run_autotuning_task(ctx: Dict[str, Any], task_id: int) -> Dict[str, An
 			# Update task with final results
 			# Refresh task object to ensure it's properly tracked by the session
 			await db.refresh(task)
-			task.status = TaskStatus.COMPLETED
+
+			# Check if any experiments succeeded
+			if task.successful_experiments > 0:
+				task.status = TaskStatus.COMPLETED
+			else:
+				# All experiments failed
+				task.status = TaskStatus.FAILED
+				logger.warning(f"[ARQ Worker] Task {task.task_name} - All {iteration} experiments failed")
+
 			task.completed_at = datetime.utcnow()
 			task.best_experiment_id = best_experiment_id
 

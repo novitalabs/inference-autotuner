@@ -24728,3 +24728,367 @@ If new task saves SLO correctly, then everything works! Task 9 just never had SL
 All our fixes are correct and working. We just need to confirm the frontend is sending the data when you save.
 
 </details>
+
+---
+
+> Got error when save task: TypeError: 'slo_config' is an invalid keyword argument for Task
+
+<details>
+<summary>Fixed missing slo_config column in SQLAlchemy Task model</summary>
+
+**Root Cause Found: SQLAlchemy model missing slo_config column definition**
+
+### The Error
+
+When trying to create a task with SLO configuration, got:
+```
+TypeError: 'slo_config' is an invalid keyword argument for Task
+```
+
+This error occurred in `src/web/routes/tasks.py` line 34 when creating a Task instance:
+```python
+db_task = Task(
+    # ... other fields
+    slo_config=task_data.slo,  # ← This caused the error
+)
+```
+
+### Investigation
+
+Checked database schema:
+```bash
+sqlite3 ~/.local/share/inference-autotuner/autotuner.db ".schema tasks" | grep slo
+# Result: slo_config JSON column EXISTS in database
+```
+
+Checked SQLAlchemy model (`src/web/db/models.py`):
+```python
+class Task(Base):
+    # ... other columns
+    quant_config = Column(JSON, nullable=True)  # ✅ This exists
+    # ❌ slo_config column definition MISSING!
+```
+
+### Root Cause
+
+The database table had the `slo_config` column, but the SQLAlchemy ORM model didn't have it defined. When SQLAlchemy tried to create a Task instance with `slo_config=...`, it didn't recognize it as a valid column.
+
+### Solution
+
+Added `slo_config` column to the Task model:
+
+```python
+# src/web/db/models.py
+class Task(Base):
+    __tablename__ = "tasks"
+    
+    # ... existing columns
+    benchmark_config = Column(JSON, nullable=False)
+    slo_config = Column(JSON, nullable=True)  # ← ADDED THIS LINE
+    quant_config = Column(JSON, nullable=True)
+```
+
+### Files Modified
+- `src/web/db/models.py`: Added `slo_config = Column(JSON, nullable=True)` (line 42)
+
+### Impact
+
+With this fix:
+- ✅ Backend can now create tasks with SLO configuration
+- ✅ Backend can save SLO config to database
+- ✅ Backend can update SLO config when editing tasks
+- ✅ No database migration needed (column already existed)
+
+### Note
+
+The backend server needs to be restarted for this change to take effect, as SQLAlchemy loads the model definitions on startup.
+
+SLO configuration should now save correctly when creating or editing tasks.
+
+</details>
+
+---
+
+> Now when edit task, UI of quant config not synchronized.
+
+<details>
+<summary>Fixed quantization config not loading in edit form - added useEffect to update configMode</summary>
+
+**Issue: Quantization config UI not reflecting loaded task data**
+
+### Problem
+
+When editing a task with quantization configuration:
+- Backend returns `quant_config` correctly (verified with console logs)
+- NewTask.tsx sets the `quantConfig` state correctly
+- But QuantizationConfigForm UI doesn't display the configuration
+
+### Root Cause
+
+The `QuantizationConfigForm` component has a `configMode` state that determines whether to show:
+- 'none': No quantization
+- 'preset': Preset selection mode
+- 'custom': Custom field selection mode
+
+This state was initialized in `useState()` based on the initial `value` prop:
+
+```typescript
+const [configMode, setConfigMode] = useState<'none' | 'preset' | 'custom'>(
+  value.presets && value.presets.length > 0 ? 'preset' :
+  value.preset ? 'preset' :
+  (value.gemm_dtype || value.kvcache_dtype || ...) ? 'custom' :
+  'none'
+);
+```
+
+**The problem**: `useState()` only runs **once** when the component mounts. When the `value` prop changes (e.g., when loading a task for editing), `configMode` doesn't update, so the UI stays in the wrong mode.
+
+### Solution
+
+Added a `useEffect` to watch the `value` prop and update `configMode` when it changes:
+
+```typescript
+// Update configMode when value prop changes (e.g., when loading task for editing)
+useEffect(() => {
+  const detectedMode = value.presets && value.presets.length > 0 ? 'preset' :
+    value.preset ? 'preset' :
+    (value.gemm_dtype || value.kvcache_dtype || value.attention_dtype || value.moe_dtype) ? 'custom' :
+    'none';
+
+  console.log('QuantizationConfigForm value changed:', value);
+  console.log('Detected mode:', detectedMode);
+  setConfigMode(detectedMode);
+}, [value]);
+```
+
+### Files Modified
+- `frontend/src/components/QuantizationConfigForm.tsx`:
+  - Added `useEffect` import (line 1)
+  - Added useEffect hook to update configMode (lines 57-67)
+- `frontend/src/pages/NewTask.tsx`:
+  - Added debug logging for task loading (lines 193-196, 246-250)
+
+### Impact
+
+With this fix:
+- ✅ When editing a task with preset mode quant config, UI shows preset mode
+- ✅ When editing a task with custom mode quant config, UI shows custom mode with selected values
+- ✅ When editing a task with no quant config, UI shows "none" mode
+- ✅ The configMode automatically updates when switching between tasks
+
+### Similar Pattern
+
+This is the same pattern we should apply to any component that has mode/state that depends on props:
+- Initialize state from props in useState (for initial mount)
+- Use useEffect to update state when props change (for subsequent updates)
+
+Quantization configuration now properly synchronizes with loaded task data when editing.
+
+</details>
+
+---
+
+> It works now, clean up debug log.
+
+<details>
+<summary>Removed debug logging after confirming fixes work</summary>
+
+**Cleanup: Removed all console.log debug statements**
+
+### What Was Removed
+
+**From `frontend/src/pages/NewTask.tsx`:**
+- Removed console logs in useEffect that loads task data (lines that logged taskToEdit, slo, quant_config)
+- Removed console logs when setting quant_config
+
+**From `frontend/src/components/QuantizationConfigForm.tsx`:**
+- Removed console logs in useEffect that tracks value changes
+- Removed logs for detected mode
+
+### Files Modified
+- `frontend/src/pages/NewTask.tsx`: Removed debug logging
+- `frontend/src/components/QuantizationConfigForm.tsx`: Removed debug logging
+
+### Status
+
+All SLO and quantization configuration features are now working correctly:
+- ✅ SLO saves to database when creating tasks
+- ✅ SLO saves to database when editing tasks
+- ✅ SLO loads correctly when editing tasks
+- ✅ Quantization config saves correctly
+- ✅ Quantization config loads and displays correctly when editing
+- ✅ All TypeScript checks pass
+- ✅ No debug logging clutter
+
+The implementation is complete and clean.
+
+</details>
+
+---
+
+> Task 9, only 1 experiment failed, and the task status is completed, why?
+
+<details>
+<summary>Fixed task status - mark as FAILED when all experiments fail</summary>
+
+**Issue: Tasks marked as COMPLETED even when all experiments fail**
+
+### Problem
+
+Task 9 had:
+- Status: `COMPLETED`
+- Total experiments: 10
+- Successful experiments: 0
+
+The task was marked as COMPLETED even though ALL experiments failed.
+
+### Root Cause
+
+In `src/web/workers/autotuner_worker.py` line 486, the task status was always set to `COMPLETED` after all iterations finished, regardless of whether any experiments succeeded:
+
+```python
+# Old code (line 486)
+task.status = TaskStatus.COMPLETED  # Always COMPLETED!
+task.completed_at = datetime.utcnow()
+task.best_experiment_id = best_experiment_id
+```
+
+This logic didn't check if `task.successful_experiments > 0`.
+
+### Solution
+
+Added a check to mark the task as `FAILED` if no experiments succeeded:
+
+```python
+# Check if any experiments succeeded
+if task.successful_experiments > 0:
+    task.status = TaskStatus.COMPLETED
+else:
+    # All experiments failed
+    task.status = TaskStatus.FAILED
+    logger.warning(f"[ARQ Worker] Task {task.task_name} - All {iteration} experiments failed")
+
+task.completed_at = datetime.utcnow()
+task.best_experiment_id = best_experiment_id
+```
+
+### Behavior
+
+**Before:**
+- Task with 0 successful experiments → Status: `COMPLETED`
+- Task with some successful experiments → Status: `COMPLETED`
+
+**After:**
+- Task with 0 successful experiments → Status: `FAILED` ✅
+- Task with some successful experiments → Status: `COMPLETED` ✅
+
+### Files Modified
+- `src/web/workers/autotuner_worker.py`: Added success check before setting task status (lines 487-493)
+
+### Impact
+
+- ✅ Tasks with all failed experiments now correctly show as `FAILED`
+- ✅ Tasks with at least one successful experiment still show as `COMPLETED`
+- ✅ Task status accurately reflects the outcome
+- ✅ Users can distinguish between truly completed tasks and completely failed tasks
+
+### Note
+
+The worker needs to be restarted for this change to take effect. Existing tasks with incorrect status won't be automatically updated.
+
+Task status logic now correctly reflects experiment success/failure.
+
+</details>
+
+---
+
+> Now even if I restart this task, it completed by all failure immediately
+
+<details>
+<summary>Fixed restart not clearing checkpoint metadata - task resumed instead of restarting</summary>
+
+**Issue: Restarted tasks complete immediately instead of running from scratch**
+
+### Problem
+
+When restarting a task (e.g., task 9):
+1. Task completes immediately (within seconds)
+2. Shows status as COMPLETED or FAILED
+3. No new experiments are actually run
+
+### Investigation
+
+Checked task 9's metadata in database:
+```json
+{
+  "checkpoint": {
+    "iteration": 1,
+    "best_score": Infinity,
+    "best_experiment_id": null,
+    "strategy_state": {...},
+    "timestamp": "2025-11-12T09:12:40.614245+00:00"
+  }
+}
+```
+
+The checkpoint was still present after restart!
+
+### Root Cause
+
+The worker has checkpoint/resume functionality (lines 200-218 in `autotuner_worker.py`):
+```python
+# Check for existing checkpoint and resume if available
+checkpoint = TaskCheckpoint.load_checkpoint(task.task_metadata)
+if checkpoint:
+    logger.info(f"[ARQ Worker] Found checkpoint at iteration {checkpoint['iteration']}")
+    # Restore strategy from checkpoint
+    iteration = checkpoint["iteration"]  # Resume from saved iteration
+```
+
+When a task is restarted:
+1. The `restart_task` endpoint resets counters and deletes experiments
+2. BUT it doesn't clear `task.task_metadata`
+3. Worker starts, finds checkpoint with `iteration=1` (or 10)
+4. Worker resumes from that iteration
+5. If `iteration >= max_iterations`, loop exits immediately
+6. Task marked as completed/failed with no work done
+
+### Solution
+
+Added checkpoint metadata clearing in the restart endpoint:
+
+```python
+# Reset task fields
+task.completed_at = None
+task.elapsed_time = None
+task.total_experiments = 0
+task.successful_experiments = 0
+task.best_experiment_id = None
+task.task_metadata = None  # ← ADDED: Clear checkpoint to prevent resume
+```
+
+### Behavior
+
+**Before:**
+- Restart task → Worker resumes from checkpoint → Completes immediately
+
+**After:**
+- Restart task → Checkpoint cleared → Worker starts fresh from iteration 1
+
+### Files Modified
+- `src/web/routes/tasks.py`: Added `task.task_metadata = None` in restart_task endpoint (line 267)
+
+### Impact
+
+- ✅ Restarted tasks now run from the beginning
+- ✅ All experiments are re-executed
+- ✅ Checkpoint resume only happens for tasks interrupted mid-execution (as intended)
+- ✅ Restart button now works correctly
+
+### Note
+
+The web server has hot-reload enabled, so this fix should take effect immediately without restart.
+
+Task restart now properly clears checkpoint state and runs experiments from scratch.
+
+</details>

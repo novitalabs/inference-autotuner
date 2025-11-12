@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { QuantizationConfig } from '../types/api';
 import { getAllRuntimeArgCombinations, formatMultipleCombinationsForDisplay } from '../utils/quantizationMapper';
 
@@ -53,6 +53,15 @@ export const QuantizationConfigForm: React.FC<QuantizationConfigFormProps> = ({ 
 		(value.gemm_dtype || value.kvcache_dtype || value.attention_dtype || value.moe_dtype) ? 'custom' :
 		'none'
 	);
+
+	// Update configMode when value prop changes (e.g., when loading task for editing)
+	useEffect(() => {
+		const detectedMode = value.presets && value.presets.length > 0 ? 'preset' :
+			value.preset ? 'preset' :
+			(value.gemm_dtype || value.kvcache_dtype || value.attention_dtype || value.moe_dtype) ? 'custom' :
+			'none';
+		setConfigMode(detectedMode);
+	}, [value]);
 
 	// Compute mapped runtime arguments
 	const argCombinations = useMemo(() => {

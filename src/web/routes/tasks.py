@@ -263,6 +263,8 @@ async def restart_task(task_id: int, db: AsyncSession = Depends(get_db)):
 	task.total_experiments = 0
 	task.successful_experiments = 0
 	task.best_experiment_id = None
+	# Clear checkpoint metadata to prevent resume
+	task.task_metadata = None
 
 	# Set status to RUNNING and start immediately
 	task.status = TaskStatus.RUNNING
