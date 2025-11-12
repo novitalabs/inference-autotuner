@@ -220,11 +220,18 @@ export function getRuntimeArgs(
 
 // Generate all combinations from arrays
 function generateCombinations(config: QuantizationConfig): ResolvedQuantConfig[] {
-	// Get arrays for each field
-	const gemmValues = Array.isArray(config.gemm_dtype) ? config.gemm_dtype : [config.gemm_dtype || 'auto'];
-	const kvcacheValues = Array.isArray(config.kvcache_dtype) ? config.kvcache_dtype : [config.kvcache_dtype || 'auto'];
-	const attentionValues = Array.isArray(config.attention_dtype) ? config.attention_dtype : [config.attention_dtype || 'auto'];
-	const moeValues = Array.isArray(config.moe_dtype) ? config.moe_dtype : [config.moe_dtype || 'auto'];
+	// Get arrays for each field, defaulting to ['auto'] if empty or undefined
+	const getValues = (field: string | string[] | undefined): string[] => {
+		if (Array.isArray(field)) {
+			return field.length > 0 ? field : ['auto'];
+		}
+		return [field || 'auto'];
+	};
+
+	const gemmValues = getValues(config.gemm_dtype);
+	const kvcacheValues = getValues(config.kvcache_dtype);
+	const attentionValues = getValues(config.attention_dtype);
+	const moeValues = getValues(config.moe_dtype);
 
 	const combinations: ResolvedQuantConfig[] = [];
 
@@ -256,14 +263,19 @@ export function getAllRuntimeArgCombinations(
 	// Handle preset/multi-preset modes
 	if (config.presets && config.presets.length > 0) {
 		// For multi-preset, each preset is a separate combination
-		const combinations = config.presets.slice(0, maxCombinations).map(preset => {
+		const combinations = config.presets.map(preset => {
 			const resolvedConfig = expandPreset(preset);
 			return mapConfigToArgs(runtime, resolvedConfig);
 		});
+
+		// Deduplicate combinations
+		const uniqueCombinations = deduplicateCombinations(combinations);
+		const limitedCombinations = uniqueCombinations.slice(0, maxCombinations);
+
 		return {
-			combinations,
-			total: config.presets.length,
-			truncated: config.presets.length > maxCombinations
+			combinations: limitedCombinations,
+			total: uniqueCombinations.length,
+			truncated: uniqueCombinations.length > maxCombinations
 		};
 	}
 
@@ -279,17 +291,38 @@ export function getAllRuntimeArgCombinations(
 
 	// Custom mode - generate all combinations
 	const allCombinations = generateCombinations(config);
-	const limitedCombinations = allCombinations.slice(0, maxCombinations);
-
-	const argCombinations = limitedCombinations.map(resolved =>
+	const argCombinations = allCombinations.map(resolved =>
 		mapConfigToArgs(runtime, resolved)
 	);
 
+	// Deduplicate combinations
+	const uniqueCombinations = deduplicateCombinations(argCombinations);
+	const limitedCombinations = uniqueCombinations.slice(0, maxCombinations);
+
 	return {
-		combinations: argCombinations,
-		total: allCombinations.length,
-		truncated: allCombinations.length > maxCombinations
+		combinations: limitedCombinations,
+		total: uniqueCombinations.length,
+		truncated: uniqueCombinations.length > maxCombinations
 	};
+}
+
+// Deduplicate combinations based on their argument content
+function deduplicateCombinations(combinations: Record<string, string>[]): Record<string, string>[] {
+	const seen = new Set<string>();
+	const unique: Record<string, string>[] = [];
+
+	for (const combo of combinations) {
+		// Create a canonical string representation by sorting keys
+		const sortedEntries = Object.entries(combo).sort(([keyA], [keyB]) => keyA.localeCompare(keyB));
+		const signature = JSON.stringify(sortedEntries);
+
+		if (!seen.has(signature)) {
+			seen.add(signature);
+			unique.push(combo);
+		}
+	}
+
+	return unique;
 }
 
 // Helper to map a resolved config to args based on runtime
