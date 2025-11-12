@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useState, useEffect } from 'react';
 import { dashboardApi } from '../services/dashboardApi';
 import { useTimezone } from '../contexts/TimezoneContext';
+import ExperimentLogViewer from '../components/ExperimentLogViewer';
 import {
 	CpuChipIcon,
 	ServerIcon,
@@ -30,6 +31,9 @@ type GPUHistory = Record<number, number[]>;
 export default function Dashboard() {
 	// Track GPU utilization history
 	const [gpuHistory, setGpuHistory] = useState<GPUHistory>({});
+
+	// Track selected experiment for log viewer
+	const [selectedExperiment, setSelectedExperiment] = useState<{ taskId: number; experimentId: number } | null>(null);
 
 	// Get timezone formatting functions
 	const { formatTime, timezoneOffsetMs } = useTimezone();
@@ -495,9 +499,10 @@ export default function Dashboard() {
 												left: `${leftPercent}%`,
 												width: `${widthPercent}%`,
 											}}
+											onClick={() => setSelectedExperiment({ taskId: exp.task_id, experimentId: exp.experiment_id })}
 											title={`Experiment ${exp.experiment_id}\nDuration: ${Math.round(
 												duration / 1000
-											)}s\nStatus: ${exp.status}\nScore: ${exp.objective_score?.toFixed(2) || 'N/A'}`}
+											)}s\nStatus: ${exp.status}\nScore: ${exp.objective_score?.toFixed(2) || 'N/A'}\n\nClick to view logs`}
 										>
 											{/* Duration label (only show if wide enough) */}
 											{widthPercent > 5 && (
@@ -580,6 +585,15 @@ export default function Dashboard() {
 					{renderTimelineChart()}
 				</div>
 			</div>
+
+			{/* Experiment Log Viewer Modal */}
+			{selectedExperiment && (
+				<ExperimentLogViewer
+					taskId={selectedExperiment.taskId}
+					experimentId={selectedExperiment.experimentId}
+					onClose={() => setSelectedExperiment(null)}
+				/>
+			)}
 		</div>
 	);
 }

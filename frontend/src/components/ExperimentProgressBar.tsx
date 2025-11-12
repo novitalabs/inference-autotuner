@@ -6,12 +6,14 @@ interface ExperimentProgressBarProps {
   taskId: number;
   totalExperiments: number;
   successfulExperiments: number;
+  onExperimentClick?: (taskId: number, experimentId: number) => void;
 }
 
 export default function ExperimentProgressBar({
   taskId,
   totalExperiments,
-  successfulExperiments
+  successfulExperiments,
+  onExperimentClick
 }: ExperimentProgressBarProps) {
   // Fetch experiments for this task
   const { data: experiments = [] } = useQuery<Experiment[]>({
@@ -88,13 +90,26 @@ export default function ExperimentProgressBar({
       {/* Progress blocks */}
       {blocksToShow.length > 0 && (
         <div className="flex flex-wrap gap-0.5">
-          {blocksToShow.map((exp, idx) => (
-            <div
-              key={exp.id || idx}
-              className={`w-1.5 h-3 rounded-sm ${getBlockColor(exp.status)} transition-colors duration-300 hover:scale-125 cursor-pointer`}
-              title={getBlockTitle(exp)}
-            />
-          ))}
+          {blocksToShow.map((exp, idx) => {
+            // Only allow clicking on real experiments (not placeholders)
+            const isRealExperiment = exp.id > 0;
+            // Only show logs for finished or running experiments
+            const isClickable = isRealExperiment && onExperimentClick &&
+              (exp.status === 'success' || exp.status === 'failed' || exp.status === 'deploying' || exp.status === 'benchmarking');
+
+            return (
+              <div
+                key={exp.id || idx}
+                className={`w-1.5 h-3 rounded-sm ${getBlockColor(exp.status)} transition-colors duration-300 hover:scale-125 ${isClickable ? 'cursor-pointer' : 'cursor-default'}`}
+                title={isClickable ? `${getBlockTitle(exp)}\n\nClick to view logs` : getBlockTitle(exp)}
+                onClick={() => {
+                  if (isClickable) {
+                    onExperimentClick(taskId, exp.experiment_id);
+                  }
+                }}
+              />
+            );
+          })}
           {hasMore && (
             <div
               className="text-xs text-gray-500 ml-1 self-center"

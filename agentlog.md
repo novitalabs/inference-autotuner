@@ -25092,3 +25092,79 @@ The web server has hot-reload enabled, so this fix should take effect immediatel
 Task restart now properly clears checkpoint state and runs experiments from scratch.
 
 </details>
+
+---
+
+> When click a experiment bar in Experiment Timeline, show its log.
+
+<details>
+<summary>Added click handler to show experiment logs from timeline</summary>
+
+**Feature: Click experiment bars to view logs**
+
+### What Was Added
+
+Added functionality to the Experiment Timeline on the Dashboard to show experiment logs when clicking on an experiment bar.
+
+### Implementation
+
+1. **Imported ExperimentLogViewer component**
+   ```typescript
+   import ExperimentLogViewer from '../components/ExperimentLogViewer';
+   ```
+
+2. **Added state to track selected experiment**
+   ```typescript
+   const [selectedExperiment, setSelectedExperiment] = useState<{ taskId: number; experimentId: number } | null>(null);
+   ```
+
+3. **Added onClick handler to experiment bars**
+   ```typescript
+   onClick={() => setSelectedExperiment({ taskId: exp.task_id, experimentId: exp.experiment_id })}
+   ```
+
+4. **Updated tooltip to indicate clickability**
+   - Added hint: "Click to view logs"
+
+5. **Rendered log viewer modal conditionally**
+   ```typescript
+   {selectedExperiment && (
+     <ExperimentLogViewer
+       taskId={selectedExperiment.taskId}
+       experimentId={selectedExperiment.experimentId}
+       onClose={() => setSelectedExperiment(null)}
+     />
+   )}
+   ```
+
+### User Experience
+
+**Before:**
+- Experiment bars displayed status and metrics on hover
+- No way to view logs from dashboard
+
+**After:**
+- Click any experiment bar to open a modal with filtered logs for that experiment
+- Tooltip shows "Click to view logs"
+- Press Escape or click close button to dismiss modal
+- Seamless integration with existing ExperimentLogViewer component
+
+### Files Modified
+- `frontend/src/pages/Dashboard.tsx`:
+  - Added ExperimentLogViewer import (line 5)
+  - Added selectedExperiment state (line 36)
+  - Added onClick handler to experiment bar (line 502)
+  - Updated tooltip text (line 505)
+  - Added log viewer modal rendering (lines 589-596)
+
+### Impact
+
+- ✅ Quick access to experiment logs directly from dashboard timeline
+- ✅ No need to navigate to tasks or experiments page
+- ✅ Visual feedback (hover opacity) indicates bars are clickable
+- ✅ Consistent UI with existing log viewer patterns
+- ✅ Works for all experiments (success, failed, running)
+
+Users can now quickly investigate experiment details and logs with a single click on the timeline.
+
+</details>

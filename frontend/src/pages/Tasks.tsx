@@ -5,6 +5,7 @@ import type { Task } from "@/types/api";
 import LogViewer from "@/components/LogViewer";
 import TaskResults from "@/components/TaskResults";
 import ExperimentProgressBar from "@/components/ExperimentProgressBar";
+import ExperimentLogViewer from "@/components/ExperimentLogViewer";
 import { navigateTo } from "@/components/Layout";
 import { setEditingTaskId } from "@/utils/editTaskStore";
 import toast from "react-hot-toast";
@@ -16,6 +17,7 @@ export default function Tasks() {
 	const [statusFilter, setStatusFilter] = useState<string>("all");
 	const [logViewerTask, setLogViewerTask] = useState<Task | null>(null);
 	const [resultsTask, setResultsTask] = useState<Task | null>(null);
+	const [selectedExperiment, setSelectedExperiment] = useState<{ taskId: number; experimentId: number } | null>(null);
 
 	// Fetch full task details when a task is selected
 	const { data: selectedTask } = useQuery({
@@ -107,7 +109,7 @@ export default function Tasks() {
 		return task.status === "running";
 	};
 
-	return (
+	return (<>
 		<div className="px-4 py-6 sm:px-0">
 			<div className="sm:flex sm:items-center">
 				<div className="sm:flex-auto">
@@ -276,6 +278,9 @@ export default function Tasks() {
 												taskId={task.id}
 												totalExperiments={task.total_experiments}
 												successfulExperiments={task.successful_experiments}
+												onExperimentClick={(taskId, experimentId) => {
+													setSelectedExperiment({ taskId, experimentId });
+												}}
 											/>
 										</td>
 										<td className="whitespace-nowrap px-3 py-4 text-sm text-gray-700">
@@ -408,42 +413,52 @@ export default function Tasks() {
 				)}
 			</div>
 
-			{/* Task Detail Modal */}
-			{selectedTask && (
-				<TaskDetailModal task={selectedTask} onClose={() => setSelectedTaskId(null)} />
-			)}
-
-			{/* Log Viewer Modal */}
-			{logViewerTask && (
-				<LogViewer
-					taskId={logViewerTask.id}
-					taskName={logViewerTask.task_name}
-					onClose={() => setLogViewerTask(null)}
-				/>
-			)}
-
-			{/* Task Results Modal */}
-			{resultsTask && (
-				<TaskResults
-					task={resultsTask}
-					onClose={() => setResultsTask(null)}
-				/>
-			)}
-
-			{/* Edit Task Modal */}
-			{/*editTask && (
-				<EditTaskModal
-					task={editTask}
-					onClose={() => setEditTaskId(null)}
-					onUpdate={(updates) => updateTaskMutation.mutate({ taskId: editTask.id, updates })}
-					isUpdating={updateTaskMutation.isPending}
-				/>
-			)*/}
-
-						{/* Create Task Modal */}
-			{showCreateForm && <CreateTaskModal onClose={() => setShowCreateForm(false)} />}
 		</div>
-	);
+
+		{/* Task Detail Modal */}
+		{selectedTask && (
+			<TaskDetailModal task={selectedTask} onClose={() => setSelectedTaskId(null)} />
+		)}
+
+		{/* Log Viewer Modal */}
+		{logViewerTask && (
+			<LogViewer
+				taskId={logViewerTask.id}
+				taskName={logViewerTask.task_name}
+				onClose={() => setLogViewerTask(null)}
+			/>
+		)}
+
+		{/* Task Results Modal */}
+		{resultsTask && (
+			<TaskResults
+				task={resultsTask}
+				onClose={() => setResultsTask(null)}
+			/>
+		)}
+
+		{/* Edit Task Modal */}
+		{/*editTask && (
+			<EditTaskModal
+				task={editTask}
+				onClose={() => setEditTaskId(null)}
+				onUpdate={(updates) => updateTaskMutation.mutate({ taskId: editTask.id, updates })}
+				isUpdating={updateTaskMutation.isPending}
+			/>
+		)*/}
+
+		{/* Create Task Modal */}
+		{showCreateForm && <CreateTaskModal onClose={() => setShowCreateForm(false)} />}
+
+		{/* Experiment Log Viewer Modal */}
+		{selectedExperiment && (
+			<ExperimentLogViewer
+				taskId={selectedExperiment.taskId}
+				experimentId={selectedExperiment.experimentId}
+				onClose={() => setSelectedExperiment(null)}
+			/>
+		)}
+	</>);
 }
 
 // Task Detail Modal Component
