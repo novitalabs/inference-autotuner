@@ -152,7 +152,12 @@ async def replace_task(task_id: int, task_data: TaskCreate, db: AsyncSession = D
 	task.slo_config = task_data.slo
 	task.quant_config = task_data.quant_config
 	task.deployment_mode = task_data.deployment_mode
-	# Keep status and timestamps
+
+	# Reset status to pending and clear timestamps when task is edited
+	task.status = TaskStatus.PENDING
+	task.started_at = None
+	task.completed_at = None
+	task.elapsed_time = None
 
 	# Explicitly mark as modified and commit
 	db.add(task)

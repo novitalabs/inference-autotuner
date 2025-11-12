@@ -107,10 +107,6 @@ export default function Tasks() {
 		return task.status === "running";
 	};
 
-	const canRestartTask = (task: Task) => {
-		return task.status === "completed" || task.status === "failed" || task.status === "cancelled";
-	};
-
 	return (
 		<div className="px-4 py-6 sm:px-0">
 			<div className="sm:flex sm:items-center">
@@ -302,13 +298,24 @@ export default function Tasks() {
 													</svg>
 												</button>
 
-												{/* Edit Button - For pending, cancelled, and failed tasks */}
-											{(task.status === 'pending' || task.status === 'cancelled' || task.status === 'failed') && (
+												{/* Edit Button - For pending, cancelled, failed, and completed tasks */}
+											{(task.status === 'pending' || task.status === 'cancelled' || task.status === 'failed' || task.status === 'completed') && (
 												<button
 													onClick={() => {
+														// Confirm for completed tasks with results
+														if (task.status === 'completed' && task.successful_experiments > 0) {
+															if (confirm(
+																`Are you sure you want to edit task "${task.task_name}"? This task has completed results. Editing will require restarting the task.`
+															)) {
+																setEditingTaskId(task.id);
+																navigateTo('new-task');
+															}
+														} else {
+															// Directly edit for pending/failed/cancelled tasks
 															setEditingTaskId(task.id);
 															navigateTo('new-task');
-														}}
+														}
+													}}
 													className="p-1.5 text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded transition-colors"
 													title="Edit Task"
 												>
@@ -375,23 +382,12 @@ export default function Tasks() {
 													</button>
 												)}
 
-												{/* Restart Button */}
-												{canRestartTask(task) && (
+												{/* Restart Button - Only for failed and cancelled tasks */}
+												{(task.status === 'failed' || task.status === 'cancelled') && (
 													<button
 														onClick={() => {
-															// Only confirm for completed tasks, not for failed/cancelled
-															if (task.status === "completed") {
-																if (
-																	confirm(
-																		`Are you sure you want to restart task "${task.task_name}"? This will reset the task to PENDING status and clear all previous results.`
-																	)
-																) {
-																	restartTaskMutation.mutate(task.id);
-																}
-															} else {
-																// Directly restart failed/cancelled tasks
-																restartTaskMutation.mutate(task.id);
-															}
+															// Directly restart failed/cancelled tasks without confirmation
+															restartTaskMutation.mutate(task.id);
 														}}
 														disabled={restartTaskMutation.isPending}
 														className="p-1.5 text-orange-600 hover:text-orange-900 hover:bg-orange-50 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"

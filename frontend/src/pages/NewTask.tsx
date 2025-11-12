@@ -21,6 +21,7 @@ interface TaskFormData {
   };
   parameters: Record<string, any[]>;
   quant_config?: QuantizationConfig;
+  slo?: Record<string, any>;
   optimization: {
     strategy: string;
     objective: string;
@@ -238,6 +239,61 @@ export default function NewTask() {
       // Quantization Configuration
       if (taskToEdit.quant_config) {
         setQuantConfig(taskToEdit.quant_config);
+      }
+
+      // SLO Configuration
+      if (taskToEdit.slo) {
+        setEnableSLO(true);
+
+        // Latency metrics
+        if (taskToEdit.slo.latency) {
+          const latency = taskToEdit.slo.latency;
+
+          if (latency.p50) {
+            setEnableP50(true);
+            setSloP50Threshold(latency.p50.threshold?.toString() || '2.0');
+            setSloP50Weight(latency.p50.weight?.toString() || '1.0');
+          }
+
+          if (latency.p90) {
+            setEnableP90(true);
+            setSloP90Threshold(latency.p90.threshold?.toString() || '5.0');
+            setSloP90Weight(latency.p90.weight?.toString() || '2.0');
+            setSloP90HardFail(latency.p90.hard_fail || false);
+            if (latency.p90.fail_ratio !== undefined) {
+              setSloP90FailRatio(latency.p90.fail_ratio.toString());
+            }
+          }
+
+          if (latency.p99) {
+            setEnableP99(true);
+            setSloP99Threshold(latency.p99.threshold?.toString() || '10.0');
+            setSloP99Weight(latency.p99.weight?.toString() || '3.0');
+            setSloP99HardFail(latency.p99.hard_fail || false);
+            if (latency.p99.fail_ratio !== undefined) {
+              setSloP99FailRatio(latency.p99.fail_ratio.toString());
+            }
+          }
+        }
+
+        // TTFT
+        if (taskToEdit.slo.ttft) {
+          setEnableTTFT(true);
+          setSloTtftThreshold(taskToEdit.slo.ttft.threshold?.toString() || '1.0');
+          setSloTtftWeight(taskToEdit.slo.ttft.weight?.toString() || '2.0');
+        }
+
+        // TPOT
+        if (taskToEdit.slo.tpot) {
+          setEnableTPOT(true);
+          setSloTpotThreshold(taskToEdit.slo.tpot.threshold?.toString() || '0.05');
+          setSloTpotWeight(taskToEdit.slo.tpot.weight?.toString() || '2.0');
+        }
+
+        // Steepness
+        if (taskToEdit.slo.steepness !== undefined) {
+          setSloSteepness(taskToEdit.slo.steepness.toString());
+        }
       }
     }
   }, [taskToEdit]);
