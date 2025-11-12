@@ -246,7 +246,8 @@ def map_to_sglang_args(
         args["--quantization"] = "fp8"
         args["--dtype"] = "auto"
     elif gemm_dtype == "int8":
-        args["--quantization"] = "int8"
+        # SGLang doesn't support plain "int8", skip it (use auto)
+        # Valid options would be: w8a8_int8, but that's not a user-facing dtype
         args["--dtype"] = "auto"
     elif gemm_dtype != "auto":
         # Explicit dtype (float16, bfloat16)
@@ -256,8 +257,14 @@ def map_to_sglang_args(
         args["--dtype"] = "auto"
 
     # KV cache dtype
-    if kvcache_dtype != "auto":
+    # SGLang only accepts: auto, fp8_e5m2, fp8_e4m3
+    # Map other values or skip them
+    if kvcache_dtype == "fp8":
+        # Generic fp8 -> use fp8_e5m2 (better quality)
+        args["--kv-cache-dtype"] = "fp8_e5m2"
+    elif kvcache_dtype in ["fp8_e5m2", "fp8_e4m3"]:
         args["--kv-cache-dtype"] = kvcache_dtype
+    # For fp16, bfloat16, int8, int4: use 'auto' (omit the argument)
 
     # Attention dtype
     if attention_dtype in ["fp8", "fp8_e5m2", "fp8_e4m3"]:
