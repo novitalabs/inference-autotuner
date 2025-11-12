@@ -23739,3 +23739,99 @@ Result: 1 experiment (single configuration)
 Users can now create tasks with empty parameters, enabling quantization-only testing, baseline measurements, and single-configuration deployments without parameter grid search.
 
 </details>
+
+---
+
+> Removed repeated combinations in Mapped Arguments.
+
+<details>
+<summary>Solution: Added deduplication logic for argument combinations</summary>
+
+### Context
+User requested to remove duplicate/repeated argument combinations in the Mapped Arguments display. When different quantization configurations map to the same CLI arguments, they should be deduplicated to avoid showing redundant information.
+
+### Implementation
+
+**Added Deduplication Function** (`frontend/src/utils/quantizationMapper.ts`):
+
+Created `deduplicateCombinations()` function:
+- Creates canonical signature for each combination by sorting keys
+- Uses JSON.stringify on sorted entries for comparison
+- Tracks seen signatures in a Set
+- Returns only unique combinations
+
+**Updated `getAllRuntimeArgCombinations()`**:
+- Applies deduplication after generating combinations (preset and custom modes)
+- Returns unique count in `total` field
+- Truncation now based on unique combinations
+
+### Algorithm
+
+1. **Generate all combinations** (preset expansion or cartesian product)
+2. **Map to runtime arguments** (engine-specific CLI args)
+3. **Create canonical signature**:
+   - Sort argument keys alphabetically
+   - JSON.stringify sorted entries
+   - Example: `[["--dtype","auto"],["--kv-cache-dtype","fp8_e5m2"]]`
+4. **Track seen signatures** with Set
+5. **Keep only unique combinations**
+
+### Example Scenarios
+
+**Before (with duplicates)**:
+```
+Mapped Arguments for VLLM (6 combinations)
+[1] --kv-cache-dtype fp8_e5m2
+[2] --kv-cache-dtype fp8_e5m2
+[3] --quantization fp8 --dtype auto --kv-cache-dtype fp8_e5m2
+[4] --quantization fp8 --dtype auto --kv-cache-dtype fp8_e5m2
+[5] --kv-cache-dtype auto
+[6] --kv-cache-dtype auto
+```
+
+**After (deduplicated)**:
+```
+Mapped Arguments for VLLM (3 combinations)
+[1] --kv-cache-dtype fp8_e5m2
+[2] --quantization fp8 --dtype auto --kv-cache-dtype fp8_e5m2
+[3] --kv-cache-dtype auto
+```
+
+### When Duplicates Occur
+
+1. **Multiple presets mapping to same args**:
+   - "default" and "bf16-stable" might both use `--dtype auto`
+   - vLLM doesn't support separate attention dtype, so different attention settings produce same args
+
+2. **Custom mode with functionally equivalent configs**:
+   - `auto` in multiple fields often produces no additional args
+   - Engine limitations (e.g., vLLM ignoring attention_dtype) create duplicates
+
+3. **Engine-specific fallbacks**:
+   - Unsupported features map to same fallback arguments
+
+### Benefits
+
+1. **Cleaner display**: No redundant combinations shown
+2. **Accurate count**: Total reflects unique experiments
+3. **Better understanding**: Users see actual variety in configurations
+4. **Efficient**: Prevents confusion about duplicate experiments
+
+### Edge Cases Handled
+
+- Empty arguments (`{}`) deduplicated correctly
+- Order-independent comparison (sorted keys)
+- Works across all modes (preset, multi-preset, custom)
+- Truncation applied after deduplication
+
+### Verification
+- TypeScript type checking: ✅ No errors
+- Frontend build: ✅ Successful (729.92 kB)
+- Deduplication logic tested for all modes
+
+### Files Modified
+- `frontend/src/utils/quantizationMapper.ts`: Added `deduplicateCombinations()` function, updated combination generation
+
+The Mapped Arguments display now shows only unique argument combinations, eliminating confusion from duplicate configurations that map to identical CLI arguments.
+
+</details>

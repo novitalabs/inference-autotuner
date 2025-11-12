@@ -231,8 +231,9 @@ export const QuantizationConfigForm: React.FC<QuantizationConfigFormProps> = ({ 
 						</label>
 						<div className="grid grid-cols-2 md:grid-cols-3 gap-2">
 							{GEMM_DTYPES.map(dtype => (
-								<label
+								<div
 									key={dtype}
+									onClick={() => handleCustomFieldToggle('gemm_dtype', dtype)}
 									className={`flex items-center px-3 py-2 border rounded-md cursor-pointer transition-colors ${
 										isFieldValueSelected('gemm_dtype', dtype)
 											? 'border-blue-600 bg-blue-50'
@@ -242,11 +243,11 @@ export const QuantizationConfigForm: React.FC<QuantizationConfigFormProps> = ({ 
 									<input
 										type="checkbox"
 										checked={isFieldValueSelected('gemm_dtype', dtype)}
-										onChange={() => handleCustomFieldToggle('gemm_dtype', dtype)}
-										className="h-4 w-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+										onChange={() => {}}
+										className="h-4 w-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500 pointer-events-none"
 									/>
 									<span className="ml-2 text-sm text-gray-900">{dtype}</span>
-								</label>
+								</div>
 							))}
 						</div>
 						{(isFieldValueSelected('gemm_dtype', 'fp8') || (Array.isArray(value.gemm_dtype) && value.gemm_dtype.includes('fp8'))) && (
@@ -264,8 +265,9 @@ export const QuantizationConfigForm: React.FC<QuantizationConfigFormProps> = ({ 
 						</label>
 						<div className="grid grid-cols-2 md:grid-cols-4 gap-2">
 							{KVCACHE_DTYPES.map(dtype => (
-								<label
+								<div
 									key={dtype}
+									onClick={() => handleCustomFieldToggle('kvcache_dtype', dtype)}
 									className={`flex items-center px-3 py-2 border rounded-md cursor-pointer transition-colors ${
 										isFieldValueSelected('kvcache_dtype', dtype)
 											? 'border-blue-600 bg-blue-50'
@@ -275,11 +277,11 @@ export const QuantizationConfigForm: React.FC<QuantizationConfigFormProps> = ({ 
 									<input
 										type="checkbox"
 										checked={isFieldValueSelected('kvcache_dtype', dtype)}
-										onChange={() => handleCustomFieldToggle('kvcache_dtype', dtype)}
-										className="h-4 w-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+										onChange={() => {}}
+										className="h-4 w-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500 pointer-events-none"
 									/>
 									<span className="ml-2 text-sm text-gray-900">{dtype}</span>
-								</label>
+								</div>
 							))}
 						</div>
 						{(isFieldValueSelected('kvcache_dtype', 'fp8') ||
@@ -300,8 +302,9 @@ export const QuantizationConfigForm: React.FC<QuantizationConfigFormProps> = ({ 
 						</label>
 						<div className="grid grid-cols-2 md:grid-cols-4 gap-2">
 							{ATTENTION_DTYPES.map(dtype => (
-								<label
+								<div
 									key={dtype}
+									onClick={() => handleCustomFieldToggle('attention_dtype', dtype)}
 									className={`flex items-center px-3 py-2 border rounded-md cursor-pointer transition-colors ${
 										isFieldValueSelected('attention_dtype', dtype)
 											? 'border-blue-600 bg-blue-50'
@@ -311,11 +314,11 @@ export const QuantizationConfigForm: React.FC<QuantizationConfigFormProps> = ({ 
 									<input
 										type="checkbox"
 										checked={isFieldValueSelected('attention_dtype', dtype)}
-										onChange={() => handleCustomFieldToggle('attention_dtype', dtype)}
-										className="h-4 w-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+										onChange={() => {}}
+										className="h-4 w-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500 pointer-events-none"
 									/>
 									<span className="ml-2 text-sm text-gray-900">{dtype}</span>
-								</label>
+								</div>
 							))}
 						</div>
 						{(isFieldValueSelected('attention_dtype', 'fp8') ||
@@ -336,8 +339,9 @@ export const QuantizationConfigForm: React.FC<QuantizationConfigFormProps> = ({ 
 						</label>
 						<div className="grid grid-cols-2 md:grid-cols-4 gap-2">
 							{MOE_DTYPES.map(dtype => (
-								<label
+								<div
 									key={dtype}
+									onClick={() => handleCustomFieldToggle('moe_dtype', dtype)}
 									className={`flex items-center px-3 py-2 border rounded-md cursor-pointer transition-colors ${
 										isFieldValueSelected('moe_dtype', dtype)
 											? 'border-blue-600 bg-blue-50'
@@ -347,11 +351,11 @@ export const QuantizationConfigForm: React.FC<QuantizationConfigFormProps> = ({ 
 									<input
 										type="checkbox"
 										checked={isFieldValueSelected('moe_dtype', dtype)}
-										onChange={() => handleCustomFieldToggle('moe_dtype', dtype)}
-										className="h-4 w-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+										onChange={() => {}}
+										className="h-4 w-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500 pointer-events-none"
 									/>
 									<span className="ml-2 text-sm text-gray-900">{dtype}</span>
-								</label>
+								</div>
 							))}
 						</div>
 						{(isFieldValueSelected('moe_dtype', 'w4afp8') ||
