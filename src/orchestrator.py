@@ -325,8 +325,20 @@ class AutotunerOrchestrator:
 		print(f"\nOptimization strategy: {strategy_name}")
 		print(f"Objective: {objective}")
 
+		# Merge parameters and parallel_config for optimization
+		# This allows parallel parameters (tp, pp, dp, etc.) to be tuned alongside other parameters
+		combined_parameters = dict(task.get("parameters", {}))
+		parallel_config = task.get("parallel_config", {})
+
+		if parallel_config:
+			print(f"\nParallel configuration detected:")
+			for key, value in parallel_config.items():
+				print(f"  {key}: {value}")
+				# Add parallel config to combined parameters for optimization
+				combined_parameters[key] = value
+
 		try:
-			strategy = create_optimization_strategy(optimization_config, task["parameters"])
+			strategy = create_optimization_strategy(optimization_config, combined_parameters)
 		except Exception as e:
 			print(f"Error creating optimization strategy: {e}")
 			raise
