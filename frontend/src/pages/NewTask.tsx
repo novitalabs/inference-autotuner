@@ -5,9 +5,10 @@ import toast from 'react-hot-toast';
 import { navigateTo } from '../components/Layout';
 import { getEditingTaskId } from '../utils/editTaskStore';
 import { useEscapeKey } from '@/hooks/useEscapeKey';
-import type { Task, QuantizationConfig } from '../types/api';
+import type { Task, QuantizationConfig, ParallelConfig } from '../types/api';
 import PresetSelector from '../components/PresetSelector';
 import { QuantizationConfigForm } from '../components/QuantizationConfigForm';
+import { ParallelConfigForm } from '../components/ParallelConfigForm';
 
 interface TaskFormData {
   task_name: string;
@@ -21,6 +22,7 @@ interface TaskFormData {
   };
   parameters: Record<string, any[]>;
   quant_config?: QuantizationConfig;
+  parallel_config?: ParallelConfig;
   slo?: Record<string, any>;
   optimization: {
     strategy: string;
@@ -240,6 +242,9 @@ export default function NewTask() {
       if (taskToEdit.quant_config) {
         setQuantConfig(taskToEdit.quant_config);
       }
+      if (taskToEdit.parallel_config) {
+        setParallelConfig(taskToEdit.parallel_config);
+      }
 
       // SLO Configuration
       if (taskToEdit.slo) {
@@ -368,6 +373,7 @@ export default function NewTask() {
 
   // Quantization Configuration
   const [quantConfig, setQuantConfig] = useState<QuantizationConfig>({});
+  const [parallelConfig, setParallelConfig] = useState<ParallelConfig>({});
 
   // Auto-update benchmarkModelName when modelIdOrPath changes
   useEffect(() => {
@@ -491,6 +497,8 @@ export default function NewTask() {
       parameters: parsedParams,
       // Include quantization config if any field is set
       ...(Object.keys(quantConfig).length > 0 && { quant_config: quantConfig }),
+      // Include parallel config if any field is set
+      ...(Object.keys(parallelConfig).length > 0 && { parallel_config: parallelConfig }),
       optimization: {
         strategy,
         objective,
@@ -715,6 +723,19 @@ export default function NewTask() {
           <QuantizationConfigForm
             value={quantConfig}
             onChange={setQuantConfig}
+            baseRuntime={baseRuntime}
+          />
+        </div>
+
+        {/* Parallel Configuration */}
+        <div className="bg-white shadow-sm rounded-lg p-6">
+          <h2 className="text-xl font-semibold mb-4">Parallel Execution Configuration (Optional)</h2>
+          <p className="text-sm text-gray-600 mb-4">
+            Configure multi-GPU parallelism (TP, PP, DP, CP) for distributed inference.
+          </p>
+          <ParallelConfigForm
+            value={parallelConfig}
+            onChange={setParallelConfig}
             baseRuntime={baseRuntime}
           />
         </div>

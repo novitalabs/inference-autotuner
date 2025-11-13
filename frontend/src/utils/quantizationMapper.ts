@@ -74,14 +74,9 @@ export function expandPreset(presetName: string): ResolvedQuantConfig {
 
 // Resolve config to flat structure (takes first value if array)
 export function resolveQuantConfig(config: QuantizationConfig): ResolvedQuantConfig {
-	// Multi-preset mode - use first preset for display
+	// Preset mode - use first preset for display
 	if (config.presets && config.presets.length > 0) {
 		return expandPreset(config.presets[0]);
-	}
-
-	// Single preset mode
-	if (config.preset) {
-		return expandPreset(config.preset);
 	}
 
 	// Custom mode or empty - take first value if array
@@ -276,16 +271,6 @@ export function getAllRuntimeArgCombinations(
 			combinations: limitedCombinations,
 			total: uniqueCombinations.length,
 			truncated: uniqueCombinations.length > maxCombinations
-		};
-	}
-
-	if (config.preset) {
-		// Single preset - just one combination
-		const resolvedConfig = expandPreset(config.preset);
-		return {
-			combinations: [mapConfigToArgs(runtime, resolvedConfig)],
-			total: 1,
-			truncated: false
 		};
 	}
 
