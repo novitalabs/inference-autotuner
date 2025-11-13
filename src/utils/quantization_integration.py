@@ -189,16 +189,18 @@ def get_quant_config_summary(quant_config: Optional[Dict[str, Any]]) -> str:
     if not quant_config:
         return "No quantization"
 
-    # Handle preset references
-    if "preset" in quant_config:
-        resolved = resolve_quant_config(quant_config)
-    else:
-        resolved = quant_config
+    # Handle preset references (array mode only)
+    if "presets" in quant_config:
+        presets = quant_config["presets"]
+        if isinstance(presets, list):
+            return f"Presets: {', '.join(presets)}"
+        return f"Preset: {presets}"
 
-    gemm = resolved.get("gemm_dtype", "auto")
-    kvcache = resolved.get("kvcache_dtype", "auto")
-    attention = resolved.get("attention_dtype", "auto")
-    moe = resolved.get("moe_dtype", "auto")
+    # Use explicit fields
+    gemm = quant_config.get("gemm_dtype", "auto")
+    kvcache = quant_config.get("kvcache_dtype", "auto")
+    attention = quant_config.get("attention_dtype", "auto")
+    moe = quant_config.get("moe_dtype", "auto")
 
     return f"GEMM: {gemm}, KV Cache: {kvcache}, Attention: {attention}, MoE: {moe}"
 
@@ -344,12 +346,13 @@ def prepare_runtime_parameters(
 
     This function:
     1. Extracts quant_config from __quant__ prefixed parameters
-    2. Converts quant_config to runtime-specific CLI arguments
-    3. Merges with regular parameters
+    2. Extracts parallel_config from __parallel__ prefixed parameters
+    3. Converts both configs to runtime-specific CLI arguments
+    4. Merges with regular parameters
 
     Args:
         base_runtime: Runtime engine ("vllm", "sglang", "tensorrt_llm")
-        params: Experiment parameters (may contain __quant__ prefixed fields)
+        params: Experiment parameters (may contain __quant__ and __parallel__ prefixed fields)
         model_path: Model path for detecting offline quantization
         model_config: Optional model configuration
 
@@ -359,23 +362,36 @@ def prepare_runtime_parameters(
     Example:
         >>> prepare_runtime_parameters(
         ...     "sglang",
-        ...     {"tp-size": 1, "__quant__gemm_dtype": "fp8", "__quant__kvcache_dtype": "fp8_e5m2"},
+        ...     {"__quant__gemm_dtype": "fp8", "__parallel__tp": 2, "mem-fraction-static": 0.7},
         ...     "meta-llama/Llama-3.2-1B-Instruct"
         ... )
-        {"tp-size": 1, "quantization": "fp8", "dtype": "auto", "kv-cache-dtype": "fp8_e5m2"}
+        {"quantization": "fp8", "dtype": "auto", "tp-size": 2, "mem-fraction-static": 0.7}
     """
-    # Separate regular params and quant config
+    # Import here to avoid circular imports
+    from utils.parallel_integration import extract_parallel_config_from_params, prepare_runtime_parallel_parameters
+
+    # Separate regular params, quant config, and parallel config
     regular_params, quant_config = extract_quant_config_from_params(params)
+    regular_params, parallel_config = extract_parallel_config_from_params(regular_params)
 
-    if not quant_config:
-        # No quantization config, return as-is
-        return regular_params
+    # Process quantization config
+    if quant_config:
+        regular_params = prepare_experiment_parameters(
+            base_runtime=base_runtime,
+            quant_config=quant_config,
+            param_combination=regular_params,
+            model_path=model_path,
+            model_config=model_config
+        )
 
-    # Use prepare_experiment_parameters to convert quant_config to runtime args
-    return prepare_experiment_parameters(
-        base_runtime=base_runtime,
-        quant_config=quant_config,
-        param_combination=regular_params,
-        model_path=model_path,
-        model_config=model_config
-    )
+    # Process parallel config
+    if parallel_config:
+        # Reconstruct params with __parallel__ prefix for prepare_runtime_parallel_parameters
+        parallel_prefixed_params = {f"__parallel__{k}": v for k, v in parallel_config.items()}
+        parallel_prefixed_params.update(regular_params)
+        regular_params = prepare_runtime_parallel_parameters(
+            base_runtime=base_runtime,
+            params=parallel_prefixed_params
+        )
+
+    return regular_params

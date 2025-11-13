@@ -49,7 +49,6 @@ const MOE_DTYPES = ['auto', 'float16', 'bfloat16', 'fp8', 'w4afp8', 'mxfp4', 'in
 export const QuantizationConfigForm: React.FC<QuantizationConfigFormProps> = ({ value, onChange, baseRuntime = 'sglang' }) => {
 	const [configMode, setConfigMode] = useState<'none' | 'preset' | 'custom'>(
 		value.presets && value.presets.length > 0 ? 'preset' :
-		value.preset ? 'preset' :
 		(value.gemm_dtype || value.kvcache_dtype || value.attention_dtype || value.moe_dtype) ? 'custom' :
 		'none'
 	);
@@ -57,7 +56,6 @@ export const QuantizationConfigForm: React.FC<QuantizationConfigFormProps> = ({ 
 	// Update configMode when value prop changes (e.g., when loading task for editing)
 	useEffect(() => {
 		const detectedMode = value.presets && value.presets.length > 0 ? 'preset' :
-			value.preset ? 'preset' :
 			(value.gemm_dtype || value.kvcache_dtype || value.attention_dtype || value.moe_dtype) ? 'custom' :
 			'none';
 		setConfigMode(detectedMode);

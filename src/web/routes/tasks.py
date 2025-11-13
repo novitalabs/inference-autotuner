@@ -42,6 +42,7 @@ async def create_task(task_data: TaskCreate, db: AsyncSession = Depends(get_db))
 		benchmark_config=task_data.benchmark,
 		slo_config=task_data.slo,
 		quant_config=task_data.quant_config,
+		parallel_config=task_data.parallel_config,
 		deployment_mode=task_data.deployment_mode,
 		status=TaskStatus.PENDING,
 	)

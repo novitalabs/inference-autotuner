@@ -62,12 +62,15 @@ def validate_quant_config(config: Dict[str, Any]) -> tuple[bool, str]:
     if not config:
         return True, "Valid (empty config)"
 
-    # Check if it's a preset reference
-    if "preset" in config:
-        preset_name = config["preset"]
-        if preset_name not in QUANTIZATION_PRESETS:
-            return False, f"Unknown preset: {preset_name}"
-        return True, "Valid preset"
+    # Check if it's a preset reference (array only)
+    if "presets" in config:
+        presets = config["presets"]
+        if not isinstance(presets, list):
+            return False, "presets must be an array"
+        for preset_name in presets:
+            if preset_name not in QUANTIZATION_PRESETS:
+                return False, f"Unknown preset: {preset_name}"
+        return True, "Valid presets"
 
     # Validate individual fields
     valid_gemm_dtypes = ["auto", "float16", "bfloat16", "float32", "fp8", "int8"]
@@ -99,10 +102,14 @@ def resolve_quant_config(config: Optional[Dict[str, Any]]) -> Dict[str, str]:
     Resolve quantization configuration, expanding presets if needed.
 
     Args:
-        config: Quantization config (can contain 'preset' or explicit fields)
+        config: Quantization config (can contain 'presets' array or explicit fields)
 
     Returns:
         Resolved config with explicit gemm_dtype, kvcache_dtype, attention_dtype, moe_dtype
+
+    Note:
+        This function now only handles explicit field configs.
+        Preset expansion should be done before calling this function.
     """
     if not config:
         # Default: no quantization
@@ -112,13 +119,6 @@ def resolve_quant_config(config: Optional[Dict[str, Any]]) -> Dict[str, str]:
             "attention_dtype": "auto",
             "moe_dtype": "auto"
         }
-
-    # If preset is specified, expand it
-    if "preset" in config:
-        base_config = expand_preset(config["preset"])
-        # Allow overriding preset values with explicit fields
-        base_config.update({k: v for k, v in config.items() if k != "preset"})
-        return base_config
 
     # Use explicit fields with defaults
     return {

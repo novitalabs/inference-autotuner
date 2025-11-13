@@ -227,12 +227,21 @@ async def run_autotuning_task(ctx: Dict[str, Any], task_id: int) -> Dict[str, An
 			else:
 				logger.info(f"[ARQ Worker] No checkpoint found, starting fresh")
 
-				# Merge quant_config with parameters to create full parameter spec
+				# Merge quant_config and parallel_config with parameters to create full parameter spec
+				# First merge quant_config
 				merged_parameters = merge_parameters_with_quant_config(
 					task.parameters or {},
 					task.quant_config
 				)
 				logger.info(f"[ARQ Worker] Merged parameters (base + quant_config): {merged_parameters}")
+
+				# Then merge parallel_config
+				from utils.parallel_integration import merge_parameters_with_parallel_config
+				merged_parameters = merge_parameters_with_parallel_config(
+					merged_parameters,
+					task.parallel_config
+				)
+				logger.info(f"[ARQ Worker] Merged parameters (base + quant_config + parallel_config): {merged_parameters}")
 
 				# Create fresh strategy with merged parameters
 				try:

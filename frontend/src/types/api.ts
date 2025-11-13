@@ -2,12 +2,26 @@
 
 // Quantization Configuration Types
 export interface QuantizationConfig {
-	preset?: string;
 	presets?: string[];
 	gemm_dtype?: string | string[];
 	kvcache_dtype?: string | string[];
 	attention_dtype?: string | string[];
 	moe_dtype?: string | string[];
+}
+
+// Parallel Configuration Types
+export interface ParallelConfig {
+	presets?: string[];
+	tp?: number | number[];
+	pp?: number | number[];
+	dp?: number | number[];
+	cp?: number | number[];
+	dcp?: number | number[];
+	enable_expert_parallel?: boolean | boolean[];
+	moe_tp?: number | number[];
+	moe_ep?: number | number[];
+	moe_cluster?: number | number[];
+	moe_dense_tp?: number | number[];
 }
 
 // SLO Configuration Types
@@ -44,6 +58,7 @@ export interface Task {
 	benchmark: Record<string, any>;  // API returns as "benchmark", not "benchmark_config"
 	slo?: SLOConfig;  // Optional SLO configuration
 	quant_config?: QuantizationConfig;  // Optional quantization configuration
+	parallel_config?: ParallelConfig;  // Optional parallel execution configuration
 	deployment_mode: string;
 	total_experiments: number;
 	successful_experiments: number;

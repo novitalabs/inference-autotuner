@@ -41,6 +41,7 @@ class Task(Base):
 	benchmark_config = Column(JSON, nullable=False)  # benchmark settings
 	slo_config = Column(JSON, nullable=True)  # SLO configuration (ttft, tpot, latency, steepness)
 	quant_config = Column(JSON, nullable=True)  # runtime quantization config (gemm_dtype, kvcache_dtype, attention_dtype, moe_dtype)
+	parallel_config = Column(JSON, nullable=True)  # parallel execution config (tp, pp, dp, cp, moe_tp, moe_ep)
 
 	# Deployment mode
 	deployment_mode = Column(String, default="docker")  # docker, ome
