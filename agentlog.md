@@ -25540,3 +25540,306 @@ All 7 test cases passed with valid SGLang arguments:
 
 This fix ensures that only SGLang-compatible arguments are passed, preventing CLI validation errors and wasted experiment time.
 
+
+</details>
+
+
+## 2025/11/13
+
+
+## Fixed missing parameters in preset mode experiments
+
+<details>
+<parameter name="summary">User Question: "Why there is no any parameters in Parameter Differences vs Best in task 12?" → Fixed preset parameter storage
+
+</details>
+
+## 2025-11-13: Fixed missing parameters in preset mode experiments
+
+<details>
+<summary>User Question: "Why there is no any parameters in Parameter Differences vs Best in task 12?" → Fixed preset parameter storage</summary>
+
+### Problem Discovery
+
+Task 12 used **preset mode** with 5 presets:
+```json
+{"presets": ["default", "kv-cache-fp8", "dynamic-fp8", "bf16-stable", "aggressive-moe"]}
+```
+
+However, all experiments showed **empty parameters `{}`** in the database, causing the frontend's "Parameter Differences vs Best" section to be empty.
+
+**Root cause**: The `expand_quant_config_to_parameter_spec()` function didn't handle the `presets` field. It only processed individual dtype fields (gemm_dtype, kvcache_dtype, etc.), so preset configurations were completely ignored during parameter grid expansion.
+
+### Solution Implemented
+
+**1. Added preset handling in `expand_quant_config_to_parameter_spec()` (lines 237-242):**
+```python
+# Handle preset mode
+if "presets" in quant_config:
+    presets = quant_config["presets"]
+    if not isinstance(presets, list):
+        presets = [presets]
+    return {"__quant__preset": presets}
+```
+
+Now presets are expanded to: `{"__quant__preset": ["default", "kv-cache-fp8", ...]}`
+
+**2. Updated `extract_quant_config_from_params()` docstring (lines 315-320):**
+Added documentation for preset extraction:
+```python
+Args:
+    params: Experiment parameters dict, may contain __quant__ prefixed keys
+            Example: {"tp-size": 1, "__quant__gemm_dtype": "fp8", "__quant__kvcache_dtype": "fp8_e5m2"}
+            Or: {"__quant__preset": "kv-cache-fp8"}
+
+Returns:
+    Tuple of (regular_params, quant_config)
+    Example: ({"tp-size": 1}, {"gemm_dtype": "fp8", "kvcache_dtype": "fp8_e5m2"})
+    Or: ({}, {"preset": "kv-cache-fp8"})
+```
+
+### Testing Results
+
+All 3 test cases passed:
+
+**Test 1: Preset expansion**
+```
+Input: {"presets": ["default", "kv-cache-fp8", "dynamic-fp8"]}
+Output: {"__quant__preset": ["default", "kv-cache-fp8", "dynamic-fp8"]}
+Generated 3 combinations:
+  1. {"__quant__preset": "default"}
+  2. {"__quant__preset": "kv-cache-fp8"}
+  3. {"__quant__preset": "dynamic-fp8"}
+```
+
+**Test 2: Extraction**
+```
+Input: {"__quant__preset": "kv-cache-fp8"}
+Extracted quant_config: {"preset": "kv-cache-fp8"}
+```
+
+**Test 3: Merge with base parameters**
+```
+Base: {"tp-size": [1, 2]}
+Presets: ["default", "kv-cache-fp8", "dynamic-fp8"]
+Generated 6 combinations (2 tp-size × 3 presets)
+```
+
+### Files Modified
+
+- `src/utils/quantization_integration.py`:
+  - Added preset handling in `expand_quant_config_to_parameter_spec()` (lines 237-242)
+  - Updated `extract_quant_config_from_params()` documentation (lines 315-320)
+- Test script created: `/tmp/test_preset_fix.py`
+- ARQ worker restarted (PID: 1407516)
+
+### Impact
+
+- ✅ Future tasks with preset mode will now store `__quant__preset` in experiment parameters
+- ✅ Frontend "Parameter Differences vs Best" will display preset names
+- ✅ Each experiment will have a distinct parameter value for comparison
+- ✅ Task 12 already completed, but new tasks will work correctly
+
+**For Task 12**: The old data cannot be retroactively fixed since experiments are already completed and parameters were not stored. Future tasks using preset mode will now correctly track which preset each experiment used.
+
+### Parameter Storage Format
+
+**Before fix**: All experiments had empty `{}`  
+**After fix**: Each experiment stores its preset:
+- Experiment 1: `{"__quant__preset": "default"}`
+- Experiment 2: `{"__quant__preset": "kv-cache-fp8"}`
+- Experiment 3: `{"__quant__preset": "dynamic-fp8"}`
+- etc.
+
+This allows the frontend to show meaningful parameter differences between experiments!
+
+
+</details>
+
+## Investigated parallel parameters support for vLLM, SGLang, and TensorRT-LLM
+
+> Investigate parallel arguments support for 3 engines: vLLM, SGLang, TensorRT-LLM, such as tp, pp, dp, and parallels for MOE
+
+<details>
+<summary>Comprehensive documentation created</summary>
+
+### Investigation Approach
+
+Analyzed source code from all three engines located in `~/work/`:
+- **vLLM**: `/root/work/vllm/vllm/config/parallel.py`, `arg_utils.py`
+- **SGLang**: `/root/work/sglang/python/sglang/srt/server_args.py`
+- **TensorRT-LLM**: `/root/work/TensorRT-LLM/tensorrt_llm/mapping.py`
+
+### Key Findings Summary
+
+#### Parallelism Types Supported
+
+| Parallelism Type | vLLM | SGLang | TensorRT-LLM | Notes |
+|------------------|------|--------|--------------|-------|
+| **Tensor Parallel (TP)** | ✅ `--tensor-parallel-size` / `-tp` | ✅ `--tp-size` | ✅ `tp_size` | All support |
+| **Pipeline Parallel (PP)** | ✅ `--pipeline-parallel-size` / `-pp` | ✅ `--pp-size` | ✅ `pp_size` | All support |
+| **Data Parallel (DP)** | ✅ `--data-parallel-size` / `-dp` | ✅ `--dp-size` | ❌ | vLLM & SGLang only |
+| **Context Parallel (CP)** | ✅ DCP `-dcp` | ❌ | ✅ `cp_size` | Long context |
+| **Expert Parallel (EP)** | ✅ `--enable-expert-parallel` | ✅ Auto via TP*DP | ✅ `moe_ep_size` | MoE models |
+
+#### Key Differences
+
+**1. Configuration Timing:**
+- **vLLM & SGLang**: Runtime configuration (CLI arguments)
+- **TensorRT-LLM**: Build-time configuration (engine must be rebuilt to change parallelism)
+
+**2. Data Parallelism:**
+- **vLLM**: Full DP support with multiple backends (mp, ray), external/hybrid load balancing
+- **SGLang**: DP support with automatic configuration
+- **TensorRT-LLM**: No built-in DP (use multiple engine instances instead)
+
+**3. MoE Parallelism:**
+- **vLLM**: `--enable-expert-parallel` flag, experts distributed across TP*DP GPUs
+- **SGLang**: Automatic expert distribution via TP and DP, optional `--moe-dense-tp-size` for dense layers
+- **TensorRT-LLM**: Explicit configuration with `moe_tp_size`, `moe_ep_size`, `moe_cluster_size`
+
+### Detailed Parameters
+
+#### vLLM Parameters
+```bash
+# Basic parallelism
+--tensor-parallel-size 4 / -tp 4         # TP size
+--pipeline-parallel-size 2 / -pp 2       # PP size
+--data-parallel-size 2 / -dp 2           # DP size
+
+# Advanced
+--decode-context-parallel-size 2 / -dcp 2  # Context parallel
+--enable-expert-parallel                    # Enable EP for MoE
+--data-parallel-backend mp/ray             # DP backend
+--data-parallel-hybrid-lb                  # Hybrid load balancing
+```
+
+**Formula**: `Total GPUs = TP × PP × DP`
+
+#### SGLang Parameters
+```bash
+# Basic parallelism
+--tp-size 4                    # Tensor parallel
+--pp-size 2                    # Pipeline parallel
+--dp-size 2                    # Data parallel
+
+# MoE specific
+--moe-dense-tp-size 2          # TP for dense layers in MoE
+--pp-max-micro-batch-size 8    # PP micro-batch control
+```
+
+**Formula**: `Total GPUs = TP × PP × DP`
+**Constraint**: `tp_size % dp_size == 0`
+
+#### TensorRT-LLM Parameters
+```python
+# Build-time configuration via Mapping class
+from tensorrt_llm import Mapping
+
+mapping = Mapping(
+    world_size=8,          # Total GPUs
+    tp_size=4,             # Tensor parallel
+    pp_size=2,             # Pipeline parallel
+    cp_size=2,             # Context parallel
+    moe_tp_size=2,         # MoE TP
+    moe_ep_size=4,         # MoE EP
+    moe_cluster_size=1,    # MoE clustering
+    attn_tp_size=4,        # Attention-specific TP
+    attn_cp_size=1         # Attention-specific CP
+)
+```
+
+**Formula**: `world_size = TP × PP × CP`
+
+### Use Case Recommendations
+
+**Single Node (8 GPUs) - Small Models (7B-13B):**
+```bash
+--tp-size 1 --dp-size 8    # Maximum throughput
+--tp-size 2 --dp-size 4    # Balanced
+```
+
+**Single Node - Large Models (70B+):**
+```bash
+--tp-size 8 --pp-size 1    # Fit in memory
+--tp-size 4 --pp-size 2    # PP if constrained
+```
+
+**Multi-Node - MoE Models (Mixtral, DeepSeek):**
+```bash
+# vLLM: 16 GPUs
+--tp-size 2 --dp-size 8 --enable-expert-parallel
+
+# SGLang: 16 GPUs
+--tp-size 2 --dp-size 8    # Auto expert distribution
+
+# TensorRT-LLM
+moe_tp_size=2, moe_ep_size=8
+```
+
+**Long Context (128K+ tokens):**
+```bash
+# vLLM
+--tp-size 4 --dcp 4
+
+# TensorRT-LLM
+tp_size=4, cp_size=4
+```
+
+### Documentation Created
+
+**File**: `/root/work/inference-autotuner/docs/PARALLEL_PARAMETERS.md`
+
+**Contents:**
+- Comprehensive comparison table of all three engines
+- Detailed parameter documentation for each engine
+- Use case recommendations (single-node, multi-node, MoE, long context)
+- Parameter constraints and formulas
+- Concrete examples for each use case
+- Monitoring and debugging tips
+- Autotuner integration guidelines
+
+### Autotuner Integration
+
+The document includes recommendations for autotuner parameter tuning:
+
+**Universal parameters (all engines):**
+```json
+{
+  "parameters": {
+    "tp-size": [1, 2, 4, 8],
+    "pp-size": [1, 2]
+  }
+}
+```
+
+**vLLM/SGLang specific:**
+```json
+{
+  "parameters": {
+    "dp-size": [1, 2, 4],
+    "enable-expert-parallel": [true, false]
+  }
+}
+```
+
+**Important note**: TensorRT-LLM requires pre-built engines, so parallelism must be set during engine building, not at autotuner runtime.
+
+### Key Insights
+
+1. **vLLM has the most flexible runtime parallelism** with multiple DP backends and advanced features
+2. **SGLang has simpler configuration** with automatic MoE distribution
+3. **TensorRT-LLM requires build-time decisions** but offers fine-grained control over MoE parallelism
+4. **Data parallelism is key for throughput** when models fit in GPU memory
+5. **Expert parallelism is critical for MoE models** to avoid OOM and load imbalancing
+
+### Files Created
+
+- `docs/PARALLEL_PARAMETERS.md`: Comprehensive 500+ line documentation with examples
+
+This documentation can be used as a reference for:
+- Configuring parallel inference workloads
+- Planning GPU resource allocation
+- Designing autotuner parameter spaces
+- Troubleshooting parallelism issues
+

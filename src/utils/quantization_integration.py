@@ -216,20 +216,30 @@ def expand_quant_config_to_parameter_spec(
     They will be converted to runtime-specific CLI args later in prepare_experiment_parameters.
 
     Args:
-        quant_config: Quantization config with possible arrays
+        quant_config: Quantization config with possible arrays or presets
                      Example: {"gemm_dtype": ["auto", "fp8"], "kvcache_dtype": ["auto", "fp8_e5m2"]}
+                     Or: {"presets": ["default", "kv-cache-fp8", "dynamic-fp8"]}
 
     Returns:
         Parameter spec dict in generate_parameter_grid format with original field names
         Example: {"__quant__gemm_dtype": ["auto", "fp8"], "__quant__kvcache_dtype": ["auto", "fp8_e5m2"]}
+        Or for presets: {"__quant__preset": ["default", "kv-cache-fp8", "dynamic-fp8"]}
 
     Note:
         - Single values are wrapped in lists
         - Keys are prefixed with __quant__ to distinguish from regular parameters
         - All values (including 'auto') are kept for grid expansion
+        - Presets are stored as __quant__preset for later resolution
     """
     if not quant_config:
         return {}
+
+    # Handle preset mode
+    if "presets" in quant_config:
+        presets = quant_config["presets"]
+        if not isinstance(presets, list):
+            presets = [presets]
+        return {"__quant__preset": presets}
 
     # Fields that should be expanded into parameter grid
     dtype_fields = ["gemm_dtype", "kvcache_dtype", "attention_dtype", "moe_dtype"]
@@ -302,17 +312,19 @@ def extract_quant_config_from_params(params: Dict[str, Any]) -> tuple[Dict[str, 
     Args:
         params: Experiment parameters dict, may contain __quant__ prefixed keys
                 Example: {"tp-size": 1, "__quant__gemm_dtype": "fp8", "__quant__kvcache_dtype": "fp8_e5m2"}
+                Or: {"__quant__preset": "kv-cache-fp8"}
 
     Returns:
         Tuple of (regular_params, quant_config)
         Example: ({"tp-size": 1}, {"gemm_dtype": "fp8", "kvcache_dtype": "fp8_e5m2"})
+        Or: ({}, {"preset": "kv-cache-fp8"})
     """
     regular_params = {}
     quant_config = {}
 
     for key, value in params.items():
         if key.startswith("__quant__"):
-            # Extract dtype field name
+            # Extract field name
             field_name = key.replace("__quant__", "")
             quant_config[field_name] = value
         else:
