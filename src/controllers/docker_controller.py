@@ -163,13 +163,29 @@ class DockerController(BaseModelController):
 
 		command_list = command_str.split()
 
-		# Determine GPU allocation
-		# Look for tp-size or tp_size parameter for GPU count (default to 1)
-		num_gpus = parameters.get("tp-size", parameters.get("tp_size", 1))
-		if isinstance(num_gpus, (int, float)):
-			num_gpus = int(num_gpus)
-		else:
-			num_gpus = 1
+		# Determine GPU allocation based on parallel configuration
+		# Calculate world_size = tp × pp × dp (or tp × pp × cp for TensorRT-LLM)
+		tp = parameters.get("tensor-parallel-size", parameters.get("tp-size", parameters.get("tp_size", 1)))
+		pp = parameters.get("pipeline-parallel-size", parameters.get("pp-size", parameters.get("pp_size", 1)))
+		dp = parameters.get("data-parallel-size", parameters.get("dp-size", parameters.get("dp_size", 1)))
+		cp = parameters.get("context-parallel-size", parameters.get("cp-size", parameters.get("cp_size", 1)))
+		dcp = parameters.get("decode-context-parallel-size", parameters.get("dcp-size", parameters.get("dcp_size", 1)))
+
+		# Convert to integers
+		tp = int(tp) if isinstance(tp, (int, float, str)) else 1
+		pp = int(pp) if isinstance(pp, (int, float, str)) else 1
+		dp = int(dp) if isinstance(dp, (int, float, str)) else 1
+		cp = int(cp) if isinstance(cp, (int, float, str)) else 1
+		dcp = int(dcp) if isinstance(dcp, (int, float, str)) else 1
+
+		# Calculate world_size
+		# For vLLM/SGLang: world_size = tp × pp × max(dp, dcp)
+		# For TensorRT-LLM: world_size = tp × pp × cp (no dp support)
+		world_size = tp * pp * max(dp, dcp, cp)
+		num_gpus = world_size
+
+		print(f"[Docker] Parallel configuration: TP={tp}, PP={pp}, DP={dp}, CP={cp}, DCP={dcp}")
+		print(f"[Docker] Calculated world_size: {world_size}")
 
 		# Build container configuration
 		try:
@@ -203,8 +219,18 @@ class DockerController(BaseModelController):
 			env_vars = {
 				"MODEL_PATH": model_identifier,
 				"HF_HOME": "/root/.cache/huggingface"  # Cache directory for downloaded models
-				# Note: Don't set CUDA_VISIBLE_DEVICES as it conflicts with device_requests
 			}
+
+			# Set CUDA_VISIBLE_DEVICES for multi-GPU parallel execution (world_size > 1)
+			# This is needed so the container process can see all allocated GPUs
+			# Note: We still use device_requests to allocate the GPUs from Docker's perspective,
+			# but CUDA_VISIBLE_DEVICES tells the inference engine which GPUs to use inside the container
+			if world_size > 1 and gpu_devices:
+				# Map Docker's allocated GPU indices to 0, 1, 2, ... for the container
+				# This is important because the inference engine expects consecutive GPU indices starting from 0
+				cuda_visible_devices = ",".join(str(i) for i in range(len(gpu_devices)))
+				env_vars["CUDA_VISIBLE_DEVICES"] = cuda_visible_devices
+				print(f"[Docker] Setting CUDA_VISIBLE_DEVICES={cuda_visible_devices} for world_size={world_size}")
 
 			# Add proxy settings if configured
 			if self.http_proxy:

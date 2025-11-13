@@ -487,6 +487,7 @@ function TaskDetailModal({ task, onClose }: { task: Task; onClose: () => void })
 			deployment_mode: task.deployment_mode,
 			...(task.slo && { slo: task.slo }), // Include SLO configuration if present
 			...(task.quant_config && { quant_config: task.quant_config }), // Include quantization config if present
+			...(task.parallel_config && { parallel_config: task.parallel_config }), // Include parallel config if present
 		};
 
 		// Store in sessionStorage for the new task form to pick up
@@ -657,6 +658,20 @@ function TaskDetailModal({ task, onClose }: { task: Task; onClose: () => void })
 							<div className="bg-gray-50 rounded-lg p-4">
 								<pre className="text-sm text-gray-900 overflow-x-auto">
 									{JSON.stringify(task.quant_config, null, 2)}
+								</pre>
+							</div>
+						</div>
+					)}
+
+					{/* Parallel Config */}
+					{task.parallel_config && Object.keys(task.parallel_config).length > 0 && (
+						<div>
+							<h3 className="text-sm font-medium text-gray-900 mb-3">
+								Parallel Execution Configuration
+							</h3>
+							<div className="bg-gray-50 rounded-lg p-4">
+								<pre className="text-sm text-gray-900 overflow-x-auto">
+									{JSON.stringify(task.parallel_config, null, 2)}
 								</pre>
 							</div>
 						</div>

@@ -171,6 +171,11 @@ export default function NewTask() {
           setQuantConfig(duplicateConfig.quant_config);
         }
 
+        // Parallel Configuration
+        if (duplicateConfig.parallel_config) {
+          setParallelConfig(duplicateConfig.parallel_config);
+        }
+
         // Clear the sessionStorage after loading
         sessionStorage.removeItem('duplicateTaskConfig');
 
