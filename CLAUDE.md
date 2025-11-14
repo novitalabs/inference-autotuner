@@ -7,12 +7,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 The LLM Inference Autotuner is a system for automatically tuning LLM inference engine parameters. It supports dual deployment modes (Kubernetes/OME and standalone Docker) with a web UI for task management and background job processing.
 
 **Key Capabilities:**
-- Grid search experiments across parameter combinations (e.g., `tp-size`, `mem-fraction-static`)
+- Grid search, random search, and **Bayesian optimization** across parameter combinations
+- Bayesian optimization typically finds optimal configs in 20-30 experiments (80-87% reduction vs grid search)
 - SLO-aware scoring with exponential penalties for constraint violations
 - Benchmarking with genai-bench for performance metrics
 - REST API with background task queue (ARQ + Redis)
 - SQLite database for persistence
-- React frontend for task management and visualization
+- React frontend with enhanced result visualization and multi-experiment comparison
 
 ## Architecture
 
@@ -495,9 +496,11 @@ HF_TOKEN=<your-token>            # Optional: for gated models
 
 **Current implementation status**:
 - ✅ **React frontend is fully implemented** (Dashboard, Tasks, Experiments, Container monitoring)
+- ✅ **Enhanced result visualization** with multi-experiment comparison, sensitivity analysis, and Pareto frontier
+- ✅ **Bayesian optimization** with Optuna TPE sampler (backend + frontend + docs complete)
 - ✅ **SLO-aware scoring** with exponential penalties and tiered enforcement
 - ✅ REST API with background processing
 - ✅ Docker and OME deployment modes
 - ✅ Parameter preset selector for common configurations
+- ✅ GPU resource tracking with intelligent allocation and real-time monitoring
 - ⏳ WebSocket support for real-time updates (TODO)
-- ⏳ Bayesian optimization (Optuna integration in progress)

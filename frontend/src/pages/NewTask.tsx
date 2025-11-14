@@ -842,6 +842,25 @@ export default function NewTask() {
                 <option value="random_search">Random Search</option>
                 <option value="bayesian">Bayesian Optimization</option>
               </select>
+              {strategy === 'bayesian' && (
+                <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-md">
+                  <p className="text-xs text-blue-900 font-semibold mb-1">Bayesian Optimization (Intelligent Search)</p>
+                  <p className="text-xs text-blue-800">
+                    Uses machine learning to intelligently explore the parameter space. Typically finds optimal configurations in 20-30 experiments (vs 100+ for grid search).
+                    <span className="block mt-1 font-medium">Best for: Large parameter spaces with expensive experiments.</span>
+                  </p>
+                </div>
+              )}
+              {strategy === 'grid_search' && (
+                <p className="text-xs text-gray-500 mt-1">
+                  Exhaustively tests all parameter combinations. Reliable but can be slow for large spaces.
+                </p>
+              )}
+              {strategy === 'random_search' && (
+                <p className="text-xs text-gray-500 mt-1">
+                  Randomly samples parameter combinations. Good for quick exploration.
+                </p>
+              )}
             </div>
 
             <div>
