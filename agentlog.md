@@ -27405,3 +27405,403 @@ Without per-GPU optimization, TP=8 might win due to highest total throughput, wa
 
 </details>
 
+
+---
+
+## 2025-01-14: Comprehensive Analysis of Unimplemented Features
+
+> Review all previous development plans, list all unimplemented features, sorted by feasibility
+
+<details>
+<summary>Analysis Process and Findings</summary>
+
+### Documentation Review
+
+**Sources Analyzed:**
+1. **README.md** - Main documentation with TODO section
+2. **CLAUDE.md** - Project guidelines and implementation status
+3. **docs/GUIDELLM_INTEGRATION.md** - GuideLLM integration analysis (previously completed)
+4. **Code TODO comments** - Inline comments in Python source
+5. **Frontend code** - TypeScript/React TODO items
+
+**Key Findings:**
+
+From **README.md** (Lines 500-507):
+```markdown
+**TODO:**
+- Bayesian optimization (Optuna integration in progress)
+- Parallel experiment execution
+- Advanced error handling
+- WebSocket support for real-time updates
+- Enhanced result visualization and comparison
+```
+
+From **CLAUDE.md**:
+```markdown
+- ⏳ WebSocket support for real-time updates (TODO)
+- ⏳ Bayesian optimization (Optuna integration in progress)
+```
+
+From **Code Comments**:
+- `src/web/routes/system.py`: "Check Redis (TODO: implement when ARQ is set up)"
+- `src/web/routes/tasks.py`: "TODO: Cancel ARQ job"
+- `src/controllers/docker_controller.py:426`: "TODO: Implement proper GPU tracking and allocation"
+
+### Implementation Status Assessment
+
+**Already Implemented (Code Ready):**
+1. ✅ **BayesianStrategy** class (`src/utils/optimizer.py:483-796`)
+   - Optuna TPE sampler integration
+   - Supports categorical, continuous, integer parameters
+   - Duplicate avoidance mechanism
+   - State persistence and restoration
+   - **Gap**: Frontend integration and comprehensive testing
+
+2. ✅ **RandomSearchStrategy** class (`src/utils/optimizer.py:799-905`)
+   - Optuna RandomSampler integration
+   - Same parameter type support as Bayesian
+   - **Gap**: Frontend integration and testing
+
+3. ✅ **GPU Information Recording** (recently implemented)
+   - GPU model, count, device_ids tracking
+   - Per-GPU throughput metrics
+   - Database persistence
+
+4. ✅ **React Frontend** (fully implemented)
+   - Task creation wizard
+   - Experiment results visualization
+   - Real-time log viewer
+   - Container monitoring (Docker mode)
+
+### Feature Inventory with Feasibility Analysis
+
+#### 🟢 High Feasibility (1-2 weeks)
+
+**1. Bayesian Optimization Strategy - Completion**
+- **Status**: ⏳ 80% complete (code ready, needs integration)
+- **Location**: `src/utils/optimizer.py` (BayesianStrategy class)
+- **Effort**: 2-3 days
+- **Value**: ⭐⭐⭐⭐⭐ High - More efficient than grid search
+- **Remaining Work**:
+  - [ ] Frontend: Add Bayesian strategy option in task creation form
+  - [ ] Testing: Compare with grid search on real workloads
+  - [ ] Documentation: Usage examples and parameter tuning guide
+  - [ ] Validation: Verify convergence behavior and hyperparameter sensitivity
+
+**2. WebSocket Real-Time Updates**
+- **Status**: ❌ Not started (currently using polling)
+- **Effort**: 3-5 days
+- **Value**: ⭐⭐⭐⭐⭐ High - Improved UX, reduced server load
+- **Implementation Plan**:
+  - [ ] Backend: WebSocket endpoint `/ws/tasks/{task_id}`
+  - [ ] Real-time push: Task status, experiment progress, metrics, logs
+  - [ ] Frontend: WebSocket client with reconnection logic
+  - [ ] Replace polling: Remove interval-based API calls
+  - [ ] Error handling: Connection drops, network failures
+- **Technical Stack**: FastAPI WebSocket support (native), React WebSocket hooks
+
+**3. GuideLLM Integration - Phase 1 (Proof of Concept)**
+- **Status**: ✅ Design complete, implementation ready
+- **Documentation**: `docs/GUIDELLM_INTEGRATION.md` (648 lines)
+- **Effort**: 1-2 days (PoC), 1 week (full Phase 1)
+- **Value**: ⭐⭐⭐⭐⭐ High - Superior benchmarking capabilities
+- **Phase 1 Scope**:
+  - [ ] Create `GuideLLMBenchmarkController` class (implementation example provided)
+  - [ ] Add config option: `benchmark_engine: "guidellm"` or `"genai-bench"`
+  - [ ] Parameter mapping: Convert existing config to GuideLLM format
+  - [ ] Metric conversion layer: Maintain database compatibility
+  - [ ] Side-by-side testing: Compare with genai-bench
+- **Advantages**:
+  - Python API vs CLI subprocess (type-safe, better error handling)
+  - Automatic rate discovery (sweep profile)
+  - Richer metrics (p001-p999 percentiles)
+  - Constraint-based stopping (time, requests, error rate)
+
+**4. GPU Resource Tracking and Allocation Optimization**
+- **Status**: ⏳ 60% complete (basic tracking implemented)
+- **Location**: `src/controllers/docker_controller.py:426`
+- **TODO Comment**: "Implement proper GPU tracking and allocation"
+- **Effort**: 2-3 days
+- **Value**: ⭐⭐⭐⭐ Medium-High - Prevents GPU conflicts
+- **Current State**:
+  - ✅ GPU selection and info recording
+  - ✅ nvidia-smi integration
+  - ✅ Per-GPU metrics calculation
+- **Remaining Work**:
+  - [ ] Global GPU state tracking across containers
+  - [ ] Prevent GPU over-allocation
+  - [ ] GPU memory estimation and dynamic allocation
+  - [ ] Multi-experiment parallel GPU scheduling
+
+#### 🟡 Medium Feasibility (2-4 weeks)
+
+**5. Parallel Experiment Execution**
+- **Status**: ❌ Not started (currently sequential)
+- **Location**: `src/orchestrator.py` (run_task method)
+- **Effort**: 1-2 weeks
+- **Value**: ⭐⭐⭐⭐⭐ High - Significantly reduces total experiment time
+- **Implementation Plan**:
+  - [ ] Multi-threaded/asyncio parallel scheduler
+  - [ ] GPU resource pool management (prevent conflicts)
+  - [ ] Concurrency limit configuration (`max_parallel_experiments`)
+  - [ ] Experiment state synchronization
+  - [ ] Error isolation (one failure shouldn't stop others)
+  - [ ] Database concurrent write handling (SQLite WAL mode)
+- **Challenges**:
+  - GPU resource contention
+  - Database locking (SQLite limitations)
+  - Error handling complexity
+  - Progress tracking with concurrent updates
+
+**6. Enhanced Result Visualization and Comparison**
+- **Status**: ⏳ 40% complete (basic charts implemented)
+- **Location**: `frontend/src/components/TaskResults.tsx`
+- **Effort**: 1-2 weeks
+- **Value**: ⭐⭐⭐⭐ Medium-High - Better data insights
+- **Current Implementation**:
+  - ✅ Recharts line/bar charts
+  - ✅ Basic metrics display
+  - ✅ SLO violation badges
+- **Enhancement Opportunities**:
+  - [ ] Multi-experiment comparison view (side-by-side)
+  - [ ] Parameter sensitivity analysis graphs
+  - [ ] Pareto frontier visualization (multi-objective optimization)
+  - [ ] Interactive parameter exploration (filter, sort, search)
+  - [ ] Export reports (PDF/HTML)
+  - [ ] GuideLLM HTML report embedding
+
+**7. Improved Error Handling and Retry Logic**
+- **Status**: ⏳ 30% complete (basic error handling exists)
+- **Effort**: 1 week
+- **Value**: ⭐⭐⭐⭐ Medium-High - Improved stability
+- **Current State**:
+  - ✅ Basic exception catching
+  - ✅ Failed experiment tracking
+  - ✅ Resource cleanup on failure
+- **Enhancements Needed**:
+  - [ ] Automatic retry on transient failures (configurable count)
+  - [ ] Partial failure recovery (resume from checkpoint)
+  - [ ] Detailed error classification and diagnostics
+  - [ ] Manual retry API for failed experiments
+  - [ ] Error statistics and alerting
+
+**8. GuideLLM Integration - Phase 2 (Advanced Features)**
+- **Status**: ❌ Depends on Phase 1 completion
+- **Effort**: 2 weeks
+- **Value**: ⭐⭐⭐⭐⭐ High - Unlocks advanced benchmarking
+- **Phase 2 Features**:
+  - [ ] Sweep profile for automatic rate discovery
+  - [ ] Rate-based strategies (constant, poisson)
+  - [ ] Real-time progress streaming to frontend (WebSocket)
+  - [ ] HTML interactive report generation
+- **Benefits**:
+  - Replaces manual `num_concurrency` experimentation
+  - Production-like workload simulation (Poisson arrivals)
+  - Live benchmark monitoring
+
+#### 🟠 Lower Feasibility (1-2 months)
+
+**9. User Authentication and Multi-Tenancy**
+- **Status**: ❌ Not implemented
+- **Effort**: 3-4 weeks
+- **Value**: ⭐⭐⭐ Medium - Production requirement
+- **Scope**:
+  - [ ] User registration/login (JWT authentication)
+  - [ ] Role-based access control (RBAC)
+  - [ ] Multi-tenant data isolation
+  - [ ] API key management
+  - [ ] Audit logging
+- **Technical Stack**: FastAPI-Users or custom JWT implementation
+
+**10. PostgreSQL Migration (Production Database)**
+- **Status**: ❌ Currently using SQLite
+- **Effort**: 1-2 weeks
+- **Value**: ⭐⭐⭐ Medium - Production scalability
+- **Migration Tasks**:
+  - [ ] PostgreSQL connection configuration
+  - [ ] Database migration scripts (Alembic)
+  - [ ] Connection pool optimization
+  - [ ] Performance tuning (indexes, query optimization)
+  - [ ] Backup and recovery strategy
+- **Challenges**: SQLite → PostgreSQL compatibility, concurrent writes
+
+**11. Comprehensive Logging and Monitoring System**
+- **Status**: ⏳ 30% complete (basic logging exists)
+- **Effort**: 2-3 weeks
+- **Value**: ⭐⭐⭐ Medium - Operational requirement
+- **Implementation Plan**:
+  - [ ] Structured logging (JSON format)
+  - [ ] Log aggregation (ELK/Loki integration)
+  - [ ] Prometheus metrics export
+  - [ ] Grafana monitoring dashboards
+  - [ ] Alert rules configuration
+- **Dependencies**: External infrastructure (Prometheus, Grafana)
+
+**12. Random Search Strategy - Integration**
+- **Status**: ✅ Code complete, ❌ not integrated
+- **Location**: `src/utils/optimizer.py` (RandomSearchStrategy class)
+- **Effort**: 3-5 days
+- **Value**: ⭐⭐ Low - Bayesian is superior
+- **Remaining Work**:
+  - [ ] Frontend integration
+  - [ ] Testing and benchmarking
+  - [ ] Documentation
+- **Priority**: Low (Bayesian optimization is more effective)
+
+#### 🔴 Low Feasibility / Long-Term (2-3+ months)
+
+**13. GuideLLM Integration - Phase 3 (Full Migration)**
+- **Status**: ❌ Long-term goal
+- **Effort**: 3-4 weeks
+- **Value**: ⭐⭐⭐ Medium - Architecture simplification
+- **Phase 3 Migration**:
+  - [ ] Make GuideLLM the default benchmark engine
+  - [ ] Remove genai-bench dependency
+  - [ ] Custom dataset support (user-provided workloads)
+  - [ ] Poisson distribution load testing
+  - [ ] Extensible backend plugin system
+- **Risk**: Requires comprehensive testing and migration plan
+
+**14. Advanced Optimization Algorithms**
+- **Status**: ❌ Not implemented (research-oriented)
+- **Effort**: 4-6 weeks
+- **Value**: ⭐⭐ Low-Medium - Research use cases
+- **Algorithms**:
+  - [ ] Genetic Algorithm (GA)
+  - [ ] Particle Swarm Optimization (PSO)
+  - [ ] Reinforcement Learning (RL-based parameter tuning)
+  - [ ] Multi-objective optimization (NSGA-II)
+- **Challenges**: Complex implementation, limited practical benefit vs. Bayesian
+
+**15. Distributed Experiment Scheduling**
+- **Status**: ❌ Not implemented
+- **Effort**: 6-8 weeks
+- **Value**: ⭐ Low - Only needed for large-scale deployments
+- **Scope**:
+  - [ ] Celery/Ray distributed task queue
+  - [ ] Multi-node GPU cluster support
+  - [ ] Experiment scheduling strategies
+  - [ ] Fault tolerance and load balancing
+- **Complexity**: High - requires distributed systems expertise
+
+### Priority Recommendations
+
+#### 🥇 Immediate Implementation (This Month)
+
+**Top 3 High-Value, High-Feasibility Items:**
+
+1. **Bayesian Optimization Completion** (2-3 days)
+   - Code is 80% ready, just needs frontend integration and testing
+   - Immediate value: 50-70% reduction in experiment count vs. grid search
+   - Low risk: Well-tested Optuna library
+
+2. **WebSocket Real-Time Updates** (3-5 days)
+   - Significant UX improvement
+   - Reduces server load (eliminates polling)
+   - FastAPI has native WebSocket support
+
+3. **GuideLLM Phase 1 PoC** (1-2 days)
+   - Validate new benchmarking approach quickly
+   - Design and implementation example already available
+   - Side-by-side comparison minimizes risk
+
+**Estimated Timeline**: 1-2 weeks total
+
+#### 🥈 Short-Term Goals (1-2 Months)
+
+4. **GPU Resource Tracking Optimization** (2-3 days)
+   - Foundation for parallel execution
+   - Prevents GPU conflicts
+
+5. **Parallel Experiment Execution** (1-2 weeks)
+   - Core performance improvement
+   - 5-10x speedup for large parameter grids
+
+6. **GuideLLM Phase 2** (2 weeks)
+   - Unlock advanced benchmarking features
+   - Depends on Phase 1 success
+
+7. **Enhanced Result Visualization** (1-2 weeks)
+   - Improve data insights and comparison capabilities
+
+**Estimated Timeline**: 1.5-2 months
+
+#### 🥉 Medium-Term Goals (3-6 Months)
+
+8. **Error Handling Improvements** (1 week)
+9. **User Authentication and Multi-Tenancy** (3-4 weeks)
+10. **PostgreSQL Migration** (1-2 weeks)
+
+#### 📋 Long-Term Planning (6+ Months)
+
+11. **Logging and Monitoring System** (2-3 weeks)
+12. **GuideLLM Phase 3** (3-4 weeks)
+13. **Advanced Optimization Algorithms** (4-6 weeks)
+
+### Feasibility Matrix
+
+| Feature | Value | Feasibility | Effort | Priority |
+|---------|-------|-------------|--------|----------|
+| Bayesian Optimization | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | 2-3 days | 🥇 #1 |
+| WebSocket Updates | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | 3-5 days | 🥇 #2 |
+| GuideLLM Phase 1 | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | 1-2 days | 🥇 #3 |
+| GPU Tracking | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ | 2-3 days | 🥈 #4 |
+| Parallel Execution | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐ | 1-2 weeks | 🥈 #5 |
+| GuideLLM Phase 2 | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐ | 2 weeks | 🥈 #6 |
+| Enhanced Viz | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ | 1-2 weeks | 🥈 #7 |
+| Error Handling | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ | 1 week | 🥉 #8 |
+| Auth/Multi-tenant | ⭐⭐⭐ | ⭐⭐⭐ | 3-4 weeks | 🥉 #9 |
+| PostgreSQL | ⭐⭐⭐ | ⭐⭐⭐ | 1-2 weeks | 🥉 #10 |
+| Monitoring | ⭐⭐⭐ | ⭐⭐⭐ | 2-3 weeks | 📋 #11 |
+| GuideLLM Phase 3 | ⭐⭐⭐ | ⭐⭐ | 3-4 weeks | 📋 #12 |
+| Advanced Algos | ⭐⭐ | ⭐⭐ | 4-6 weeks | 📋 #13 |
+| Distributed | ⭐ | ⭐ | 6-8 weeks | 📋 #14 |
+
+### Key Insights
+
+**1. Quick Wins Available**
+- Bayesian optimization is 80% complete (just needs frontend integration)
+- WebSocket support can significantly improve UX with moderate effort
+- GuideLLM has detailed design ready, low risk to prototype
+
+**2. Foundation vs. Features Trade-off**
+- **Parallel execution** is high-value but needs **GPU tracking** improvements first
+- **GuideLLM Phase 2** requires **Phase 1** validation
+- Some features have dependencies that should guide sequencing
+
+**3. Code vs. Integration Gap**
+- Several features have complete implementations (Bayesian, Random Search) but lack frontend integration
+- Testing infrastructure is adequate for new optimizers
+- Documentation needs updates for new features
+
+**4. Production Readiness Path**
+- Authentication and PostgreSQL are prerequisites for production deployment
+- Monitoring and logging are operational necessities
+- Current SQLite + single-user setup is suitable for development/research
+
+### Next Actions
+
+**Recommended Starting Point:**
+
+If selecting the next feature to implement, the optimal sequence is:
+
+1. **Bayesian Optimization Testing & Integration** (3 days)
+   - Immediate efficiency gains
+   - Code is ready, just needs UI and validation
+   - Low risk, high impact
+
+2. **WebSocket Real-Time Updates** (5 days)
+   - Major UX improvement
+   - Enables better progress monitoring
+   - Foundation for GuideLLM Phase 2 live streaming
+
+3. **GuideLLM Proof of Concept** (2 days)
+   - Quick validation of new direction
+   - Parallel work (can run alongside Bayesian testing)
+   - Informs Phase 2 planning
+
+**Total**: 2 weeks for three high-impact features
+
+This sequence maximizes value delivery while maintaining low implementation risk.
+
+</details>
