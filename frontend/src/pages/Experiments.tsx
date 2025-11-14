@@ -4,6 +4,7 @@ import { apiClient } from "@/services/api";
 import type { Experiment, Task } from "@/types/api";
 import ExperimentLogViewer from "@/components/ExperimentLogViewer";
 import { useEscapeKey } from "@/hooks/useEscapeKey";
+import { useTaskWebSocket } from "@/hooks/useTaskWebSocket";
 
 export default function Experiments() {
 	const [selectedTaskId, setSelectedTaskId] = useState<number | "all">("all");
@@ -24,6 +25,16 @@ export default function Experiments() {
 		queryKey: ["tasks"],
 		queryFn: () => apiClient.getTasks()
 	});
+
+	// Find running task for WebSocket connection
+	const runningTask = tasks.find((task: Task) => task.status === "running");
+
+	// Connect to WebSocket for the running task (if any)
+	// This will automatically update experiments when events are received
+	useTaskWebSocket(
+		runningTask?.id || null,
+		!!runningTask
+	);
 
 	// Fetch experiments based on filter
 	const {

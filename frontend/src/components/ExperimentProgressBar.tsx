@@ -16,10 +16,10 @@ export default function ExperimentProgressBar({
   onExperimentClick
 }: ExperimentProgressBarProps) {
   // Fetch experiments for this task
+  // Note: No polling needed here - WebSocket updates in parent page will trigger cache invalidation
   const { data: experiments = [] } = useQuery<Experiment[]>({
     queryKey: ['experiments', taskId],
     queryFn: () => apiClient.getExperimentsByTask(taskId),
-    refetchInterval: 5000, // Auto-refresh every 5 seconds
   });
 
   const getBlockColor = (status: string) => {

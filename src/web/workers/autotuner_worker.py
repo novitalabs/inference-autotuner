@@ -26,6 +26,7 @@ from src.orchestrator import AutotunerOrchestrator
 from src.utils.optimizer import generate_parameter_grid, create_optimization_strategy, restore_optimization_strategy
 from src.utils.quantization_integration import merge_parameters_with_quant_config
 from src.web.workers.checkpoint import TaskCheckpoint
+from src.web.events.broadcaster import get_broadcaster, EventType, create_event
 
 settings = get_settings()
 
@@ -171,10 +172,23 @@ async def run_autotuning_task(ctx: Dict[str, Any], task_id: int) -> Dict[str, An
 		try:
 			logger.info(f"[ARQ Worker] Starting task: {task.task_name}")
 
+			# Get broadcaster instance
+			broadcaster = get_broadcaster()
+
 			# Update task status
 			task.status = TaskStatus.RUNNING
 			task.started_at = datetime.utcnow()
 			await db.commit()
+
+			# Broadcast task started event
+			broadcaster.broadcast_sync(
+				task_id,
+				create_event(
+					EventType.TASK_STARTED,
+					task_id=task_id,
+					message=f"Task '{task.task_name}' started"
+				)
+			)
 
 			# Create task configuration dict (similar to JSON task file)
 			task_config = {
@@ -316,6 +330,21 @@ async def run_autotuning_task(ctx: Dict[str, Any], task_id: int) -> Dict[str, An
 
 				logger.info(f"[Experiment {iteration}] Status: DEPLOYING")
 
+				# Broadcast experiment started event
+				broadcaster.broadcast_sync(
+					task_id,
+					create_event(
+						EventType.EXPERIMENT_STARTED,
+						task_id=task_id,
+						experiment_id=iteration,
+						data={
+							"parameters": params,
+							"status": "deploying"
+						},
+						message=f"Experiment {iteration} started"
+					)
+				)
+
 				# Shared flag to signal when benchmark starts
 				benchmark_started = {'value': False}
 
@@ -331,6 +360,18 @@ async def run_autotuning_task(ctx: Dict[str, Any], task_id: int) -> Dict[str, An
 					db_experiment.status = ExperimentStatus.BENCHMARKING
 					await db.commit()
 					logger.info(f"[Experiment {iteration}] Status: BENCHMARKING")
+
+					# Broadcast benchmark progress event
+					broadcaster.broadcast_sync(
+						task_id,
+						create_event(
+							EventType.BENCHMARK_PROGRESS,
+							task_id=task_id,
+							experiment_id=iteration,
+							data={"status": "benchmarking"},
+							message=f"Experiment {iteration} benchmarking in progress"
+						)
+					)
 
 				monitor_task = asyncio.create_task(monitor_benchmark_status())
 
@@ -408,6 +449,23 @@ async def run_autotuning_task(ctx: Dict[str, Any], task_id: int) -> Dict[str, An
 
 					await db.commit()
 
+					# Broadcast experiment completion event
+					broadcaster.broadcast_sync(
+						task_id,
+						create_event(
+							EventType.EXPERIMENT_COMPLETED if result["status"] == "success" else EventType.EXPERIMENT_FAILED,
+							task_id=task_id,
+							experiment_id=iteration,
+							data={
+								"status": result["status"],
+								"metrics": result.get("metrics"),
+								"objective_score": result.get("objective_score"),
+								"elapsed_time": elapsed if db_experiment.started_at else None
+							},
+							message=f"Experiment {iteration} {result['status']}"
+						)
+					)
+
 					# Save checkpoint after each experiment
 					try:
 						await db.refresh(task)
@@ -421,6 +479,23 @@ async def run_autotuning_task(ctx: Dict[str, Any], task_id: int) -> Dict[str, An
 						task.task_metadata = updated_metadata
 						await db.commit()
 						logger.info(f"[ARQ Worker] Checkpoint saved at iteration {iteration}")
+
+						# Broadcast task progress event
+						broadcaster.broadcast_sync(
+							task_id,
+							create_event(
+								EventType.TASK_PROGRESS,
+								task_id=task_id,
+								data={
+									"current_experiment": iteration,
+									"total_experiments": total_experiments,
+									"successful_experiments": task.successful_experiments,
+									"progress_percent": (iteration / total_experiments * 100) if total_experiments > 0 else 0,
+									"best_score": best_score if best_score != float("inf") else None
+								},
+								message=f"Progress: {iteration}/{total_experiments} experiments completed"
+							)
+						)
 					except Exception as checkpoint_error:
 						logger.warning(f"[ARQ Worker] Failed to save checkpoint: {checkpoint_error}")
 
@@ -533,6 +608,24 @@ async def run_autotuning_task(ctx: Dict[str, Any], task_id: int) -> Dict[str, An
 
 			await db.commit()
 			await db.refresh(task)  # Ensure changes are reflected
+
+			# Broadcast task completion event
+			broadcaster.broadcast_sync(
+				task_id,
+				create_event(
+					EventType.TASK_COMPLETED if task.status == TaskStatus.COMPLETED else EventType.TASK_FAILED,
+					task_id=task_id,
+					data={
+						"status": task.status.value,
+						"total_experiments": iteration,
+						"successful_experiments": task.successful_experiments,
+						"best_experiment_id": best_experiment_id,
+						"best_score": best_score if best_score != float("inf") else None,
+						"elapsed_time": elapsed if task.started_at else None
+					},
+					message=f"Task completed: {task.successful_experiments}/{iteration} experiments successful"
+				)
+			)
 
 			logger.info(
 				f"[ARQ Worker] Task finished: {task.task_name} - {task.successful_experiments}/{total_experiments} successful"

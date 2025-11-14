@@ -8,6 +8,7 @@ import ExperimentProgressBar from "@/components/ExperimentProgressBar";
 import ExperimentLogViewer from "@/components/ExperimentLogViewer";
 import { navigateTo } from "@/components/Layout";
 import { setEditingTaskId } from "@/utils/editTaskStore";
+import { useTaskWebSocket } from "@/hooks/useTaskWebSocket";
 import toast from "react-hot-toast";
 
 export default function Tasks() {
@@ -26,7 +27,8 @@ export default function Tasks() {
 		enabled: selectedTaskId !== null
 	});
 
-	// Fetch tasks
+	// Fetch tasks with adaptive polling
+	// Fast polling (30s) only when tasks are running, otherwise slow polling (5min)
 	const {
 		data: tasks = [],
 		isLoading,
@@ -34,8 +36,26 @@ export default function Tasks() {
 	} = useQuery({
 		queryKey: ["tasks"],
 		queryFn: () => apiClient.getTasks(),
-		refetchInterval: 5000 // Auto-refresh every 5 seconds
+		// Adaptive polling based on whether there are running tasks
+		// Initial fetch will happen, then we adjust interval based on results
+		refetchInterval: (query) => {
+			const data = query.state.data;
+			const hasRunningTask = data && Array.isArray(data) && data.some((task: Task) => task.status === "running");
+			// If tasks are running: 30s (WebSocket fallback)
+			// If no tasks running: 5 minutes (less frequent polling)
+			return hasRunningTask ? 30000 : 300000;
+		}
 	});
+
+	// Find first running task for WebSocket connection
+	const runningTask = tasks.find((task: Task) => task.status === "running");
+
+	// Connect to WebSocket for the running task (if any)
+	// This will automatically invalidate React Query caches when events are received
+	useTaskWebSocket(
+		runningTask?.id || null,
+		!!runningTask // Only enable if there's a running task
+	);
 
 	// Start task mutation
 	const startTaskMutation = useMutation({
