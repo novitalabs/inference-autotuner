@@ -87,6 +87,24 @@ export interface Experiment {
 	metrics: Record<string, any> | null;
 	objective_score: number | null;
 	slo_violation?: boolean;  // Flag for hard SLO violations
+	gpu_info?: {
+		model: string;
+		count: number;
+		device_ids?: string[];
+		world_size?: number;
+		gpu_info?: {
+			count: number;
+			indices: number[];
+			allocation_method: string;
+			details?: Array<{
+				index: number;
+				name: string;
+				memory_free_mb: number;
+				utilization_percent: number;
+				availability_score: number;
+			}>;
+		};
+	};
 	service_name: string | null;
 	service_url: string | null;
 	created_at: string;

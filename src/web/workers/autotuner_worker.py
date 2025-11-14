@@ -25,6 +25,7 @@ from src.web.db.models import Task, Experiment, TaskStatus, ExperimentStatus
 from src.orchestrator import AutotunerOrchestrator
 from src.utils.optimizer import generate_parameter_grid, create_optimization_strategy, restore_optimization_strategy
 from src.utils.quantization_integration import merge_parameters_with_quant_config
+from src.utils.gpu_scheduler import estimate_gpu_requirements, check_gpu_availability, wait_for_gpu_availability
 from src.web.workers.checkpoint import TaskCheckpoint
 from src.web.events.broadcaster import get_broadcaster, EventType, create_event
 
@@ -201,6 +202,67 @@ async def run_autotuning_task(ctx: Dict[str, Any], task_id: int) -> Dict[str, An
 				"optimization": task.optimization_config,
 				"benchmark": task.benchmark_config,
 			}
+
+			# Check GPU availability before starting task (only for Docker mode)
+			if task.deployment_mode == "docker":
+				logger.info(f"[ARQ Worker] Checking GPU availability for Docker deployment...")
+
+				# Estimate GPU requirements from task configuration
+				required_gpus, estimated_memory_mb = estimate_gpu_requirements(task_config)
+
+				logger.info(f"[ARQ Worker] Task requires {required_gpus} GPU(s)")
+
+				# Check if GPUs are available
+				is_available, availability_message = check_gpu_availability(
+					required_gpus=required_gpus,
+					min_memory_mb=estimated_memory_mb
+				)
+
+				if not is_available:
+					logger.warning(f"[ARQ Worker] GPUs not immediately available: {availability_message}")
+					logger.info(f"[ARQ Worker] Waiting for GPUs to become available (timeout=5 minutes)...")
+
+					# Wait for GPUs to become available
+					is_available, availability_message = wait_for_gpu_availability(
+						required_gpus=required_gpus,
+						min_memory_mb=estimated_memory_mb,
+						timeout_seconds=300,  # 5 minutes
+						check_interval=30  # Check every 30 seconds
+					)
+
+					if not is_available:
+						# GPUs still not available after waiting
+						error_msg = f"Insufficient GPUs after waiting: {availability_message}"
+						logger.error(f"[ARQ Worker] {error_msg}")
+
+						# Mark task as failed
+						task.status = TaskStatus.FAILED
+						task.completed_at = datetime.utcnow()
+						elapsed_time = (task.completed_at - task.started_at).total_seconds()
+						task.elapsed_time = elapsed_time
+						await db.commit()
+
+						# Broadcast failure event
+						broadcaster.broadcast_sync(
+							task_id,
+							create_event(
+								EventType.TASK_FAILED,
+								task_id=task_id,
+								message=error_msg
+							)
+						)
+
+						return {
+							"status": "failed",
+							"error": error_msg,
+							"elapsed_time": elapsed_time
+						}
+					else:
+						logger.info(f"[ARQ Worker] ✓ GPUs became available: {availability_message}")
+				else:
+					logger.info(f"[ARQ Worker] ✓ GPU availability confirmed: {availability_message}")
+			else:
+				logger.info(f"[ARQ Worker] Skipping GPU check for {task.deployment_mode} mode")
 
 			# Create optimization strategy
 			optimization_config = task.optimization_config or {}
