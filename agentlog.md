@@ -29390,3 +29390,251 @@ return hasRunningTask ? 60000 : 600000;  // 1min / 10min
 
 </details>
 
+
+---
+
+## Parallel Experiment Execution Infrastructure
+
+> Implement Parallel Experiment Execution infrastructure to enable running multiple experiments concurrently
+
+<details>
+<summary>Implementation Progress - Phases 1 & 2 Complete (60% overall)</summary>
+
+### Context
+
+User requested implementation of parallel experiment execution feature to enable running multiple experiments concurrently. This significantly speeds up autotuning for large parameter spaces.
+
+### Implementation Plan
+
+5-phase approach designed:
+1. **Phase 1: Database Preparation** ✅ COMPLETE
+2. **Phase 2: GPU Resource Pool** ✅ COMPLETE  
+3. **Phase 3: Async Experiment Execution** ⏳ IN PROGRESS
+4. **Phase 4: Configuration** 📋 PENDING
+5. **Phase 5: Testing** 📋 PENDING
+
+### Phase 1: Database Preparation ✅
+
+**Goal**: Enable concurrent database writes using SQLite WAL mode
+
+**Files Modified**:
+- `src/web/db/session.py`: Added WAL mode configuration
+
+**Changes Made**:
+```python
+# Enable WAL (Write-Ahead Logging) for concurrent writes
+engine = create_async_engine(
+    settings.database_url,
+    echo=settings.debug,
+    future=True,
+    connect_args={
+        "check_same_thread": False,  # Allow SQLite across threads
+        "timeout": 30,                # 30-second lock acquisition timeout
+    }
+)
+
+async def init_db():
+    """Initialize database and enable WAL mode."""
+    async with engine.begin() as conn:
+        await conn.execute(text("PRAGMA journal_mode=WAL"))
+        await conn.run_sync(Base.metadata.create_all)
+```
+
+**Testing**:
+- Created `test_wal_mode.py` to verify WAL mode enablement
+- ✅ WAL mode successfully enabled and persists
+- ✅ Busy timeout set to 30000ms
+- ✅ Synchronous mode: 2 (FULL - safe for concurrent writes)
+
+**Benefits of WAL Mode**:
+- Multiple readers can access database concurrently
+- Writers don't block readers
+- Critical for parallel experiment execution
+
+### Phase 2: GPU Resource Pool ✅
+
+**Goal**: Implement GPU allocation/deallocation system for concurrent experiments
+
+**Files Created**:
+- `src/utils/gpu_pool.py` (~380 lines)
+- `test_gpu_pool.py` (comprehensive test suite)
+
+**Key Components**:
+
+1. **GPUAllocation DataClass**:
+   - Tracks allocated GPU indices
+   - Records allocation timestamp
+   - Links to experiment ID and parameters
+   - Hashable for use in sets
+
+2. **GPUResourcePool Class**:
+   - FIFO queue for fair allocation
+   - Atomic acquire/release operations  
+   - Integration with existing `gpu_monitor` infrastructure
+   - Automatic cleanup via async context manager
+   - Max parallel limit enforcement
+
+3. **Helper Function**:
+   - `estimate_and_acquire()`: Combines `estimate_gpu_requirements()` with pool acquisition
+
+**Features**:
+```python
+async with GPUResourcePool(max_parallel=3) as pool:
+    # Acquire GPUs for experiment
+    allocation = await pool.acquire(
+        required_gpus=2,
+        min_memory_mb=8000,
+        experiment_id=1,
+        timeout=300  # 5 minutes
+    )
+    
+    try:
+        # Run experiment with allocation.gpu_indices
+        pass
+    finally:
+        # Always release GPUs
+        await pool.release(allocation)
+```
+
+**Testing Results**:
+```
+✓ Test 1: Basic Allocation and Release - PASSED
+✓ Test 2: Concurrent Allocation with Capacity Limit - PASSED  
+  - 4 experiments with max_parallel=2
+  - First 2 started immediately, next 2 waited correctly
+✓ Test 3: GPU Availability Checking - PASSED
+  - Detected 8 H20 GPUs
+  - Scoring algorithm working correctly
+✓ Test 4: Estimate and Acquire Helper - PASSED
+```
+
+**GPU Allocation Algorithm**:
+```python
+score = 0.6 × memory_score + 0.4 × utilization_score
+
+where:
+  memory_score = memory_free_mb / memory_total_mb
+  utilization_score = (100 - utilization_percent) / 100
+```
+
+Prioritizes GPUs with:
+- More free memory (60% weight)
+- Lower utilization (40% weight)
+
+### Phase 3: Async Experiment Execution ⏳ IN PROGRESS
+
+**Goal**: Convert sequential experiment loop to async parallel execution
+
+**Current Status**:
+- Researched existing implementation in `autotuner_worker.py:366-560`
+- Identified complexity with event broadcasting, checkpointing, database updates
+- Design document created: `docs/PARALLEL_EXECUTION.md`
+
+**Challenges Identified**:
+1. Current loop has ~200 lines of logic per experiment:
+   - Database record creation/updates
+   - Status transitions (PENDING → DEPLOYING → BENCHMARKING → SUCCESS/FAILED)
+   - Event broadcasting for real-time frontend updates
+   - Checkpoint saving after each experiment
+   - Strategy feedback (tell_result)
+   - Best experiment tracking
+
+2. All this logic needs to be thread-safe for parallel execution
+
+**Next Steps for Phase 3**:
+1. Extract experiment execution into standalone async function
+2. Implement `run_experiment_async()` with GPU pool integration
+3. Create `run_experiments_parallel()` batch executor
+4. Add locking for shared state (best_score, best_experiment_id)
+5. Ensure database sessions are per-task (not shared)
+6. Test with simple workload before full integration
+
+### Phase 4 & 5: Configuration and Testing 📋 PENDING
+
+**Configuration Requirements**:
+- Add `max_parallel_experiments` field to Task model
+- Update `NewTask.tsx` with UI controls
+- Add validation (default: 1, max: determined by available GPUs)
+- Backend API type updates
+
+**Testing Requirements**:
+- Unit tests for GPUResourcePool edge cases
+- Integration tests with mock experiments
+- Real GPU testing with concurrent experiments
+- Verify no database conflicts
+- Performance benchmarking (speedup measurement)
+
+### Files Created/Modified Summary
+
+**Created**:
+- `src/utils/gpu_pool.py` - GPU resource pool implementation
+- `test_gpu_pool.py` - Comprehensive test suite
+- `test_wal_mode.py` - WAL mode verification
+- `docs/PARALLEL_EXECUTION.md` - Design document (~500 lines)
+
+**Modified**:
+- `src/web/db/session.py` - Added WAL mode configuration
+
+### Design Documentation
+
+Created comprehensive design document at `docs/PARALLEL_EXECUTION.md` covering:
+- Architecture overview (sequential vs parallel flow diagrams)
+- Three key components (GPUResourcePool, Async Executor, Batch Executor)
+- Five-phase implementation plan
+- Configuration examples
+- GPU resource management strategy
+- Error handling approach
+- Performance impact analysis (expected 5-10x speedup)
+- Troubleshooting guide
+
+### Current Project State
+
+**Infrastructure Ready** (Phases 1 & 2):
+- ✅ Database supports concurrent writes (WAL mode)
+- ✅ GPU resource pool tested and working
+- ✅ Helper functions for GPU requirement estimation
+- ✅ Comprehensive design documentation
+
+**Remaining Work** (Phases 3-5):
+- Extract and refactor experiment execution logic
+- Integrate GPUResourcePool into worker
+- Add configuration parameters
+- Comprehensive testing
+
+**Estimated Completion**: 40% remaining
+- Phase 3 (Async Execution): ~50% of remaining work
+- Phase 4 (Configuration): ~20% of remaining work  
+- Phase 5 (Testing): ~30% of remaining work
+
+### Technical Notes
+
+1. **WAL Mode Benefits**:
+   - Concurrent readers: ✅
+   - Non-blocking reads during writes: ✅
+   - Atomic commits: ✅
+   - Production-ready: ✅
+
+2. **GPUResourcePool Design**:
+   - Lock-based synchronization: Simple and reliable
+   - FIFO allocation: Fair resource distribution
+   - Context manager: Automatic cleanup
+   - Integration with existing monitoring: Seamless
+
+3. **Parallel Execution Approach**:
+   - AsyncIO for concurrency (not threads): Pythonic and efficient
+   - Error isolation per experiment: One failure doesn't stop others
+   - GPU pool prevents conflicts: No double-allocation
+   - Database WAL prevents locking: Concurrent writes safe
+
+### Expected Performance Impact
+
+For a task with 20 experiments and max_parallel=4:
+- **Sequential**: 20 × 10min = 200 minutes (3.3 hours)
+- **Parallel**: ~50 minutes (0.8 hours)
+- **Speedup**: ~4x (close to theoretical 4x with proper GPU availability)
+
+For very large parameter spaces (100+ experiments):
+- Expected speedup: 5-10x depending on GPU count and availability
+
+</details>
+
