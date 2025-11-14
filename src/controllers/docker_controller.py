@@ -190,10 +190,13 @@ class DockerController(BaseModelController):
 		# Build container configuration
 		try:
 			# Determine GPU devices
-			gpu_devices = self._select_gpus(num_gpus)
-			if not gpu_devices:
+			gpu_info_dict = self._select_gpus(num_gpus)
+			if not gpu_info_dict:
 				print(f"[Docker] Failed to allocate {num_gpus} GPU(s)")
 				return None
+
+			gpu_devices = gpu_info_dict["device_ids"]
+			gpu_model = gpu_info_dict["gpu_model"]
 
 			print(f"[Docker] Deploying container '{container_name}'")
 			print(f"[Docker] Image: {runtime_config['image']}")
@@ -201,7 +204,7 @@ class DockerController(BaseModelController):
 				print(f"[Docker] Model: {model_path} (local)")
 			else:
 				print(f"[Docker] Model: {model_name} (HuggingFace Hub)")
-			print(f"[Docker] GPUs: {gpu_devices}")
+			print(f"[Docker] GPUs: {gpu_devices} (Model: {gpu_model})")
 			print(f"[Docker] Parameters: {parameters}")
 
 			# Remove existing container if present
@@ -276,6 +279,8 @@ class DockerController(BaseModelController):
 				"container": container,
 				"host_port": host_port,
 				"gpu_devices": gpu_devices,
+				"gpu_model": gpu_model,
+				"world_size": world_size,
 			}
 
 			print(f"[Docker] Container '{container_name}' started (ID: {container.short_id})")
@@ -528,6 +533,32 @@ class DockerController(BaseModelController):
 			print(f"[Docker] Error retrieving logs for '{service_id}': {e}")
 			return None
 
+	def get_gpu_info(self, service_id: str, namespace: str) -> Optional[Dict[str, Any]]:
+		"""Get GPU information for a deployed container.
+
+		Args:
+		    service_id: Service identifier
+		    namespace: Namespace identifier
+
+		Returns:
+		    Dict with GPU info: {model, count, device_ids, world_size}, or None if not found
+		"""
+		if service_id not in self.containers:
+			print(f"[Docker] Service '{service_id}' not found, cannot retrieve GPU info")
+			return None
+
+		try:
+			container_info = self.containers[service_id]
+			return {
+				"model": container_info.get("gpu_model", "Unknown"),
+				"count": len(container_info.get("gpu_devices", [])),
+				"device_ids": container_info.get("gpu_devices", []),
+				"world_size": container_info.get("world_size", 1)
+			}
+		except Exception as e:
+			print(f"[Docker] Error retrieving GPU info for '{service_id}': {e}")
+			return None
+
 	def _get_runtime_config(
 		self, runtime_name: str, parameters: Dict[str, Any], image_tag: Optional[str] = None
 	) -> Optional[Dict[str, str]]:
@@ -652,14 +683,14 @@ class DockerController(BaseModelController):
 			print(f"[Docker] Error checking image: {e}")
 			return False
 
-	def _select_gpus(self, num_gpus: int) -> Optional[list]:
-		"""Select GPU devices for the container.
+	def _select_gpus(self, num_gpus: int) -> Optional[Dict[str, Any]]:
+		"""Select GPU devices for the container and get GPU info.
 
 		Args:
 		    num_gpus: Number of GPUs required
 
 		Returns:
-		    List of GPU device IDs (as strings), or None if not enough GPUs
+		    Dict with 'device_ids' (list of GPU IDs) and 'gpu_model' (str), or None if not enough GPUs
 		"""
 		# TODO: Implement proper GPU tracking and allocation
 		# For now, use simple sequential allocation
@@ -668,17 +699,23 @@ class DockerController(BaseModelController):
 			import subprocess
 
 			result = subprocess.run(
-				["nvidia-smi", "--query-gpu=index,memory.free", "--format=csv,noheader,nounits"],
+				["nvidia-smi", "--query-gpu=index,memory.free,name", "--format=csv,noheader,nounits"],
 				capture_output=True,
 				text=True,
 				check=True,
 			)
 
 			gpus = []
+			gpu_model = None
 			for line in result.stdout.strip().split("\n"):
 				if line:
-					gpu_id, free_mem = line.split(",")
-					gpus.append((gpu_id.strip(), int(free_mem.strip())))
+					parts = line.split(",")
+					gpu_id = parts[0].strip()
+					free_mem = int(parts[1].strip())
+					model = parts[2].strip() if len(parts) > 2 else "Unknown"
+					gpus.append((gpu_id, free_mem, model))
+					if gpu_model is None:
+						gpu_model = model  # Use first GPU's model name
 
 			# Sort by free memory (descending)
 			gpus.sort(key=lambda x: x[1], reverse=True)
@@ -688,17 +725,28 @@ class DockerController(BaseModelController):
 				return None
 
 			# Select top N GPUs with most free memory
-			selected = [gpu[0] for gpu in gpus[:num_gpus]]
-			return selected
+			selected_devices = [gpu[0] for gpu in gpus[:num_gpus]]
+			selected_model = gpus[0][2] if gpus else "Unknown"
+
+			return {
+				"device_ids": selected_devices,
+				"gpu_model": selected_model
+			}
 
 		except FileNotFoundError:
 			print("[Docker] nvidia-smi not found. Using default GPU allocation.")
 			# Fallback: use first N GPUs
-			return [str(i) for i in range(num_gpus)]
+			return {
+				"device_ids": [str(i) for i in range(num_gpus)],
+				"gpu_model": "Unknown"
+			}
 		except Exception as e:
 			print(f"[Docker] Error selecting GPUs: {e}")
 			# Fallback
-			return [str(i) for i in range(num_gpus)]
+			return {
+				"device_ids": [str(i) for i in range(num_gpus)],
+				"gpu_model": "Unknown"
+			}
 
 	def _find_available_port(self, start_port: int, end_port: int) -> Optional[int]:
 		"""Find an available port in the specified range.

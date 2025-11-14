@@ -120,6 +120,7 @@ class ExperimentResponse(BaseModel):
 	error_message: Optional[str]
 	metrics: Optional[Dict[str, Any]]
 	objective_score: Optional[float]
+	gpu_info: Optional[Dict[str, Any]]  # GPU information: model, count, device_ids, world_size
 	service_name: Optional[str]
 	service_url: Optional[str]
 	created_at: datetime

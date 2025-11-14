@@ -263,11 +263,19 @@ def calculate_objective_score(results: Dict[str, Any], objective: str = "minimiz
 				return float("inf")
 
 		elif objective == "maximize_throughput":
-			# Use mean total throughput (tokens/s) as primary metric
-			# Fallback to output throughput or max throughput
-			throughput = results.get(
-				"mean_total_throughput", results.get("mean_output_throughput", results.get("max_total_throughput"))
-			)
+			# Use mean total throughput per GPU (tokens/s/GPU) as primary metric
+			# This allows fair comparison across different GPU counts
+			# Fallback to total throughput if per-GPU metrics not available
+			throughput = results.get("mean_total_throughput_per_gpu")
+
+			if throughput is None:
+				# Fallback to absolute throughput (for backward compatibility)
+				throughput = results.get(
+					"mean_total_throughput", results.get("mean_output_throughput", results.get("max_total_throughput"))
+				)
+				if throughput is not None:
+					print(f"[Optimizer] Warning: Using absolute throughput (per-GPU metrics not available)")
+
 			if throughput is None or throughput == 0:
 				print(f"[Optimizer] Warning: No throughput metrics found in results")
 				print(f"[Optimizer] Available keys: {list(results.keys())}")

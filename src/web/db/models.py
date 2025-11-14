@@ -95,6 +95,9 @@ class Experiment(Base):
 	metrics = Column(JSON, nullable=True)
 	objective_score = Column(Float, nullable=True, index=True)
 
+	# GPU info
+	gpu_info = Column(JSON, nullable=True)  # {model: str, count: int, device_ids: list, world_size: int}
+
 	# Service info
 	service_name = Column(String, nullable=True)
 	service_url = Column(String, nullable=True)

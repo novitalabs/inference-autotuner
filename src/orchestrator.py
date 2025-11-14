@@ -159,6 +159,13 @@ class AutotunerOrchestrator:
 			self.cleanup_experiment(isvc_name, None, namespace)
 			return experiment_result
 
+		# Get GPU information if available (Docker mode)
+		gpu_info = None
+		if self.deployment_mode == "docker" and hasattr(self.model_controller, "get_gpu_info"):
+			gpu_info = self.model_controller.get_gpu_info(isvc_name, namespace)
+			if gpu_info:
+				experiment_result["gpu_info"] = gpu_info
+
 		# Step 3: Run benchmark
 		print(f"\n[Step 3/4] Running benchmark...")
 
@@ -192,10 +199,33 @@ class AutotunerOrchestrator:
 			# Step 4: Process results
 			print(f"\n[Step 4/4] Processing results...")
 			if metrics:
+				# Add per-GPU throughput metrics BEFORE calculating objective score
+				# This ensures per-GPU values are available for optimization
+				if gpu_info and gpu_info.get("count", 0) > 0:
+					gpu_count = gpu_info["count"]
+					# Add per-GPU throughput for all throughput metrics
+					if "mean_output_throughput" in metrics:
+						metrics["mean_output_throughput_per_gpu"] = metrics["mean_output_throughput"] / gpu_count
+					if "max_output_throughput" in metrics:
+						metrics["max_output_throughput_per_gpu"] = metrics["max_output_throughput"] / gpu_count
+					if "mean_total_throughput" in metrics:
+						metrics["mean_total_throughput_per_gpu"] = metrics["mean_total_throughput"] / gpu_count
+					if "max_total_throughput" in metrics:
+						metrics["max_total_throughput_per_gpu"] = metrics["max_total_throughput"] / gpu_count
+
+					# Also add per-GPU metrics to raw results
+					for raw_result in metrics.get("raw_results", []):
+						if "mean_output_throughput_tokens_per_s" in raw_result:
+							raw_result["mean_output_throughput_per_gpu"] = raw_result["mean_output_throughput_tokens_per_s"] / gpu_count
+						if "mean_input_throughput_tokens_per_s" in raw_result:
+							raw_result["mean_input_throughput_per_gpu"] = raw_result["mean_input_throughput_tokens_per_s"] / gpu_count
+						if "mean_total_tokens_throughput_tokens_per_s" in raw_result:
+							raw_result["mean_total_throughput_per_gpu"] = raw_result["mean_total_tokens_throughput_tokens_per_s"] / gpu_count
+
 				# Get SLO configuration from task if present
 				slo_config = task.get("slo")
 
-				# Calculate objective score with SLO penalties
+				# Calculate objective score with SLO penalties (per-GPU metrics now available)
 				score = calculate_objective_score(metrics, task["optimization"]["objective"], slo_config)
 
 				# Check if this is a hard SLO failure (score = inf/-inf)
