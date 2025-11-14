@@ -17,6 +17,7 @@ except ImportError:
 	docker = None
 
 from .base_controller import BaseModelController
+from ..utils.gpu_monitor import get_gpu_monitor
 
 
 class DockerController(BaseModelController):
@@ -684,68 +685,108 @@ class DockerController(BaseModelController):
 			return False
 
 	def _select_gpus(self, num_gpus: int) -> Optional[Dict[str, Any]]:
-		"""Select GPU devices for the container and get GPU info.
+		"""Select GPU devices for the container using intelligent allocation.
 
 		Args:
 		    num_gpus: Number of GPUs required
 
 		Returns:
-		    Dict with 'device_ids' (list of GPU IDs) and 'gpu_model' (str), or None if not enough GPUs
+		    Dict with 'device_ids' (list of GPU IDs), 'gpu_model' (str), and 'gpu_info' (detailed info),
+		    or None if not enough GPUs
 		"""
-		# TODO: Implement proper GPU tracking and allocation
-		# For now, use simple sequential allocation
-		try:
-			# Query available GPUs using nvidia-smi
-			import subprocess
+		gpu_monitor = get_gpu_monitor()
 
-			result = subprocess.run(
-				["nvidia-smi", "--query-gpu=index,memory.free,name", "--format=csv,noheader,nounits"],
-				capture_output=True,
-				text=True,
-				check=True,
-			)
-
-			gpus = []
-			gpu_model = None
-			for line in result.stdout.strip().split("\n"):
-				if line:
-					parts = line.split(",")
-					gpu_id = parts[0].strip()
-					free_mem = int(parts[1].strip())
-					model = parts[2].strip() if len(parts) > 2 else "Unknown"
-					gpus.append((gpu_id, free_mem, model))
-					if gpu_model is None:
-						gpu_model = model  # Use first GPU's model name
-
-			# Sort by free memory (descending)
-			gpus.sort(key=lambda x: x[1], reverse=True)
-
-			if len(gpus) < num_gpus:
-				print(f"[Docker] Not enough GPUs available: {len(gpus)} < {num_gpus}")
-				return None
-
-			# Select top N GPUs with most free memory
-			selected_devices = [gpu[0] for gpu in gpus[:num_gpus]]
-			selected_model = gpus[0][2] if gpus else "Unknown"
-
-			return {
-				"device_ids": selected_devices,
-				"gpu_model": selected_model
-			}
-
-		except FileNotFoundError:
-			print("[Docker] nvidia-smi not found. Using default GPU allocation.")
+		if not gpu_monitor.is_available():
+			print("[Docker] nvidia-smi not available. Using fallback GPU allocation.")
 			# Fallback: use first N GPUs
 			return {
 				"device_ids": [str(i) for i in range(num_gpus)],
-				"gpu_model": "Unknown"
+				"gpu_model": "Unknown",
+				"gpu_info": {
+					"count": num_gpus,
+					"indices": list(range(num_gpus)),
+					"allocation_method": "fallback"
+				}
 			}
+
+		# Use intelligent GPU allocation
+		try:
+			# Estimate memory requirement (rough heuristic: 8GB per GPU for typical LLM)
+			min_memory_mb = 8000  # Minimum 8GB free per GPU
+
+			allocated_gpus, success = gpu_monitor.allocate_gpus(
+				count=num_gpus,
+				min_memory_mb=min_memory_mb
+			)
+
+			if not success or len(allocated_gpus) < num_gpus:
+				print(f"[Docker] Could not allocate {num_gpus} GPU(s) with {min_memory_mb}MB free memory")
+				print(f"[Docker] Available GPUs: {len(allocated_gpus)}")
+
+				# Try without memory constraint
+				print(f"[Docker] Retrying allocation without memory constraint...")
+				allocated_gpus, success = gpu_monitor.allocate_gpus(count=num_gpus, min_memory_mb=None)
+
+				if not success:
+					print(f"[Docker] Failed to allocate any GPUs")
+					return None
+
+			# Get detailed GPU info for allocated devices
+			snapshot = gpu_monitor.query_gpus(use_cache=False)
+			if not snapshot:
+				print("[Docker] Failed to query GPU information")
+				return None
+
+			gpu_details = []
+			gpu_model = None
+			for gpu in snapshot.gpus:
+				if gpu.index in allocated_gpus:
+					gpu_details.append({
+						"index": gpu.index,
+						"name": gpu.name,
+						"uuid": gpu.uuid,
+						"memory_total_mb": gpu.memory_total_mb,
+						"memory_free_mb": gpu.memory_free_mb,
+						"memory_usage_percent": gpu.memory_usage_percent,
+						"utilization_percent": gpu.utilization_percent,
+						"temperature_c": gpu.temperature_c,
+						"power_draw_w": gpu.power_draw_w,
+						"availability_score": gpu.score
+					})
+					if gpu_model is None:
+						gpu_model = gpu.name
+
+			print(f"[Docker] Selected GPUs: {allocated_gpus}")
+			print(f"[Docker] GPU Model: {gpu_model}")
+			for detail in gpu_details:
+				print(f"[Docker]   GPU {detail['index']}: {detail['memory_free_mb']}/{detail['memory_total_mb']}MB free, "
+					  f"{detail['utilization_percent']}% utilized, Score: {detail['availability_score']:.2f}")
+
+			return {
+				"device_ids": [str(idx) for idx in allocated_gpus],
+				"gpu_model": gpu_model or "Unknown",
+				"gpu_info": {
+					"count": len(allocated_gpus),
+					"indices": allocated_gpus,
+					"allocation_method": "intelligent",
+					"details": gpu_details,
+					"allocated_at": snapshot.timestamp.isoformat()
+				}
+			}
+
 		except Exception as e:
-			print(f"[Docker] Error selecting GPUs: {e}")
-			# Fallback
+			print(f"[Docker] Error in intelligent GPU selection: {e}")
+			print(f"[Docker] Falling back to simple allocation")
+
+			# Final fallback: simple first-N allocation
 			return {
 				"device_ids": [str(i) for i in range(num_gpus)],
-				"gpu_model": "Unknown"
+				"gpu_model": "Unknown",
+				"gpu_info": {
+					"count": num_gpus,
+					"indices": list(range(num_gpus)),
+					"allocation_method": "fallback_error"
+				}
 			}
 
 	def _find_available_port(self, start_port: int, end_port: int) -> Optional[int]:

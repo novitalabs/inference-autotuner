@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { apiClient } from "@/services/api";
 import type { Experiment, Task } from "@/types/api";
 import ExperimentLogViewer from "@/components/ExperimentLogViewer";
+import GPUMetricsChart from "@/components/GPUMetricsChart";
 import { useEscapeKey } from "@/hooks/useEscapeKey";
 import { useTaskWebSocket } from "@/hooks/useTaskWebSocket";
 
@@ -165,6 +166,9 @@ export default function Experiments() {
 										Status
 									</th>
 									<th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
+										GPUs
+									</th>
+									<th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
 										Parameters
 									</th>
 									<th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
@@ -213,6 +217,29 @@ export default function Experiments() {
 														</span>
 													)}
 												</div>
+											</td>
+											<td className="whitespace-nowrap px-3 py-4 text-sm text-gray-700">
+												{experiment.gpu_info ? (
+													<div className="flex items-center gap-1">
+														<svg className="w-4 h-4 text-green-600" fill="currentColor" viewBox="0 0 20 20">
+															<path d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zM3 10a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H4a1 1 0 01-1-1v-6zM14 9a1 1 0 00-1 1v6a1 1 0 001 1h2a1 1 0 001-1v-6a1 1 0 00-1-1h-2z" />
+														</svg>
+														<span className="font-medium">{experiment.gpu_info.count}</span>
+														<span className="text-gray-500 text-xs">
+															{experiment.gpu_info.model ? `(${experiment.gpu_info.model.split(' ')[0]})` : ''}
+														</span>
+														{experiment.metrics?.gpu_monitoring && (
+															<span
+																className="ml-1 inline-flex items-center text-xs text-blue-600"
+																title="GPU monitoring data available"
+															>
+																📊
+															</span>
+														)}
+													</div>
+												) : (
+													<span className="text-gray-400">N/A</span>
+												)}
 											</td>
 											<td className="px-3 py-4 text-sm text-gray-700">
 												<div className="max-w-xs truncate">
@@ -355,6 +382,16 @@ export default function Experiments() {
 											{JSON.stringify(selectedExperiment.metrics, null, 2)}
 										</pre>
 									</div>
+								</div>
+							)}
+
+							{/* GPU Metrics */}
+							{selectedExperiment.metrics?.gpu_monitoring && (
+								<div>
+									<h3 className="text-sm font-medium text-gray-900 mb-3">
+										GPU Monitoring
+									</h3>
+									<GPUMetricsChart gpuMonitoring={selectedExperiment.metrics.gpu_monitoring} />
 								</div>
 							)}
 

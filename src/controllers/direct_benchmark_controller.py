@@ -9,8 +9,15 @@ import json
 import subprocess
 import time
 import signal
+import threading
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
+import sys
+
+# Add src to path for relative imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from utils.gpu_monitor import get_gpu_monitor, GPUSnapshot
 
 
 class DirectBenchmarkController:
@@ -48,6 +55,56 @@ class DirectBenchmarkController:
 		# Port forward process tracking
 		self.port_forward_proc = None
 		self.local_port = None
+
+	def _monitor_gpus_during_benchmark(
+		self,
+		gpu_indices: List[int],
+		duration_seconds: float,
+		interval_seconds: float = 1.0,
+		stop_event: Optional[threading.Event] = None
+	) -> List[GPUSnapshot]:
+		"""Monitor GPUs during benchmark execution (runs in background thread).
+
+		Args:
+		    gpu_indices: List of GPU indices to monitor
+		    duration_seconds: Maximum monitoring duration
+		    interval_seconds: Sampling interval
+		    stop_event: Threading event to signal early termination
+
+		Returns:
+		    List of GPU snapshots
+		"""
+		gpu_monitor = get_gpu_monitor()
+		snapshots = []
+		start_time = time.time()
+
+		print(f"[GPU Monitor] Starting monitoring for GPUs {gpu_indices} (interval={interval_seconds}s)")
+
+		while (time.time() - start_time) < duration_seconds:
+			# Check if early termination requested
+			if stop_event and stop_event.is_set():
+				print(f"[GPU Monitor] Stopped early (benchmark completed)")
+				break
+
+			snapshot = gpu_monitor.query_gpus(use_cache=False)
+			if snapshot:
+				# Filter to requested GPUs
+				filtered_gpus = [gpu for gpu in snapshot.gpus if gpu.index in gpu_indices]
+				if filtered_gpus:
+					from utils.gpu_monitor import GPUSnapshot
+					from datetime import datetime
+					filtered_snapshot = GPUSnapshot(
+						timestamp=datetime.now(),
+						gpus=filtered_gpus,
+						total_gpus=len(filtered_gpus),
+						available_gpus=sum(1 for gpu in filtered_gpus if gpu.is_available)
+					)
+					snapshots.append(filtered_snapshot)
+
+			time.sleep(interval_seconds)
+
+		print(f"[GPU Monitor] Collected {len(snapshots)} snapshots over {time.time() - start_time:.1f}s")
+		return snapshots
 
 	def setup_port_forward(
 		self, service_name: str, namespace: str, remote_port: int = 8000, local_port: int = 8080
@@ -157,6 +214,7 @@ class DirectBenchmarkController:
 		timeout: int = 1800,
 		local_port: int = 8080,
 		endpoint_url: Optional[str] = None,
+		gpu_indices: Optional[List[int]] = None,
 	) -> Optional[Dict[str, Any]]:
 		"""Run benchmark against an inference endpoint with automatic port forwarding.
 
@@ -169,9 +227,10 @@ class DirectBenchmarkController:
 		    timeout: Maximum execution time in seconds
 		    local_port: Local port for port forwarding (ignored if endpoint_url is provided)
 		    endpoint_url: Optional direct endpoint URL (skips port-forward setup for Docker mode)
+		    gpu_indices: Optional list of GPU indices to monitor during benchmark
 
 		Returns:
-		    Dict containing benchmark metrics, or None if failed
+		    Dict containing benchmark metrics and GPU statistics, or None if failed
 		"""
 		benchmark_name = f"{task_name}-exp{experiment_id}"
 		output_dir = self.results_dir / benchmark_name
@@ -266,6 +325,29 @@ class DirectBenchmarkController:
 		else:
 			print(f"[Benchmark] HF_TOKEN not set (only public models accessible)")
 
+		# Setup GPU monitoring if GPU indices provided
+		gpu_monitor_thread = None
+		gpu_snapshots = []
+		stop_gpu_monitoring = threading.Event()
+
+		if gpu_indices:
+			print(f"[GPU Monitor] GPU monitoring enabled for GPUs: {gpu_indices}")
+			# Start GPU monitoring in background thread
+			gpu_monitor_thread = threading.Thread(
+				target=lambda: gpu_snapshots.extend(
+					self._monitor_gpus_during_benchmark(
+						gpu_indices=gpu_indices,
+						duration_seconds=timeout + 60,  # Give extra buffer
+						interval_seconds=1.0,
+						stop_event=stop_gpu_monitoring
+					)
+				),
+				daemon=True
+			)
+			gpu_monitor_thread.start()
+		else:
+			print(f"[GPU Monitor] GPU monitoring disabled (no GPU indices provided)")
+
 		# Run benchmark
 		try:
 			start_time = time.time()
@@ -300,6 +382,12 @@ class DirectBenchmarkController:
 
 			elapsed_time = time.time() - start_time
 
+			# Stop GPU monitoring if running
+			if gpu_monitor_thread:
+				stop_gpu_monitoring.set()  # Signal thread to stop
+				gpu_monitor_thread.join(timeout=5)  # Wait for thread to complete
+				print(f"[GPU Monitor] Stopped monitoring")
+
 			print(f"[Benchmark] Completed in {elapsed_time:.1f}s")
 			print(f"[Benchmark] Exit code: {result_returncode}")
 
@@ -318,6 +406,22 @@ class DirectBenchmarkController:
 			if metrics:
 				metrics["elapsed_time"] = elapsed_time
 				metrics["benchmark_name"] = benchmark_name
+
+				# Add GPU monitoring statistics if available
+				if gpu_snapshots:
+					print(f"[GPU Monitor] Processing {len(gpu_snapshots)} GPU snapshots...")
+					gpu_monitor = get_gpu_monitor()
+					gpu_stats = gpu_monitor.get_summary_stats(gpu_snapshots)
+					if gpu_stats:
+						metrics["gpu_monitoring"] = gpu_stats
+						print(f"[GPU Monitor] GPU statistics added to metrics")
+
+						# Print summary for debugging
+						for gpu_idx, stats in gpu_stats.get("gpu_stats", {}).items():
+							util_mean = stats["utilization"]["mean"]
+							mem_mean = stats["memory_usage_percent"]["mean"]
+							print(f"[GPU Monitor]   GPU {gpu_idx}: Avg Util={util_mean:.1f}%, Avg Mem={mem_mean:.1f}%")
+
 				return metrics
 			else:
 				print(f"[Benchmark] No results found in {output_dir}")
@@ -330,6 +434,11 @@ class DirectBenchmarkController:
 			print(f"[Benchmark] Error running genai-bench: {e}")
 			return None
 		finally:
+			# Stop GPU monitoring if still running
+			if gpu_monitor_thread and gpu_monitor_thread.is_alive():
+				stop_gpu_monitoring.set()
+				gpu_monitor_thread.join(timeout=3)
+
 			# Only cleanup port forward if we set it up
 			if need_cleanup:
 				self.cleanup_port_forward()

@@ -176,6 +176,8 @@ class AutotunerOrchestrator:
 		if self.use_direct_benchmark:
 			# Get endpoint URL (differs between Docker and OME modes)
 			endpoint_url = None
+			gpu_indices = None
+
 			if self.deployment_mode == "docker":
 				# Docker mode: Get direct URL from controller
 				endpoint_url = self.model_controller.get_service_url(isvc_name, namespace)
@@ -183,6 +185,11 @@ class AutotunerOrchestrator:
 					print("Failed to get service URL from Docker controller")
 					self.cleanup_experiment(isvc_name, None, namespace, experiment_id)
 					return experiment_result
+
+				# Extract GPU indices from gpu_info for monitoring
+				if gpu_info and "indices" in gpu_info.get("gpu_info", {}):
+					gpu_indices = gpu_info["gpu_info"]["indices"]
+					print(f"[GPU Monitor] Will monitor GPUs: {gpu_indices} during benchmark")
 
 			# Direct CLI execution with automatic port forwarding (OME) or direct URL (Docker)
 			metrics = self.benchmark_controller.run_benchmark(
@@ -193,6 +200,7 @@ class AutotunerOrchestrator:
 				benchmark_config=task["benchmark"],
 				timeout=timeout,
 				endpoint_url=endpoint_url,
+				gpu_indices=gpu_indices,
 			)
 			benchmark_name = None  # No K8s resource to track
 
