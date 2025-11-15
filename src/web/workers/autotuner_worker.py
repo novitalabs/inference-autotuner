@@ -475,6 +475,7 @@ async def run_autotuning_task(ctx: Dict[str, Any], task_id: int) -> Dict[str, An
 					db_experiment.metrics = result.get("metrics")
 					db_experiment.objective_score = result.get("objective_score")
 					db_experiment.gpu_info = result.get("gpu_info")  # Save GPU information
+					db_experiment.error_message = result.get("error_message")  # Save error message for failed experiments
 					db_experiment.completed_at = datetime.utcnow()
 
 					if db_experiment.started_at:

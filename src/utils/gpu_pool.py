@@ -254,6 +254,35 @@ class GPUResourcePool:
         selected = available_gpus[:required_gpus]
         gpu_indices = [gpu.index for gpu in selected]
 
+        # Validate memory balance for multi-GPU configurations (TP > 1)
+        # SGLang and other runtimes require balanced memory across all GPUs
+        if required_gpus > 1:
+            memory_amounts = [gpu.memory_free_mb for gpu in selected]
+            min_memory = min(memory_amounts)
+            max_memory = max(memory_amounts)
+
+            # Check if memory imbalance is too large
+            # SGLang formula: min(gpu_memory) * 0.9 >= min_required_memory
+            # We use a stricter check: min_memory should be at least 80% of max_memory
+            if min_memory < max_memory * 0.8:
+                logger.error(
+                    f"GPU memory imbalance detected: "
+                    f"min={min_memory}MB, max={max_memory}MB "
+                    f"(min is only {min_memory/max_memory*100:.1f}% of max)"
+                )
+                raise RuntimeError(
+                    f"GPU memory capacity is unbalanced. "
+                    f"Selected GPUs have memory ranging from {min_memory}MB to {max_memory}MB. "
+                    f"For multi-GPU (TP > 1) configurations, all GPUs must have similar available memory. "
+                    f"Some GPUs may be occupied by other processes. "
+                    f"Please wait or select different GPUs."
+                )
+
+            logger.info(
+                f"GPU memory balance validated: min={min_memory}MB, max={max_memory}MB "
+                f"(variance: {(max_memory-min_memory)/max_memory*100:.1f}%)"
+            )
+
         logger.debug(
             f"Selected GPUs {gpu_indices} "
             f"(scores: {[f'{g.score:.3f}' for g in selected]})"

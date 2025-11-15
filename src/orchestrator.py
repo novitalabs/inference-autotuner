@@ -122,6 +122,7 @@ class AutotunerOrchestrator:
 			"status": "failed",
 			"metrics": None,
 			"container_logs": None,  # Will store container logs for Docker mode
+			"error_message": None,  # Will store error details for failed experiments
 		}
 
 		# Step 1: Deploy InferenceService
@@ -149,14 +150,28 @@ class AutotunerOrchestrator:
 			)
 
 		if not isvc_name:
-			print("Failed to deploy InferenceService")
+			error_msg = "Failed to deploy InferenceService"
+			print(error_msg)
+			experiment_result["error_message"] = error_msg
 			return experiment_result
 
 		# Step 2: Wait for InferenceService to be ready
 		print(f"\n[Step 2/4] Waiting for InferenceService to be ready...")
 		if not self.model_controller.wait_for_ready(isvc_name, namespace, timeout=timeout):
-			print("InferenceService did not become ready in time")
-			self.cleanup_experiment(isvc_name, None, namespace)
+			error_msg = "InferenceService did not become ready in time"
+			print(error_msg)
+			# Capture container logs for debugging
+			container_logs = self.cleanup_experiment(isvc_name, None, namespace)
+			if container_logs:
+				experiment_result["container_logs"] = container_logs
+				# Extract key error info from container logs
+				if "ValueError" in container_logs or "Error" in container_logs:
+					# Get last few lines of error for error_message
+					log_lines = container_logs.strip().split('\n')
+					error_lines = [line for line in log_lines if "Error" in line or "failed" in line.lower()]
+					if error_lines:
+						error_msg += f" - {error_lines[-1][:200]}"  # Last error, truncated
+			experiment_result["error_message"] = error_msg
 			return experiment_result
 
 		# Get GPU information if available (Docker mode)
@@ -182,7 +197,9 @@ class AutotunerOrchestrator:
 				# Docker mode: Get direct URL from controller
 				endpoint_url = self.model_controller.get_service_url(isvc_name, namespace)
 				if not endpoint_url:
-					print("Failed to get service URL from Docker controller")
+					error_msg = "Failed to get service URL from Docker controller"
+					print(error_msg)
+					experiment_result["error_message"] = error_msg
 					self.cleanup_experiment(isvc_name, None, namespace, experiment_id)
 					return experiment_result
 
@@ -242,6 +259,7 @@ class AutotunerOrchestrator:
 				if is_slo_failure:
 					experiment_result["status"] = "failed"
 					experiment_result["slo_violation"] = True
+					experiment_result["error_message"] = "Hard SLO violation - experiment exceeded threshold limits"
 					print(f"Experiment {experiment_id} FAILED due to hard SLO violation")
 				else:
 					experiment_result["status"] = "success"
@@ -249,7 +267,9 @@ class AutotunerOrchestrator:
 					experiment_result["objective_score"] = score
 					print(f"Experiment {experiment_id} completed. Score: {score}")
 			else:
-				print("Failed to retrieve benchmark results")
+				error_msg = "Failed to retrieve benchmark results"
+				print(error_msg)
+				experiment_result["error_message"] = error_msg
 		else:
 			# K8s BenchmarkJob execution
 			benchmark_name = self.benchmark_controller.create_benchmark_job(
@@ -261,13 +281,17 @@ class AutotunerOrchestrator:
 			)
 
 			if not benchmark_name:
-				print("Failed to create BenchmarkJob")
+				error_msg = "Failed to create BenchmarkJob"
+				print(error_msg)
+				experiment_result["error_message"] = error_msg
 				self.cleanup_experiment(isvc_name, None, namespace)
 				return experiment_result
 
 			# Wait for benchmark to complete
 			if not self.benchmark_controller.wait_for_completion(benchmark_name, namespace, timeout=timeout):
-				print("Benchmark did not complete in time")
+				error_msg = "Benchmark did not complete in time"
+				print(error_msg)
+				experiment_result["error_message"] = error_msg
 				self.cleanup_experiment(isvc_name, benchmark_name, namespace)
 				return experiment_result
 
@@ -288,6 +312,7 @@ class AutotunerOrchestrator:
 				if is_slo_failure:
 					experiment_result["status"] = "failed"
 					experiment_result["slo_violation"] = True
+					experiment_result["error_message"] = "Hard SLO violation - experiment exceeded threshold limits"
 					print(f"Experiment {experiment_id} FAILED due to hard SLO violation")
 				else:
 					experiment_result["status"] = "success"
@@ -295,7 +320,9 @@ class AutotunerOrchestrator:
 					experiment_result["objective_score"] = score
 					print(f"Experiment {experiment_id} completed. Score: {score}")
 			else:
-				print("Failed to retrieve benchmark results")
+				error_msg = "Failed to retrieve benchmark results"
+				print(error_msg)
+				experiment_result["error_message"] = error_msg
 
 		# Cleanup
 		print(f"\n[Cleanup] Removing experiment resources...")

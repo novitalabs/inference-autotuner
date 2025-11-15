@@ -297,6 +297,39 @@ class GPUMonitor:
 
         # Allocate best GPUs
         allocated = available[:count]
+
+        # Validate memory balance for multi-GPU configurations (TP > 1)
+        # SGLang and other runtimes require balanced memory across all GPUs
+        if count > 1 and min_memory_mb:
+            # Get detailed info for allocated GPUs
+            snapshot = self.query_gpus(use_cache=False)
+            if snapshot:
+                allocated_gpu_info = [gpu for gpu in snapshot.gpus if gpu.index in allocated]
+                if allocated_gpu_info:
+                    memory_amounts = [gpu.memory_free_mb for gpu in allocated_gpu_info]
+                    min_memory = min(memory_amounts)
+                    max_memory = max(memory_amounts)
+
+                    # Check if memory imbalance is too large
+                    # SGLang formula: min(gpu_memory) * 0.9 >= min_required_memory
+                    # We use an 80% threshold: min_memory should be at least 80% of max_memory
+                    if min_memory < max_memory * 0.8:
+                        logger.error(
+                            f"GPU memory imbalance detected: "
+                            f"min={min_memory}MB, max={max_memory}MB "
+                            f"(min is only {min_memory/max_memory*100:.1f}% of max)"
+                        )
+                        logger.warning(
+                            f"Rejecting allocation due to memory imbalance. "
+                            f"For multi-GPU (TP > 1) configurations, all GPUs must have similar available memory."
+                        )
+                        return ([], False)
+
+                    logger.info(
+                        f"GPU memory balance validated: min={min_memory}MB, max={max_memory}MB "
+                        f"(variance: {(max_memory-min_memory)/max_memory*100:.1f}%)"
+                    )
+
         logger.info(f"Allocated GPUs: {allocated}")
 
         return (allocated, True)
