@@ -16,8 +16,8 @@ try:
 except ImportError:
 	docker = None
 
-from .base_controller import BaseModelController
-from ..utils.gpu_monitor import get_gpu_monitor
+from controllers.base_controller import BaseModelController
+from utils.gpu_monitor import get_gpu_monitor
 
 
 class DockerController(BaseModelController):

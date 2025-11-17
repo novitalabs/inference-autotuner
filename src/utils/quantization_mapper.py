@@ -328,7 +328,7 @@ def map_to_tensorrt_llm_args(
 def merge_parameters(
     quant_args: Dict[str, str],
     user_parameters: Dict[str, Any]
-) -> Dict[str, str]:
+) -> Dict[str, Any]:
     """
     Merge quantization-derived arguments with user-specified parameters.
     User parameters have higher priority and will override quant_config-derived values.
@@ -355,6 +355,10 @@ def merge_parameters(
             # The orchestrator will handle grid expansion
             if value:
                 merged[cli_key] = str(value[0])
+        elif isinstance(value, bool):
+            # Preserve boolean type - do NOT convert to string
+            # Docker/OME controllers handle boolean flags specially
+            merged[cli_key] = value
         else:
             merged[cli_key] = str(value)
 
@@ -366,7 +370,7 @@ def get_runtime_args(
     quant_config: Optional[Dict[str, Any]],
     user_parameters: Optional[Dict[str, Any]] = None,
     model_quantization: Optional[str] = None
-) -> Dict[str, str]:
+) -> Dict[str, Any]:
     """
     Get runtime-specific CLI arguments from quantization config and user parameters.
 

@@ -98,6 +98,24 @@ class AutotunerOrchestrator:
 		runtime_name = task["base_runtime"]
 		timeout = task["optimization"]["timeout_per_iteration"]
 
+		# Dynamically adjust timeout for torch-compile + multi-GPU scenarios
+		# Triton kernel autotuning can take 10-20 minutes with TP > 1
+		enable_compile = parameters.get("enable-torch-compile", False)
+		tp_size = parameters.get("__parallel__tp", 1)
+
+		if enable_compile and tp_size > 1:
+			# TP > 1 with torch-compile: increase timeout significantly
+			adjusted_timeout = max(timeout, 1200)  # At least 20 minutes
+			if adjusted_timeout > timeout:
+				print(f"[Timeout] Increased from {timeout}s to {adjusted_timeout}s (torch-compile + TP={tp_size})")
+				timeout = adjusted_timeout
+		elif enable_compile:
+			# TP = 1 with torch-compile: moderate increase
+			adjusted_timeout = max(timeout, 900)  # At least 15 minutes
+			if adjusted_timeout > timeout:
+				print(f"[Timeout] Increased from {timeout}s to {adjusted_timeout}s (torch-compile)")
+				timeout = adjusted_timeout
+
 		# Optional: custom Docker image tag
 		image_tag = task.get("runtime_image_tag")
 
