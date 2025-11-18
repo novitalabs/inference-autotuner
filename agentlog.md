@@ -29788,3 +29788,277 @@ For very large parameter spaces (100+ experiments):
 
 </details>
 
+
+---
+
+## OME Fork and Model-Agent Bare-Metal Fix
+
+> Switch OME submodule URL to https://github.com/k-l-lambda/ome.git, then build it from source and replace the installed version.
+
+<details>
+<summary>Claude: Forked OME, created bare-metal fix for model-agent, rebased to main</summary>
+
+### User Request
+Switch the OME submodule to use the forked repository at https://github.com/k-l-lambda/ome.git, then build the model-agent from source with fixes for bare-metal GPU nodes.
+
+### Actions Taken
+
+#### 1. Switched OME Submodule
+- Updated `.gitmodules` to point to `https://github.com/k-l-lambda/ome.git`
+- Ran `git submodule sync` to update configuration
+- Updated remote URL in the ome submodule directory
+- Successfully switched to forked repository
+
+#### 2. Created Bare-Metal Fix
+
+**Problem Identified:**
+The OME model-agent DaemonSet was crashing on bare-metal GPU nodes with error:
+```
+FATAL: Failed to initialize components: failed to create scout: couldn't find shape  in the shape mapping
+```
+
+**Root Cause:**
+- Model-agent expects `node.kubernetes.io/instance-type` label (cloud provider specific)
+- Bare-metal nodes don't have this label
+- When label is missing, scout initialization fails with empty instanceType
+
+**Solution Implemented:**
+
+Modified two files in `third_party/ome/`:
+
+1. **pkg/modelagent/scout.go** - Added fallback logic:
+```go
+// Try the newer label first, then fallback to the deprecated beta label
+instanceType, ok := nodeInfo.Labels[constants.NodeInstanceShapeLabel]
+if !ok {
+    instanceType = nodeInfo.Labels[constants.DeprecatedNodeInstanceShapeLabel]
+}
+
+// If no instance-type label exists (e.g., bare-metal nodes), use a default shape
+if instanceType == "" {
+    logger.Info("No instance-type label found on node, defaulting to 'bare-metal'")
+    instanceType = "bare-metal"
+}
+
+nodeShapeAlias, err := utils.GetInstanceTypeShortName(instanceType)
+```
+
+2. **pkg/utils/instance_type_util.go** - Handle empty string:
+```go
+func GetInstanceTypeShortName(currentInstanceType string) (string, error) {
+    // Handle empty instance type (bare-metal or missing label)
+    if currentInstanceType == "" {
+        return "bare-metal", nil
+    }
+
+    if shortName, ok := instanceTypeMap[currentInstanceType]; ok {
+        return shortName, nil
+    }
+    // Return the original instance type as a fallback for unknown shapes
+    return currentInstanceType, nil
+}
+```
+
+#### 3. Committed and Pushed Changes
+- Created branch `bare-metal-model-agent-fix`
+- Committed with message: "Fix model-agent for bare-metal nodes without instance-type labels"
+- Pushed to: https://github.com/k-l-lambda/ome/tree/bare-metal-model-agent-fix
+
+#### 4. Rebased to Main Branch
+- Fetched latest main branch
+- Rebased `bare-metal-model-agent-fix` onto `origin/main`
+- Force pushed rebased branch
+- Current commit: `39f1edf`
+
+#### 5. Build Attempts and Network Issues
+
+**Network Connectivity Problems:**
+- Direct Docker Hub access times out
+- Proxy at `172.17.0.1:1081` was inaccessible (listening only on `127.0.0.1:1081`)
+- Corrected proxy address to `127.0.0.1:1081` which works with curl
+- buildkitd configuration challenges prevented successful image build
+
+**Test Results:**
+```bash
+# Direct access - FAILS
+curl -v -m 10 https://registry-1.docker.io/v2/
+# Result: Connection timeout
+
+# Proxy access (corrected) - WORKS
+curl -v -m 10 -x http://127.0.0.1:1081 https://registry-1.docker.io/v2/
+# Result: 200 Connection established
+
+# buildkitd with proxy - Still fails
+# Proxy configuration not properly applied to buildkit daemon
+```
+
+### Current Status
+
+**Completed:**
+- ✅ OME submodule switched to forked repository
+- ✅ Bare-metal fix created and tested locally
+- ✅ Changes committed to branch `bare-metal-model-agent-fix`
+- ✅ Branch rebased onto main
+- ✅ Changes pushed to GitHub
+
+**Pending:**
+- ⏳ Build Docker image (blocked by network/proxy issues)
+- ⏳ Load image into cluster
+- ⏳ Update DaemonSet to use new image
+- ⏳ Verify model-agent pods start successfully
+
+### Next Steps
+
+**Option B (Recommended):** Build via GitHub Actions or CI/CD
+- Set up GitHub Actions workflow to build model-agent image
+- Use GitHub's infrastructure with better network access
+- Push built image to accessible container registry
+- Deploy to cluster from that registry
+
+### Files Modified
+
+1. `third_party/ome/pkg/modelagent/scout.go` - Scout initialization with bare-metal fallback
+2. `third_party/ome/pkg/utils/instance_type_util.go` - Instance type mapping with empty string handling
+3. `.gitmodules` - Updated OME submodule URL
+
+### Technical Details
+
+**Branch:** `bare-metal-model-agent-fix`
+**Repository:** https://github.com/k-l-lambda/ome
+**Commit:** 39f1edf
+**Based on:** main branch (ea13090)
+
+</details>
+
+
+---
+
+> Build model-agent Docker image with bare-metal fix via GitHub Actions
+
+<details>
+<summary>GitHub Actions workflow setup and build trigger</summary>
+
+### Problem
+
+After fixing the model-agent code for bare-metal node support, we needed to build the Docker image. Local build attempts failed due to:
+- Network connectivity issues accessing Docker Hub
+- Proxy configuration challenges with buildkitd
+- Complex multi-stage Dockerfile requiring Rust and Go toolchains
+
+### Solution: GitHub Actions Build
+
+**Strategy:** Use GitHub's infrastructure for building since it has reliable network access and proper tooling.
+
+#### 1. Created Custom Workflow
+
+Created `.github/workflows/build-feature-branch.yaml` with the following features:
+- **Manual trigger:** `workflow_dispatch` with branch parameter
+- **Builds model-agent** from specified branch
+- **Publishes to GHCR:** `ghcr.io/k-l-lambda/model-agent:<tag>`
+- **Platform:** `linux/amd64` only (faster than multi-arch)
+- **Uses caching:** GitHub Actions cache for faster rebuilds
+
+**Key Configuration:**
+```yaml
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to build'
+        required: true
+        type: string
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: k-l-lambda/model-agent
+  GO_VERSION: '1.24.1'
+```
+
+**Build Steps:**
+1. Checkout specified branch
+2. Setup Go 1.24.1
+3. Setup Docker Buildx
+4. Login to GitHub Container Registry (using `GITHUB_TOKEN`)
+5. Build and push image with tag: `<branch-name>-<short-sha>`
+
+#### 2. Workflow Deployment Process
+
+**Initial Attempt:** Created workflow on feature branch - didn't work because GitHub only recognizes workflows from the default branch (main).
+
+**Solution:**
+```bash
+# Switch to main branch
+git checkout main
+git pull origin main
+
+# Cherry-pick workflow commit from feature branch
+git cherry-pick a4d50f1
+
+# Push to main
+git push origin main
+```
+
+**Result:** Workflow now available at `https://github.com/k-l-lambda/ome/actions/workflows/build-feature-branch.yaml`
+
+#### 3. Triggering the Build
+
+Used GitHub API to trigger workflow:
+```bash
+GITHUB_TOKEN="<token>"
+curl -X POST \
+  -H "Accept: application/vnd.github+json" \
+  -H "Authorization: Bearer $GITHUB_TOKEN" \
+  -H "X-GitHub-Api-Version: 2022-11-28" \
+  "https://api.github.com/repos/k-l-lambda/ome/actions/workflows/build-feature-branch.yaml/dispatches" \
+  -d '{"ref":"main","inputs":{"branch":"bare-metal-model-agent-fix"}}'
+```
+
+**Response:** HTTP 204 (success) - workflow triggered successfully
+
+#### 4. Expected Output
+
+**Image Location:**
+```
+ghcr.io/k-l-lambda/model-agent:bare-metal-model-agent-fix-<short-sha>
+```
+
+**Build Time:** Approximately 5-10 minutes
+
+**Next Steps After Build Completes:**
+1. Pull image to cluster: `nerdctl pull ghcr.io/k-l-lambda/model-agent:<tag>`
+2. Find model-agent DaemonSet: `kubectl get daemonset -A | grep model-agent`
+3. Update DaemonSet image specification
+4. Restart model-agent pods
+5. Verify InferenceService deployment succeeds
+
+### Technical Notes
+
+**Why This Approach:**
+- ✅ Avoids local network connectivity issues
+- ✅ GitHub provides reliable infrastructure
+- ✅ Uses official GitHub Actions for Docker builds
+- ✅ Automatic authentication with GITHUB_TOKEN
+- ✅ Build caching speeds up subsequent builds
+
+**Workflow Features:**
+- Single platform build (`linux/amd64`) for speed
+- Uses Docker Buildx for modern build features
+- Leverages GitHub Actions cache for Go modules and Docker layers
+- Generates build summary with pull command
+
+### Files Created
+
+1. `.github/workflows/build-feature-branch.yaml` - Custom workflow for feature branch builds
+
+### Commits
+
+- **Feature branch:** `a4d50f1` - Added workflow to bare-metal-model-agent-fix branch
+- **Main branch:** `bcbe55b` - Cherry-picked workflow to main for GitHub recognition
+
+### Repository State
+
+**Branch:** `bare-metal-model-agent-fix` (commit: `39f1edf` + workflow commit)
+**Repository:** https://github.com/k-l-lambda/ome
+**Workflow:** https://github.com/k-l-lambda/ome/actions/workflows/build-feature-branch.yaml
+
+</details>
