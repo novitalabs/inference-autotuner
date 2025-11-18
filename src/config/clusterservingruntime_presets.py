@@ -47,16 +47,13 @@ CLUSTERSERVINGRUNTIME_PRESETS: Dict[str, Dict[str, Any]] = {
                     "name": "ome-container",
                     "image": "docker.io/lmsysorg/sglang:v0.4.8.post1-cu126",
                     "ports": [{"containerPort": 8080, "name": "http1", "protocol": "TCP"}],
-                    "command": ["/bin/bash", "-lc", "--"],
+                    "command": ["python3", "-m", "sglang.launch_server"],
                     "args": [
-                        "python3 -m sglang.launch_server \\\n"
-                        "--host=0.0.0.0 \\\n"
-                        "--port=8080 \\\n"
-                        "--enable-metrics \\\n"
-                        "--log-requests \\\n"
-                        '--model-path="$MODEL_PATH" \\\n'
-                        "--tp-size 1 \\\n"
-                        "--mem-frac=0.9\n"
+                        "--host=0.0.0.0",
+                        "--port=8080",
+                        "--model-path=$(MODEL_PATH)",
+                        "--tp-size=1",
+                        "--mem-frac=0.9"
                     ],
                     "volumeMounts": [{"mountPath": "/dev/shm", "name": "dshm"}],
                     "resources": {
@@ -125,16 +122,13 @@ CLUSTERSERVINGRUNTIME_PRESETS: Dict[str, Dict[str, Any]] = {
                     "name": "ome-container",
                     "image": "docker.io/lmsysorg/sglang:v0.4.8.post1-cu126",
                     "ports": [{"containerPort": 8080, "name": "http1", "protocol": "TCP"}],
-                    "command": ["/bin/bash", "-lc", "--"],
+                    "command": ["python3", "-m", "sglang.launch_server"],
                     "args": [
-                        "python3 -m sglang.launch_server \\\n"
-                        "--host=0.0.0.0 \\\n"
-                        "--port=8080 \\\n"
-                        "--enable-metrics \\\n"
-                        "--log-requests \\\n"
-                        '--model-path="$MODEL_PATH" \\\n'
-                        "--tp-size 4 \\\n"
-                        "--mem-frac=0.85\n"
+                        "--host=0.0.0.0",
+                        "--port=8080",
+                        "--model-path=$(MODEL_PATH)",
+                        "--tp-size=4",
+                        "--mem-frac=0.85"
                     ],
                     "volumeMounts": [{"mountPath": "/dev/shm", "name": "dshm"}],
                     "resources": {
@@ -205,18 +199,17 @@ CLUSTERSERVINGRUNTIME_PRESETS: Dict[str, Dict[str, Any]] = {
                     "name": "ome-container",
                     "image": "docker.io/vllm/vllm-openai:v0.9.0.1",
                     "ports": [{"containerPort": 8080, "name": "http1", "protocol": "TCP"}],
-                    "command": ["/bin/bash", "-lc", "--"],
+                    "command": ["python3", "-m", "vllm.entrypoints.openai.api_server"],
                     "args": [
-                        "python3 -m vllm.entrypoints.openai.api_server \\\n"
-                        "--port=8080 \\\n"
-                        '--model="$MODEL_PATH" \\\n'
-                        "--middleware=vllm.entrypoints.openai.middleware.log_opc_header \\\n"
-                        "--max-log-len=0 \\\n"
-                        "--served-model-name=vllm-model \\\n"
-                        "--tensor-parallel-size=1 \\\n"
-                        "--preemption-mode=swap \\\n"
-                        "--max-model-len=131072 \\\n"
-                        "--gpu-memory-utilization=0.90\n"
+                        "--port=8080",
+                        "--model=$(MODEL_PATH)",
+                        "--middleware=vllm.entrypoints.openai.middleware.log_opc_header",
+                        "--max-log-len=0",
+                        "--served-model-name=vllm-model",
+                        "--tensor-parallel-size=1",
+                        "--preemption-mode=swap",
+                        "--max-model-len=131072",
+                        "--gpu-memory-utilization=0.90"
                     ],
                     "volumeMounts": [{"mountPath": "/dev/shm", "name": "dshm"}],
                     "resources": {
@@ -286,18 +279,17 @@ CLUSTERSERVINGRUNTIME_PRESETS: Dict[str, Dict[str, Any]] = {
                     "name": "ome-container",
                     "image": "docker.io/vllm/vllm-openai:v0.9.0.1",
                     "ports": [{"containerPort": 8080, "name": "http1", "protocol": "TCP"}],
-                    "command": ["/bin/bash", "-lc", "--"],
+                    "command": ["python3", "-m", "vllm.entrypoints.openai.api_server"],
                     "args": [
-                        "python3 -m vllm.entrypoints.openai.api_server \\\n"
-                        "--port=8080 \\\n"
-                        '--model="$MODEL_PATH" \\\n'
-                        "--middleware=vllm.entrypoints.openai.middleware.log_opc_header \\\n"
-                        "--max-log-len=0 \\\n"
-                        "--served-model-name=vllm-model \\\n"
-                        "--tensor-parallel-size=4 \\\n"
-                        "--preemption-mode=swap \\\n"
-                        "--max-model-len=131072 \\\n"
-                        "--gpu-memory-utilization=0.85\n"
+                        "--port=8080",
+                        "--model=$(MODEL_PATH)",
+                        "--middleware=vllm.entrypoints.openai.middleware.log_opc_header",
+                        "--max-log-len=0",
+                        "--served-model-name=vllm-model",
+                        "--tensor-parallel-size=4",
+                        "--preemption-mode=swap",
+                        "--max-model-len=131072",
+                        "--gpu-memory-utilization=0.85"
                     ],
                     "volumeMounts": [{"mountPath": "/dev/shm", "name": "dshm"}],
                     "resources": {
@@ -367,16 +359,13 @@ CLUSTERSERVINGRUNTIME_PRESETS: Dict[str, Dict[str, Any]] = {
                     "name": "ome-container",
                     "image": "docker.io/lmsysorg/sglang:v0.4.8.post1-cu126",
                     "ports": [{"containerPort": 8080, "name": "http1", "protocol": "TCP"}],
-                    "command": ["/bin/bash", "-lc", "--"],
+                    "command": ["python3", "-m", "sglang.launch_server"],
                     "args": [
-                        "python3 -m sglang.launch_server \\\n"
-                        "--host=0.0.0.0 \\\n"
-                        "--port=8080 \\\n"
-                        "--enable-metrics \\\n"
-                        "--log-requests \\\n"
-                        '--model-path="$MODEL_PATH" \\\n'
-                        "--tp-size 2 \\\n"
-                        "--mem-frac=0.85\n"
+                        "--host=0.0.0.0",
+                        "--port=8080",
+                        "--model-path=$(MODEL_PATH)",
+                        "--tp-size=2",
+                        "--mem-frac=0.85"
                     ],
                     "volumeMounts": [{"mountPath": "/dev/shm", "name": "dshm"}],
                     "resources": {

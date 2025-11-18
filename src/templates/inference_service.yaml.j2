@@ -23,13 +23,9 @@ spec:
     minReplicas: 1
     maxReplicas: 1
     runner:
-      args:
-        - --tp-size={{ params['tp-size'] }}{% if params.get('mem-frac') %}
-        - --mem-frac={{ params['mem-frac'] }}{% endif %}{% if params.get('max-total-tokens') %}
-        - --max-total-tokens={{ params['max-total-tokens'] }}{% endif %}{% if params.get('schedule-policy') %}
-        - --schedule-policy={{ params['schedule-policy'] }}{% endif %}
+      name: ome-container
       resources:
         limits:
-          nvidia.com/gpu: {{ params['tp-size'] }}
+          nvidia.com/gpu: {{ params.get('tpsize', params.get('tp_size', params.get('tp-size', 1))) }}
         requests:
-          nvidia.com/gpu: {{ params['tp-size'] }}
+          nvidia.com/gpu: {{ params.get('tpsize', params.get('tp_size', params.get('tp-size', 1))) }}

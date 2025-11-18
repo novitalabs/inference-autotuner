@@ -30062,3 +30062,168 @@ ghcr.io/k-l-lambda/model-agent:bare-metal-model-agent-fix-<short-sha>
 **Workflow:** https://github.com/k-l-lambda/ome/actions/workflows/build-feature-branch.yaml
 
 </details>
+
+---
+
+## 2025-11-18: OME ClusterServingRuntime Args Fix & Model Storage Investigation
+
+> Re-run an ome task to test it.
+> 
+> Investigate ClusterServingRuntime, utilize the source code of ome. Build it if necessary.
+> 
+> Investigate how to store model weights by reading documents in ome project, there should be a common service for storage.
+
+<details>
+<summary>Fixed ClusterServingRuntime args configuration and investigated OME model storage architecture</summary>
+
+### Problem: ClusterServingRuntime Args Configuration
+
+The InferenceService pods were crashing with two issues:
+1. Invalid SGLang arguments (`--enable-metrics`, `--log-requests`)
+2. Args formatted with pipe characters (YAML literal block scalars)
+
+**Root Cause Investigation:**
+
+Examined the OME source code `/root/work/inference-autotuner/third_party/ome/pkg/controller/v1beta1/inferenceservice/utils/merging.go` and found the args merging behavior. The original ClusterServingRuntime presets used:
+```python
+"command": ["/bin/bash", "-lc", "--"],
+"args": [
+    "python3 -m sglang.launch_server \\\n"
+    "--host=0.0.0.0 \\\n"
+    "--enable-metrics \\\n"  # Invalid argument!
+    "--log-requests \\\n"    # Invalid argument!
+    ...
+]
+```
+
+**Solution Applied:**
+
+1. **Removed invalid arguments**: `--enable-metrics` and `--log-requests` are not valid SGLang arguments
+2. **Changed command/args format**: Switched from bash wrapper to direct Python command execution
+
+Updated all ClusterServingRuntime presets in `/root/work/inference-autotuner/src/config/clusterservingruntime_presets.py`:
+- SGLang small/large variants
+- vLLM small/large variants  
+- Mixtral MoE variant
+
+**After fix:**
+```python
+"command": ["python3", "-m", "sglang.launch_server"],
+"args": [
+    "--host=0.0.0.0",
+    "--port=8080",
+    "--model-path=$(MODEL_PATH)",
+    "--tp-size=1",
+    "--mem-frac=0.9"
+],
+```
+
+**Result:** Pod args now correctly formatted without pipe characters or invalid flags.
+
+### OME Model Storage Architecture Investigation
+
+Read OME documentation and source code to understand model weight storage:
+
+**Storage Backends Supported:**
+1. **OCI Object Storage**: Cloud storage (via ome-agent)
+2. **HuggingFace**: Direct HF Hub downloads (via ome-agent)
+3. **S3**: S3-compatible storage
+4. **PVC**: Kubernetes Persistent Volume Claims (OEP-0004 feature)
+5. **Host Path**: Local node storage at `/mnt/data/models`
+
+**Current Architecture (Host Path Storage):**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ Model Agent DaemonSet (runs on each node)                   │
+│ - Downloads models from OCI/HF/S3 to /mnt/data/models      │
+│ - Volume: hostPath /mnt/data/models                         │
+│ - Labels nodes where models are available                   │
+└─────────────────────────────────────────────────────────────┘
+                        │
+                        ▼
+┌─────────────────────────────────────────────────────────────┐
+│ ClusterBaseModel Resource                                    │
+│ spec:                                                         │
+│   storage:                                                    │
+│     storageUri: "hf://meta-llama/Llama-3.2-1B-Instruct"     │
+│     path: "/raid/models/meta/llama-3-2-1b-instruct"         │
+└─────────────────────────────────────────────────────────────┘
+                        │
+                        ▼
+┌─────────────────────────────────────────────────────────────┐
+│ InferenceService Pod                                         │
+│ - Mounts hostPath volume using storage.path                 │
+│ - Code: UpdatePodSpecVolumes() in base.go:                  │
+│   podSpec.Volumes = append(podSpec.Volumes, Volume{         │
+│     Name: baseModelName,                                     │
+│     VolumeSource: corev1.VolumeSource{                       │
+│       HostPath: &corev1.HostPathVolumeSource{               │
+│         Path: *baseModel.Storage.Path  // /raid/models/...  │
+│       }                                                       │
+│     }                                                         │
+│   })                                                          │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Key Code Location:**
+`/root/work/inference-autotuner/third_party/ome/pkg/controller/v1beta1/inferenceservice/components/base.go:262`
+```go
+func UpdatePodSpecVolumes(...) {
+    if b.BaseModel != nil && b.BaseModel.Storage != nil && b.BaseModel.Storage.Path != nil {
+        modelVolume := corev1.Volume{
+            Name: b.BaseModelMeta.Name,
+            VolumeSource: corev1.VolumeSource{
+                HostPath: &corev1.HostPathVolumeSource{
+                    Path: *b.BaseModel.Storage.Path,  // Uses storage.path directly!
+                },
+            },
+        }
+        podSpec.Volumes = append(podSpec.Volumes, modelVolume)
+    }
+}
+```
+
+**Current Issue Identified:**
+
+The pod is crashing with:
+```
+model_path='/raid/models/meta/llama-3-2-1b-instruct'
+TypeError: 'NoneType' object is not subscriptable
+```
+
+**Root Cause:** Path mismatch between ClusterBaseModel and actual node storage:
+- **ClusterBaseModel**: `storage.path: /raid/models/meta/llama-3-2-1b-instruct` 
+- **Model Agent DaemonSet**: Mounts `/mnt/data/models` (not `/raid/models`)
+- **InferenceService Pod**: Tries to mount hostPath `/raid/models/...` which doesn't exist!
+
+The model files exist at `/mnt/data/models/meta/llama-3-2-1b-instruct` on nodes, but the ClusterBaseModel spec points to `/raid/models/...`.
+
+**PVC Storage Support (OEP-0004):**
+
+Alternative approach for shared storage using PVCs:
+```yaml
+# ClusterBaseModel with PVC
+spec:
+  storage:
+    storageUri: "pvc://namespace:pvc-name/sub-path"
+```
+
+Benefits:
+- No host path required
+- Supports RWX (NFS) for multi-pod access
+- Supports RWO (block storage) for single-replica
+- Model agent skips PVC types
+- InferenceService directly mounts PVC
+
+**Documentation Read:**
+- `/root/work/inference-autotuner/third_party/ome/oeps/0004-pvc-storage-support/README.md`
+- `/root/work/inference-autotuner/third_party/ome/cmd/ome-agent/README.md`
+
+**Next Steps:**
+1. Fix the storage.path mismatch issue in ClusterBaseModel
+2. Either update ClusterBaseModel to use `/mnt/data/models` path
+3. Or investigate why the path is set to `/raid/models` instead of `/mnt/data/models`
+
+</details>
+

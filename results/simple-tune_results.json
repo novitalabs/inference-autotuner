@@ -3,7 +3,7 @@
   "strategy": "grid_search",
   "total_experiments": 1,
   "successful_experiments": 0,
-  "elapsed_time": 0.23274445533752441,
+  "elapsed_time": 1201.5864334106445,
   "best_result": null,
   "all_results": [
     {
@@ -14,7 +14,12 @@
       },
       "status": "failed",
       "metrics": null,
-      "container_logs": null
+      "container_logs": null,
+      "error_message": "InferenceService did not become ready in time",
+      "created_resources": {
+        "clusterbasemodel": "llama-3-2-1b-instruct",
+        "clusterservingruntime": "sglang-llama-small"
+      }
     }
   ]
 }
