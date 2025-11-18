@@ -43,6 +43,8 @@ async def create_task(task_data: TaskCreate, db: AsyncSession = Depends(get_db))
 		slo_config=task_data.slo,
 		quant_config=task_data.quant_config,
 		parallel_config=task_data.parallel_config,
+		clusterbasemodel_config=task_data.clusterbasemodel_config,
+		clusterservingruntime_config=task_data.clusterservingruntime_config,
 		deployment_mode=task_data.deployment_mode,
 		status=TaskStatus.PENDING,
 	)
@@ -152,6 +154,9 @@ async def replace_task(task_id: int, task_data: TaskCreate, db: AsyncSession = D
 	task.benchmark_config = task_data.benchmark
 	task.slo_config = task_data.slo
 	task.quant_config = task_data.quant_config
+	task.parallel_config = task_data.parallel_config
+	task.clusterbasemodel_config = task_data.clusterbasemodel_config
+	task.clusterservingruntime_config = task_data.clusterservingruntime_config
 	task.deployment_mode = task_data.deployment_mode
 
 	# Reset status to pending and clear timestamps when task is edited

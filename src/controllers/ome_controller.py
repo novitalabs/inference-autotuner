@@ -41,6 +41,10 @@ class OMEController(BaseModelController):
 		template_dir = Path(__file__).parent.parent / "templates"
 		with open(template_dir / "inference_service.yaml.j2") as f:
 			self.isvc_template = Template(f.read())
+		with open(template_dir / "clusterbasemodel.yaml.j2") as f:
+			self.cbm_template = Template(f.read())
+		with open(template_dir / "clusterservingruntime.yaml.j2") as f:
+			self.csr_template = Template(f.read())
 
 	def create_namespace(self, namespace: str) -> bool:
 		"""Create namespace if it doesn't exist.
@@ -98,7 +102,7 @@ class OMEController(BaseModelController):
 			experiment_id=experiment_id,
 			model_name=model_name,
 			runtime_name=runtime_name,
-			**parameters,
+			params=parameters,
 		)
 
 		# Parse YAML (contains namespace + InferenceService)
@@ -222,4 +226,194 @@ class OMEController(BaseModelController):
 			return isvc.get("status", {}).get("url")
 		except ApiException as e:
 			print(f"Error getting service URL: {e}")
+			return None
+
+	# ClusterBaseModel Management
+	def ensure_clusterbasemodel(
+		self,
+		name: str,
+		spec: Dict[str, Any],
+		labels: Optional[Dict[str, str]] = None,
+		annotations: Optional[Dict[str, str]] = None
+	) -> bool:
+		"""Ensure ClusterBaseModel exists, create if missing.
+
+		Args:
+		    name: ClusterBaseModel name
+		    spec: ClusterBaseModel specification
+		    labels: Optional labels to add
+		    annotations: Optional annotations to add
+
+		Returns:
+		    True if exists or created successfully, False otherwise
+		"""
+		try:
+			# Check if ClusterBaseModel already exists
+			self.custom_api.get_cluster_custom_object(
+				group="ome.io",
+				version="v1beta1",
+				plural="clusterbasemodels",
+				name=name
+			)
+			print(f"ClusterBaseModel '{name}' already exists")
+			return True
+		except ApiException as e:
+			if e.status == 404:
+				# Create ClusterBaseModel
+				return self._create_clusterbasemodel(name, spec, labels, annotations)
+			else:
+				print(f"Error checking ClusterBaseModel '{name}': {e}")
+				return False
+
+	def _create_clusterbasemodel(
+		self,
+		name: str,
+		spec: Dict[str, Any],
+		labels: Optional[Dict[str, str]] = None,
+		annotations: Optional[Dict[str, str]] = None
+	) -> bool:
+		"""Create ClusterBaseModel from spec.
+
+		Args:
+		    name: ClusterBaseModel name
+		    spec: ClusterBaseModel specification
+		    labels: Optional labels to add
+		    annotations: Optional annotations to add
+
+		Returns:
+		    True if created successfully, False otherwise
+		"""
+		try:
+			# Render template
+			rendered = self.cbm_template.render(
+				name=name,
+				spec=spec,
+				labels=labels or {},
+				annotations=annotations or {}
+			)
+
+			# Parse YAML and create resource
+			resource = yaml.safe_load(rendered)
+			self.custom_api.create_cluster_custom_object(
+				group="ome.io",
+				version="v1beta1",
+				plural="clusterbasemodels",
+				body=resource
+			)
+			print(f"Created ClusterBaseModel '{name}'")
+			return True
+		except ApiException as e:
+			print(f"Error creating ClusterBaseModel '{name}': {e}")
+			return False
+
+	def list_clusterbasemodels(self) -> Optional[Dict[str, Any]]:
+		"""List all ClusterBaseModels in the cluster.
+
+		Returns:
+		    List of ClusterBaseModels or None on error
+		"""
+		try:
+			result = self.custom_api.list_cluster_custom_object(
+				group="ome.io",
+				version="v1beta1",
+				plural="clusterbasemodels"
+			)
+			return result
+		except ApiException as e:
+			print(f"Error listing ClusterBaseModels: {e}")
+			return None
+
+	# ClusterServingRuntime Management
+	def ensure_clusterservingruntime(
+		self,
+		name: str,
+		spec: Dict[str, Any],
+		labels: Optional[Dict[str, str]] = None,
+		annotations: Optional[Dict[str, str]] = None
+	) -> bool:
+		"""Ensure ClusterServingRuntime exists, create if missing.
+
+		Args:
+		    name: ClusterServingRuntime name
+		    spec: ClusterServingRuntime specification
+		    labels: Optional labels to add
+		    annotations: Optional annotations to add
+
+		Returns:
+		    True if exists or created successfully, False otherwise
+		"""
+		try:
+			# Check if ClusterServingRuntime already exists
+			self.custom_api.get_cluster_custom_object(
+				group="ome.io",
+				version="v1beta1",
+				plural="clusterservingruntimes",
+				name=name
+			)
+			print(f"ClusterServingRuntime '{name}' already exists")
+			return True
+		except ApiException as e:
+			if e.status == 404:
+				# Create ClusterServingRuntime
+				return self._create_clusterservingruntime(name, spec, labels, annotations)
+			else:
+				print(f"Error checking ClusterServingRuntime '{name}': {e}")
+				return False
+
+	def _create_clusterservingruntime(
+		self,
+		name: str,
+		spec: Dict[str, Any],
+		labels: Optional[Dict[str, str]] = None,
+		annotations: Optional[Dict[str, str]] = None
+	) -> bool:
+		"""Create ClusterServingRuntime from spec.
+
+		Args:
+		    name: ClusterServingRuntime name
+		    spec: ClusterServingRuntime specification
+		    labels: Optional labels to add
+		    annotations: Optional annotations to add
+
+		Returns:
+		    True if created successfully, False otherwise
+		"""
+		try:
+			# Render template
+			rendered = self.csr_template.render(
+				name=name,
+				spec=spec,
+				labels=labels or {},
+				annotations=annotations or {}
+			)
+
+			# Parse YAML and create resource
+			resource = yaml.safe_load(rendered)
+			self.custom_api.create_cluster_custom_object(
+				group="ome.io",
+				version="v1beta1",
+				plural="clusterservingruntimes",
+				body=resource
+			)
+			print(f"Created ClusterServingRuntime '{name}'")
+			return True
+		except ApiException as e:
+			print(f"Error creating ClusterServingRuntime '{name}': {e}")
+			return False
+
+	def list_clusterservingruntimes(self) -> Optional[Dict[str, Any]]:
+		"""List all ClusterServingRuntimes in the cluster.
+
+		Returns:
+		    List of ClusterServingRuntimes or None on error
+		"""
+		try:
+			result = self.custom_api.list_cluster_custom_object(
+				group="ome.io",
+				version="v1beta1",
+				plural="clusterservingruntimes"
+			)
+			return result
+		except ApiException as e:
+			print(f"Error listing ClusterServingRuntimes: {e}")
 			return None

@@ -43,6 +43,12 @@ class Task(Base):
 	quant_config = Column(JSON, nullable=True)  # runtime quantization config (gemm_dtype, kvcache_dtype, attention_dtype, moe_dtype)
 	parallel_config = Column(JSON, nullable=True)  # parallel execution config (tp, pp, dp, cp, moe_tp, moe_ep)
 
+	# OME Resource Configuration (for auto-creation)
+	clusterbasemodel_config = Column(JSON, nullable=True)  # ClusterBaseModel preset or custom config
+	clusterservingruntime_config = Column(JSON, nullable=True)  # ClusterServingRuntime preset or custom config
+	created_clusterbasemodel = Column(String, nullable=True)  # Name of CBM if auto-created by task
+	created_clusterservingruntime = Column(String, nullable=True)  # Name of CSR if auto-created by task
+
 	# Deployment mode
 	deployment_mode = Column(String, default="docker")  # docker, ome
 

@@ -29638,3 +29638,153 @@ For very large parameter spaces (100+ experiments):
 
 </details>
 
+
+---
+
+
+## 2025/11/18
+
+> Fixed InferenceService template parameter issue and verified deployment
+
+<details>
+<summary>InferenceService Template Parameter Fix - Corrected params dictionary passing</summary>
+
+* *User*: Continue the ome task development, append ClusterBaseModel and ClusterServingRuntime for a new created task.
+
+* *Claude*: 
+  **Issue Discovered**: When testing task 9 (`ome-cbm-csr-verified`), the InferenceService was created but never became ready after 540+ seconds. Investigation revealed the InferenceService had empty parameter values (`--tp-size=` with no value), causing deployment failure.
+
+  **Root Cause Analysis**:
+  1. Template used `params['tp-size']` to access parameters
+  2. Controller passed parameters via `**parameters` unpacking (e.g., `tp_size=1`)
+  3. Result: Jinja2 error `'params' is undefined` on subsequent tasks
+
+  **Files Read**:
+  - `src/templates/inference_service.yaml.j2:27-35` - Template with bracket notation
+  - `src/config/clusterbasemodel_presets.py` - Model presets with metadata
+  - `src/templates/clusterbasemodel.yaml.j2` - CBM template structure
+  - Task logs showing deployment steps and timeout
+
+  **Fix Applied**:
+  Changed `src/controllers/ome_controller.py:105`:
+  ```python
+  # Before (incorrect):
+  rendered = self.isvc_template.render(..., **parameters)
+  
+  # After (correct):
+  rendered = self.isvc_template.render(..., params=parameters)
+  ```
+
+  **Verification**:
+  1. Created test script `/tmp/test_template.py` to validate template rendering
+  2. Confirmed correct output:
+     ```yaml
+     runner:
+       args:
+         - --tp-size=1  ← Has value (not empty!)
+       resources:
+         limits:
+           nvidia.com/gpu: 1
+     ```
+  3. Restarted ARQ worker to pick up changes
+  4. Created task 11 (`template-fix-verified`) and deployed successfully
+  5. Verified InferenceService YAML in cluster had correct parameter values
+
+  **Results**:
+  - ✅ Task 10 had failed with `'params' is undefined` error
+  - ✅ Task 11 successfully created InferenceService with proper parameters
+  - ✅ No template errors in deployment (Steps 0a, 0b, 1 completed)
+  - ✅ OME controller accepted and is reconciling the InferenceService
+
+  **OME Infrastructure Issue Discovered**:
+  While our template fix is working correctly, discovered separate infrastructure issue:
+  - `ome-model-agent-daemonset` is crashing with: `"couldn't find shape in the shape mapping"`
+  - Root cause: Missing `ome.io/shape` label on GPU nodes
+  - Attempted fixes: Added labels `h20.8` and `VM.GPU.A10.1` but model-agent still fails
+  - Impact: InferenceService cannot start pods without functional model-agent
+  - This is an OME operational issue, not related to autotuner code
+
+  **Summary**:
+  - Template parameter fix: **VERIFIED AND WORKING**
+  - InferenceService creation: **SUCCESS**
+  - Pod scheduling: **BLOCKED** by OME model-agent infrastructure issue
+  - Next step: Fix OME model-agent shape configuration (separate from autotuner)
+
+</details>
+
+---
+
+> Investigate and fix OME model-agent shape mapping issue
+
+<details>
+<summary>OME Model-Agent Troubleshooting - Shape label configuration</summary>
+
+* *User*: Check why the InferenceService not ready for 300+s.
+
+* *Claude*:
+  **Investigation**:
+  Task 9 showed InferenceService waiting for ready status beyond 540 seconds. Checked the deployed YAML and found empty parameter values, leading to discovery of template bug (fixed above).
+
+* *User*: Check issues of the model-agent, run a simple test for it.
+
+* *Claude*:
+  **Model-Agent Issue Analysis**:
+  
+  **Error Observed**:
+  ```
+  FATAL: Failed to initialize components: failed to create scout: 
+  couldn't find shape  in the shape mapping
+  ```
+  
+  **Investigation Steps**:
+  1. Checked OME pods: `ome-model-agent-daemonset` in CrashLoopBackOff on all GPU nodes
+  2. Examined logs: All pods fail with identical shape mapping error
+  3. Checked GPU hardware: 4 nodes with 8x NVIDIA H20 GPUs each (97GB memory)
+  4. Verified node labels: **No nodes had `ome.io/shape` label**
+  
+  **Test Attempts**:
+  ```bash
+  # Test 1: Add H20-based shape label
+  kubectl label node host-10-97-65-155 ome.io/shape=h20.8 --overwrite
+  kubectl delete pod -n ome ome-model-agent-daemonset-7b5fc
+  # Result: Still crashes with same error
+  
+  # Test 2: Try standard cloud GPU shape name
+  kubectl label node host-10-97-65-155 ome.io/shape=VM.GPU.A10.1 --overwrite
+  kubectl delete pod -n ome ome-model-agent-daemonset-rcjkw
+  # Result: Still crashes with same error
+  ```
+  
+  **Root Cause**:
+  The error message shows empty shape value ("couldn't find shape  in the shape mapping"), suggesting:
+  1. Model-agent not reading node labels properly, OR
+  2. Timing issue where label isn't available at pod start, OR
+  3. Hardcoded shape mapping doesn't include any valid values for this environment
+  
+  **Configuration Examined**:
+  - ConfigMaps: No shape mapping configuration found
+  - Model-agent DaemonSet: Only mounts `/mnt/data/models`, no config volumes
+  - InferenceService config: Contains various settings but no shape definitions
+  - Environment: Model-agent uses `NODE_NAME` env var for node identification
+  
+  **Impact**:
+  - InferenceService `template-fix-verified-exp1` created successfully ✅
+  - But pods cannot be scheduled due to model-agent not running ❌
+  - This blocks all OME InferenceService deployments
+  
+  **Conclusion**:
+  - Template fix verified: InferenceService deploys with correct parameters ✅
+  - OME infrastructure issue: Model-agent requires proper shape configuration ❌
+  - Next step: Examine OME source code to understand shape mapping implementation
+
+* *User*: Learn source code from /root/work/inference-autotuner/third_party/ome, modify ome code and build it if necessary.
+
+* *Claude*:
+  **Status**: Beginning investigation of OME source code to understand and fix shape mapping issue.
+  
+  **Source Location**: `/root/work/inference-autotuner/third_party/ome/`
+  - Model-agent main: `cmd/model-agent/main.go`
+  - Need to find shape mapping logic and fix or bypass the requirement
+
+</details>
+

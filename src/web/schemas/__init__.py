@@ -51,6 +51,8 @@ class TaskCreate(BaseModel):
 	slo: Optional[Dict[str, Any]] = Field(None, description="SLO configuration")
 	quant_config: Optional[Dict[str, Any]] = Field(None, description="Quantization configuration")
 	parallel_config: Optional[Dict[str, Any]] = Field(None, description="Parallel execution configuration")
+	clusterbasemodel_config: Optional[Dict[str, Any]] = Field(None, description="ClusterBaseModel preset or custom config (OME mode)")
+	clusterservingruntime_config: Optional[Dict[str, Any]] = Field(None, description="ClusterServingRuntime preset or custom config (OME mode)")
 	deployment_mode: str = Field("docker", description="Deployment mode")
 
 
@@ -79,6 +81,10 @@ class TaskResponse(BaseModel):
 	slo: Optional[Dict[str, Any]] = Field(None, alias="slo_config", serialization_alias="slo")
 	quant_config: Optional[Dict[str, Any]] = None
 	parallel_config: Optional[Dict[str, Any]] = None
+	clusterbasemodel_config: Optional[Dict[str, Any]] = None
+	clusterservingruntime_config: Optional[Dict[str, Any]] = None
+	created_clusterbasemodel: Optional[str] = None
+	created_clusterservingruntime: Optional[str] = None
 	deployment_mode: str
 	total_experiments: int
 	successful_experiments: int

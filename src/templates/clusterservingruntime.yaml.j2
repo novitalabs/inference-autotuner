@@ -1,0 +1,246 @@
+apiVersion: ome.io/v1beta1
+kind: ClusterServingRuntime
+metadata:
+  name: {{ name }}
+  {% if labels %}
+  labels:
+    {% for key, value in labels.items() %}
+    {{ key }}: "{{ value }}"
+    {% endfor %}
+  {% endif %}
+  {% if annotations %}
+  annotations:
+    {% for key, value in annotations.items() %}
+    {{ key }}: "{{ value }}"
+    {% endfor %}
+  {% endif %}
+spec:
+  disabled: {{ spec.disabled | lower }}
+  supportedModelFormats:
+    {% for format in spec.supportedModelFormats %}
+    - modelFramework:
+        name: {{ format.modelFramework.name }}
+        version: "{{ format.modelFramework.version }}"
+      modelFormat:
+        name: {{ format.modelFormat.name }}
+        version: "{{ format.modelFormat.version }}"
+      modelArchitecture: {{ format.modelArchitecture }}
+      autoSelect: {{ format.autoSelect | lower }}
+      priority: {{ format.priority }}
+      {% if format.get('version') %}
+      version: "{{ format.version }}"
+      {% endif %}
+    {% endfor %}
+  protocolVersions:
+    {% for protocol in spec.protocolVersions %}
+    - {{ protocol }}
+    {% endfor %}
+  {% if spec.get('modelSizeRange') %}
+  modelSizeRange:
+    min: {{ spec.modelSizeRange.min }}
+    max: {{ spec.modelSizeRange.max }}
+  {% endif %}
+  engineConfig:
+    {% if spec.engineConfig.get('annotations') %}
+    annotations:
+      {% for key, value in spec.engineConfig.annotations.items() %}
+      {{ key }}: "{{ value }}"
+      {% endfor %}
+    {% endif %}
+    {% if spec.engineConfig.get('labels') %}
+    labels:
+      {% for key, value in spec.engineConfig.labels.items() %}
+      {{ key }}: {{ value }}
+      {% endfor %}
+    {% endif %}
+    {% if spec.engineConfig.get('tolerations') %}
+    tolerations:
+      {% for toleration in spec.engineConfig.tolerations %}
+      - key: "{{ toleration.key }}"
+        operator: "{{ toleration.operator }}"
+        effect: "{{ toleration.effect }}"
+        {% if toleration.get('value') %}
+        value: "{{ toleration.value }}"
+        {% endif %}
+      {% endfor %}
+    {% endif %}
+    {% if spec.engineConfig.get('volumes') %}
+    volumes:
+      {% for volume in spec.engineConfig.volumes %}
+      - name: {{ volume.name }}
+        {% if volume.get('emptyDir') %}
+        emptyDir:
+          {% if volume.emptyDir.get('medium') %}
+          medium: {{ volume.emptyDir.medium }}
+          {% endif %}
+          {% if volume.emptyDir.get('sizeLimit') %}
+          sizeLimit: {{ volume.emptyDir.sizeLimit }}
+          {% endif %}
+        {% endif %}
+        {% if volume.get('hostPath') %}
+        hostPath:
+          path: {{ volume.hostPath.path }}
+          {% if volume.hostPath.get('type') %}
+          type: {{ volume.hostPath.type }}
+          {% endif %}
+        {% endif %}
+      {% endfor %}
+    {% endif %}
+    runner:
+      name: {{ spec.engineConfig.runner.name }}
+      image: {{ spec.engineConfig.runner.image }}
+      {% if spec.engineConfig.runner.get('ports') %}
+      ports:
+        {% for port in spec.engineConfig.runner.ports %}
+        - containerPort: {{ port.containerPort }}
+          name: {{ port.name }}
+          protocol: {{ port.protocol }}
+        {% endfor %}
+      {% endif %}
+      {% if spec.engineConfig.runner.get('command') %}
+      command:
+        {% for cmd in spec.engineConfig.runner.command %}
+        - {{ cmd }}
+        {% endfor %}
+      {% endif %}
+      {% if spec.engineConfig.runner.get('args') %}
+      args:
+        {% for arg in spec.engineConfig.runner.args %}
+        - |
+          {{ arg | indent(10) }}
+        {% endfor %}
+      {% endif %}
+      {% if spec.engineConfig.runner.get('volumeMounts') %}
+      volumeMounts:
+        {% for mount in spec.engineConfig.runner.volumeMounts %}
+        - mountPath: {{ mount.mountPath }}
+          name: {{ mount.name }}
+          {% if mount.get('readOnly') %}
+          readOnly: {{ mount.readOnly | lower }}
+          {% endif %}
+        {% endfor %}
+      {% endif %}
+      {% if spec.engineConfig.runner.get('env') %}
+      env:
+        {% for env_var in spec.engineConfig.runner.env %}
+        - name: {{ env_var.name }}
+          {% if env_var.get('value') %}
+          value: "{{ env_var.value }}"
+          {% endif %}
+          {% if env_var.get('valueFrom') %}
+          valueFrom:
+            {% if env_var.valueFrom.get('fieldRef') %}
+            fieldRef:
+              fieldPath: {{ env_var.valueFrom.fieldRef.fieldPath }}
+            {% endif %}
+            {% if env_var.valueFrom.get('configMapKeyRef') %}
+            configMapKeyRef:
+              name: {{ env_var.valueFrom.configMapKeyRef.name }}
+              key: {{ env_var.valueFrom.configMapKeyRef.key }}
+            {% endif %}
+            {% if env_var.valueFrom.get('secretKeyRef') %}
+            secretKeyRef:
+              name: {{ env_var.valueFrom.secretKeyRef.name }}
+              key: {{ env_var.valueFrom.secretKeyRef.key }}
+            {% endif %}
+          {% endif %}
+        {% endfor %}
+      {% endif %}
+      resources:
+        requests:
+          {% for key, value in spec.engineConfig.runner.resources.requests.items() %}
+          {{ key }}: {{ value }}
+          {% endfor %}
+        limits:
+          {% for key, value in spec.engineConfig.runner.resources.limits.items() %}
+          {{ key }}: {{ value }}
+          {% endfor %}
+      {% if spec.engineConfig.runner.get('readinessProbe') %}
+      readinessProbe:
+        {% if spec.engineConfig.runner.readinessProbe.get('httpGet') %}
+        httpGet:
+          path: {{ spec.engineConfig.runner.readinessProbe.httpGet.path }}
+          port: {{ spec.engineConfig.runner.readinessProbe.httpGet.port }}
+        {% endif %}
+        failureThreshold: {{ spec.engineConfig.runner.readinessProbe.failureThreshold }}
+        successThreshold: {{ spec.engineConfig.runner.readinessProbe.successThreshold }}
+        periodSeconds: {{ spec.engineConfig.runner.readinessProbe.periodSeconds }}
+        timeoutSeconds: {{ spec.engineConfig.runner.readinessProbe.timeoutSeconds }}
+      {% endif %}
+      {% if spec.engineConfig.runner.get('livenessProbe') %}
+      livenessProbe:
+        {% if spec.engineConfig.runner.livenessProbe.get('httpGet') %}
+        httpGet:
+          path: {{ spec.engineConfig.runner.livenessProbe.httpGet.path }}
+          port: {{ spec.engineConfig.runner.livenessProbe.httpGet.port }}
+        {% endif %}
+        failureThreshold: {{ spec.engineConfig.runner.livenessProbe.failureThreshold }}
+        successThreshold: {{ spec.engineConfig.runner.livenessProbe.successThreshold }}
+        periodSeconds: {{ spec.engineConfig.runner.livenessProbe.periodSeconds }}
+        timeoutSeconds: {{ spec.engineConfig.runner.livenessProbe.timeoutSeconds }}
+      {% endif %}
+      {% if spec.engineConfig.runner.get('startupProbe') %}
+      startupProbe:
+        {% if spec.engineConfig.runner.startupProbe.get('httpGet') %}
+        httpGet:
+          path: {{ spec.engineConfig.runner.startupProbe.httpGet.path }}
+          port: {{ spec.engineConfig.runner.startupProbe.httpGet.port }}
+        {% endif %}
+        failureThreshold: {{ spec.engineConfig.runner.startupProbe.failureThreshold }}
+        successThreshold: {{ spec.engineConfig.runner.startupProbe.successThreshold }}
+        periodSeconds: {{ spec.engineConfig.runner.startupProbe.periodSeconds }}
+        {% if spec.engineConfig.runner.startupProbe.get('initialDelaySeconds') %}
+        initialDelaySeconds: {{ spec.engineConfig.runner.startupProbe.initialDelaySeconds }}
+        {% endif %}
+        timeoutSeconds: {{ spec.engineConfig.runner.startupProbe.timeoutSeconds }}
+      {% endif %}
+  {% if spec.get('routerConfig') %}
+  routerConfig:
+    runner:
+      name: {{ spec.routerConfig.runner.name }}
+      image: {{ spec.routerConfig.runner.image }}
+      {% if spec.routerConfig.runner.get('resources') %}
+      resources:
+        {% if spec.routerConfig.runner.resources.get('requests') %}
+        requests:
+          {% for key, value in spec.routerConfig.runner.resources.requests.items() %}
+          {{ key }}: {{ value }}
+          {% endfor %}
+        {% endif %}
+        {% if spec.routerConfig.runner.resources.get('limits') %}
+        limits:
+          {% for key, value in spec.routerConfig.runner.resources.limits.items() %}
+          {{ key }}: {{ value }}
+          {% endfor %}
+        {% endif %}
+      {% endif %}
+      {% if spec.routerConfig.runner.get('ports') %}
+      ports:
+        {% for port in spec.routerConfig.runner.ports %}
+        - containerPort: {{ port.containerPort }}
+          name: {{ port.name }}
+        {% endfor %}
+      {% endif %}
+      {% if spec.routerConfig.runner.get('command') %}
+      command:
+        {% for cmd in spec.routerConfig.runner.command %}
+        - {{ cmd }}
+        {% endfor %}
+      {% endif %}
+      {% if spec.routerConfig.runner.get('env') %}
+      env:
+        {% for env_var in spec.routerConfig.runner.env %}
+        - name: {{ env_var.name }}
+          {% if env_var.get('value') %}
+          value: "{{ env_var.value }}"
+          {% endif %}
+          {% if env_var.get('valueFrom') %}
+          valueFrom:
+            {% if env_var.valueFrom.get('fieldRef') %}
+            fieldRef:
+              fieldPath: {{ env_var.valueFrom.fieldRef.fieldPath }}
+            {% endif %}
+          {% endif %}
+        {% endfor %}
+      {% endif %}
+  {% endif %}

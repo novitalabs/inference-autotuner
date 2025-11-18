@@ -1,8 +1,9 @@
 {
   "task_name": "simple-tune",
+  "strategy": "grid_search",
   "total_experiments": 1,
   "successful_experiments": 0,
-  "elapsed_time": 1201.5149824619293,
+  "elapsed_time": 0.23274445533752441,
   "best_result": null,
   "all_results": [
     {
@@ -12,7 +13,8 @@
         "mem_frac": 0.8
       },
       "status": "failed",
-      "metrics": null
+      "metrics": null,
+      "container_logs": null
     }
   ]
 }
