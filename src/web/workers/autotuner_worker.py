@@ -268,7 +268,7 @@ async def run_autotuning_task(ctx: Dict[str, Any], task_id: int) -> Dict[str, An
 			optimization_config = task.optimization_config or {}
 			strategy_name = optimization_config.get("strategy", "grid_search")
 			max_iterations = optimization_config.get("max_iterations", 100)
-			timeout_per_iteration = optimization_config.get("timeout_per_iteration", 600)  # Default 10 minutes
+			timeout_per_iteration = optimization_config.get("timeout_per_iteration", 1800)  # Default 30 minutes
 
 			logger.info(f"[ARQ Worker] Optimization strategy: {strategy_name}")
 			logger.info(f"[ARQ Worker] Max iterations: {max_iterations}")
@@ -573,6 +573,19 @@ async def run_autotuning_task(ctx: Dict[str, Any], task_id: int) -> Dict[str, An
 
 					# Experiment timed out
 					logger.error(f"[Experiment {iteration}] Timed out after {timeout_per_iteration}s")
+
+					# CRITICAL: Force cleanup of stalled container
+					task_name = task.task_name
+					namespace = task.model_config.get("namespace", "default")
+					service_id = f"{task_name}-exp{iteration}"
+					logger.info(f"[Cleanup] Forcing cleanup of service '{service_id}' after timeout")
+					try:
+						loop = asyncio.get_event_loop()
+						await loop.run_in_executor(None, orchestrator.cleanup_experiment, service_id, None, namespace, iteration)
+						logger.info(f"[Cleanup] Successfully cleaned up service '{service_id}'")
+					except Exception as cleanup_error:
+						logger.error(f"[Cleanup] Failed to cleanup service: {cleanup_error}")
+
 					db_experiment.status = ExperimentStatus.FAILED
 					db_experiment.error_message = f"Experiment timed out after {timeout_per_iteration} seconds"
 					db_experiment.completed_at = datetime.utcnow()

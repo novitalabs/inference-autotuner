@@ -29753,3 +29753,78 @@ cd frontend && npm run dev
 ```
 
 </details>
+
+---
+
+> Extend timeout for an experiment to 1800s, and start new experiment after stop previous container.
+
+<details>
+<summary>Extended timeout to 1800s and added explicit container cleanup on timeout</summary>
+
+**User Request**: Increase experiment timeout to 1800 seconds (30 minutes) and ensure containers are stopped before starting the next experiment.
+
+**Root Cause Analysis from Task 25**:
+- Experiment 1 timed out after 600 seconds during benchmarking
+- The benchmark was running with 6 concurrency levels and large token counts (3000 input + 300 output)
+- After timeout, experiments 2-10 failed with "0 GPUs available"
+- **Issue**: When timeout occurred, the container from experiment 1 wasn't properly cleaned up, causing GPU allocation to fail for subsequent experiments
+
+**Changes Made**:
+
+1. **Extended Default Timeout** (`src/web/workers/autotuner_worker.py:271`):
+   ```python
+   # Before:
+   timeout_per_iteration = optimization_config.get("timeout_per_iteration", 600)  # Default 10 minutes
+   
+   # After:
+   timeout_per_iteration = optimization_config.get("timeout_per_iteration", 1800)  # Default 30 minutes
+   ```
+
+2. **Added Explicit Container Cleanup on Timeout** (`src/web/workers/autotuner_worker.py:577-587`):
+   ```python
+   # After timeout error:
+   # CRITICAL: Force cleanup of stalled container
+   task_name = task.task_name
+   namespace = task.model_config.get("namespace", "default")
+   service_id = f"{task_name}-exp{iteration}"
+   logger.info(f"[Cleanup] Forcing cleanup of service '{service_id}' after timeout")
+   try:
+       loop = asyncio.get_event_loop()
+       await loop.run_in_executor(None, orchestrator.cleanup_experiment, service_id, None, namespace, iteration)
+       logger.info(f"[Cleanup] Successfully cleaned up service '{service_id}'")
+   except Exception as cleanup_error:
+       logger.error(f"[Cleanup] Failed to cleanup service: {cleanup_error}")
+   ```
+
+**How It Works**:
+- When `asyncio.TimeoutError` is raised, the code now explicitly calls `orchestrator.cleanup_experiment()`
+- This ensures the container is stopped and removed before moving to the next experiment
+- GPUs are released back to the pool, making them available for subsequent experiments
+- The cleanup runs synchronously in an executor to ensure it completes before continuing
+
+**Benefits**:
+1. **Longer timeout** accommodates:
+   - Large model initialization (~3-5 minutes)
+   - Multiple concurrency levels
+   - Large token counts (3000+ input tokens)
+   - Complex benchmarks with 50+ requests per level
+
+2. **Guaranteed cleanup** ensures:
+   - Containers are always stopped after timeout
+   - GPUs are released for next experiment
+   - No resource leaks
+   - Subsequent experiments can proceed
+
+**Testing**:
+- Restarted ARQ worker to load changes
+- Worker process confirmed running (PID: 4119671)
+
+**Files Modified**:
+- `src/web/workers/autotuner_worker.py` (2 changes)
+
+**Next Steps for Users**:
+- Default timeout is now 30 minutes
+- Can still override per-task: `"optimization": {"timeout_per_iteration": 3600}`
+- For very large models or benchmarks, consider 60+ minutes
+
+</details>
