@@ -1,5 +1,5 @@
 name: Build OME Controller with PVC Support
-# Force trigger: debian:bookworm-slim for glibc 2.38 + OpenSSL 3.x
+# Force trigger: bookworm-slim with adduser (glibc 2.38 + OpenSSL 3.x)
 
 on:
   # Allow manual trigger from GitHub UI
