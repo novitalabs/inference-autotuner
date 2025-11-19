@@ -1,0 +1,98 @@
+name: Build OME Controller with PVC Support
+
+on:
+  # Allow manual trigger from GitHub UI
+  workflow_dispatch:
+    inputs:
+      registry:
+        description: 'Container registry (e.g., ghcr.io/username)'
+        required: true
+        default: 'ghcr.io/moirai-internal'
+      tag:
+        description: 'Image tag'
+        required: true
+        default: 'pvc-support'
+  # Trigger on push to feature/ome branch
+  push:
+    branches:
+      - feature/ome
+    paths:
+      - 'third_party/ome/**'
+      - '.github/workflows/build-ome-pvc.yml'
+
+env:
+  # Use workflow inputs or defaults
+  REGISTRY: ${{ github.event.inputs.registry || 'ghcr.io/moirai-internal' }}
+  IMAGE_TAG: ${{ github.event.inputs.tag || 'pvc-support' }}
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0  # Full history for git describe
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        run: |
+          cd third_party/ome
+          GIT_TAG=$(git describe --tags --dirty --always)
+          GIT_COMMIT=$(git rev-parse HEAD)
+          echo "git_tag=${GIT_TAG}" >> $GITHUB_OUTPUT
+          echo "git_commit=${GIT_COMMIT}" >> $GITHUB_OUTPUT
+          echo "image_name=${REGISTRY}/ome-manager:${IMAGE_TAG}" >> $GITHUB_OUTPUT
+          echo "📦 Building image: ${REGISTRY}/ome-manager:${IMAGE_TAG}"
+          echo "🏷️  Git tag: ${GIT_TAG}"
+          echo "🔖 Git commit: ${GIT_COMMIT}"
+
+      - name: Build and push OME manager image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./third_party/ome
+          file: ./third_party/ome/dockerfiles/manager.Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.image_name }}
+          build-args: |
+            VERSION=${{ steps.meta.outputs.git_tag }}
+            GIT_TAG=${{ steps.meta.outputs.git_tag }}
+            GIT_COMMIT=${{ steps.meta.outputs.git_commit }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Image digest
+        run: |
+          echo "✅ Image built and pushed successfully!"
+          echo "📦 Image: ${{ steps.meta.outputs.image_name }}"
+          echo ""
+          echo "To deploy this image to your cluster, run:"
+          echo ""
+          echo "  kubectl set image deployment/ome-controller-manager \\"
+          echo "    -n ome \\"
+          echo "    manager=${{ steps.meta.outputs.image_name }}"
+          echo ""
+          echo "  kubectl rollout restart deployment/ome-controller-manager -n ome"
+          echo ""
+          echo "Or scale down and test locally:"
+          echo ""
+          echo "  kubectl scale deployment ome-controller-manager -n ome --replicas=0"
+          echo "  docker run --rm -it -v ~/.kube/config:/config \\"
+          echo "    ${{ steps.meta.outputs.image_name }} \\"
+          echo "    --kubeconfig /config"

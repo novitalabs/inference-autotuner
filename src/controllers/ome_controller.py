@@ -78,6 +78,7 @@ class OMEController(BaseModelController):
 		model_name: str,
 		runtime_name: str,
 		parameters: Dict[str, Any],
+		storage: Optional[Dict[str, Any]] = None,
 	) -> Optional[str]:
 		"""Deploy an InferenceService with specified parameters.
 
@@ -88,6 +89,13 @@ class OMEController(BaseModelController):
 		    model_name: Model name
 		    runtime_name: ServingRuntime name
 		    parameters: SGLang parameters (tp_size, mem_frac, etc.)
+		    storage: Optional storage configuration for PVC support
+		             {
+		                 'type': 'pvc',
+		                 'pvc_name': 'model-storage-pvc',
+		                 'pvc_subpath': 'meta/llama-3-2-1b-instruct',
+		                 'mount_path': '/raid/models/meta/llama-3-2-1b-instruct'
+		             }
 
 		Returns:
 		    InferenceService name if successful, None otherwise
@@ -103,6 +111,7 @@ class OMEController(BaseModelController):
 			model_name=model_name,
 			runtime_name=runtime_name,
 			params=parameters,
+			storage=storage,
 		)
 
 		# Parse YAML (contains namespace + InferenceService)

@@ -1,0 +1,35 @@
+{
+  "task_name": "pvc-test",
+  "model": {
+    "id_or_path": "llama-3-2-1b-instruct",
+    "namespace": "autotuner"
+  },
+  "storage": {
+    "type": "pvc",
+    "pvc_name": "model-storage-pvc",
+    "pvc_subpath": "meta/llama-3-2-1b-instruct",
+    "mount_path": "/raid/models/meta/llama-3-2-1b-instruct"
+  },
+  "base_runtime": "sglang",
+  "runtime_image_tag": "v0.4.8.post1-cu126",
+  "parameters": {
+    "tp-size": [1],
+    "mem-fraction-static": [0.9]
+  },
+  "optimization": {
+    "strategy": "grid_search",
+    "objective": "minimize_latency",
+    "max_iterations": 1,
+    "timeout_per_iteration": 600
+  },
+  "benchmark": {
+    "task": "text-to-text",
+    "model_name": "Llama-3.2-1B-Instruct",
+    "model_tokenizer": "meta-llama/Llama-3.2-1B-Instruct",
+    "traffic_scenarios": ["D(100,100)"],
+    "num_concurrency": [1],
+    "additional_params": {
+      "temperature": 0.0
+    }
+  }
+}

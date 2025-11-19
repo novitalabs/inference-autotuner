@@ -12,6 +12,17 @@ metadata:
   labels:
     autotuner.io/task: "{{ task_name }}"
     autotuner.io/experiment-id: "{{ experiment_id }}"
+  annotations:
+    {% if storage and storage.type == 'pvc' %}
+    ome.io/storage-type: "pvc"
+    ome.io/pvc-name: "{{ storage.pvc_name }}"
+    {% if storage.pvc_subpath %}
+    ome.io/pvc-subpath: "{{ storage.pvc_subpath }}"
+    {% endif %}
+    {% if storage.mount_path %}
+    ome.io/mount-path: "{{ storage.mount_path }}"
+    {% endif %}
+    {% endif %}
 spec:
   model:
     name: {{ model_name }}

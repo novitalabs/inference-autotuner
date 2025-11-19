@@ -182,6 +182,9 @@ class AutotunerOrchestrator:
 		# Step 1: Deploy InferenceService
 		print(f"[Step 1/4] Deploying InferenceService...")
 
+		# Extract storage configuration if present (for PVC support)
+		storage_config = task.get("storage")
+
 		# Pass image_tag if deploying with DockerController
 		if hasattr(self.model_controller, "client"):  # DockerController has 'client' attribute
 			isvc_name = self.model_controller.deploy_inference_service(
@@ -193,7 +196,7 @@ class AutotunerOrchestrator:
 				parameters=runtime_parameters,  # Use converted parameters
 				image_tag=image_tag,
 			)
-		else:  # OMEController doesn't support image_tag yet
+		else:  # OMEController
 			isvc_name = self.model_controller.deploy_inference_service(
 				task_name=task_name,
 				experiment_id=experiment_id,
@@ -201,6 +204,7 @@ class AutotunerOrchestrator:
 				model_name=model_name,
 				runtime_name=runtime_name,
 				parameters=runtime_parameters,  # Use converted parameters
+				storage=storage_config,  # Pass storage config for PVC support
 			)
 
 		if not isvc_name:
