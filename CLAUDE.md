@@ -68,9 +68,11 @@ cd frontend && npm run dev
 ```
 
 Then access:
-- **Frontend UI**: http://localhost:5173
-- **Backend API**: http://localhost:8000
+- **Frontend UI**: http://localhost:5173 (all services accessible through this port via proxy)
+- **Backend API** (direct): http://localhost:8000
 - **API Docs**: http://localhost:8000/docs
+
+**Note**: The frontend proxies all `/api/*` requests to the backend at port 8000, so you can access everything through the frontend port (5173) without CORS issues.
 
 ### Development Commands
 

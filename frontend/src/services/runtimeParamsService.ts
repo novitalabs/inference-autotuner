@@ -4,7 +4,8 @@
 
 import axios from 'axios';
 
-const API_BASE = 'http://localhost:8000';
+// Use environment variable or default to relative path (proxy)
+const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
 export interface ParameterListResponse {
   runtime: string;
@@ -41,7 +42,7 @@ export const runtimeParamsService = {
    * Get parameter counts for each runtime
    */
   async getCounts(): Promise<ParameterCounts> {
-    const response = await axios.get(`${API_BASE}/api/runtime-params/`);
+    const response = await axios.get(`${API_BASE}/runtime-params/`);
     return response.data;
   },
 
@@ -53,7 +54,7 @@ export const runtimeParamsService = {
     commonlyTunedOnly: boolean = false
   ): Promise<ParameterListResponse> {
     const response = await axios.get(
-      `${API_BASE}/api/runtime-params/${runtime}`,
+      `${API_BASE}/runtime-params/${runtime}`,
       {
         params: { commonly_tuned_only: commonlyTunedOnly },
       }
@@ -66,7 +67,7 @@ export const runtimeParamsService = {
    */
   async getCommonlyTuned(runtime: 'sglang' | 'vllm'): Promise<CommonlyTunedResponse> {
     const response = await axios.get(
-      `${API_BASE}/api/runtime-params/${runtime}/commonly-tuned`
+      `${API_BASE}/runtime-params/${runtime}/commonly-tuned`
     );
     return response.data;
   },
@@ -75,7 +76,7 @@ export const runtimeParamsService = {
    * Get parameter compatibility information
    */
   async getCompatibility(): Promise<ParameterCompatibilityResponse> {
-    const response = await axios.get(`${API_BASE}/api/runtime-params/compatibility`);
+    const response = await axios.get(`${API_BASE}/runtime-params/compatibility`);
     return response.data;
   },
 
@@ -84,7 +85,7 @@ export const runtimeParamsService = {
    */
   async validateParameter(runtime: 'sglang' | 'vllm', parameter: string): Promise<boolean> {
     try {
-      const response = await axios.post(`${API_BASE}/api/runtime-params/validate`, {
+      const response = await axios.post(`${API_BASE}/runtime-params/validate`, {
         runtime,
         parameter,
       });

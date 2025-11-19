@@ -29638,3 +29638,118 @@ For very large parameter spaces (100+ experiments):
 
 </details>
 
+
+---
+
+## 2025/11/19
+
+> Can we let frontend proxy backend APIs, so they serve by sharing a common port?
+
+<details>
+<summary>Frontend API proxy configuration completed</summary>
+
+**User Request**: Configure frontend to proxy backend API requests so they can be served through a common port.
+
+**Changes Made**:
+
+1. **`frontend/vite.config.ts`**:
+   - Set port to 5173 (Vite default, aligns with CLAUDE.md)
+   - Proxy already configured: `/api/*` → `http://localhost:8000`
+   - Fixed TypeScript errors by adding proper ESM __dirname handling
+   - Installed `@types/node` for type support
+
+2. **`frontend/.env` and `frontend/.env.example`**:
+   - Changed `VITE_API_URL` from `http://localhost:8000/api` to `/api`
+   - Now uses relative path to leverage Vite proxy
+   - Added comments explaining direct vs proxied connection options
+
+3. **`CLAUDE.md`**:
+   - Updated documentation to explain proxy setup
+   - Added note about accessing all services through frontend port
+
+**How It Works**:
+```
+Frontend Request → /api/tasks/ 
+  ↓ (Vite Proxy)
+Backend → http://localhost:8000/api/tasks/
+  ↓ (Response)
+Frontend ← (Same origin, no CORS)
+```
+
+**Benefits**:
+- ✅ No CORS issues (same-origin requests)
+- ✅ Single port for all services (5173)
+- ✅ Cleaner URLs (no hardcoded backend URLs)
+- ✅ Production-ready (can easily switch API URL via env var)
+
+**Usage**:
+- Development: Access everything through `http://localhost:5173`
+- Production: Set `VITE_API_URL` to production API endpoint
+
+**Technical Details**:
+- API client uses: `baseURL: import.meta.env.VITE_API_URL || "/api"`
+- Falls back to `/api` if environment variable not set
+- TypeScript compilation verified (no errors in vite.config.ts)
+
+</details>
+
+---
+
+> It seems APIs calling for dashboard not use the proxy port now.
+
+<details>
+<summary>Fixed hardcoded API URLs that were bypassing the proxy</summary>
+
+**Issue**: Dashboard and other API services were using hardcoded `http://localhost:8000` URLs instead of the proxy configuration.
+
+**Root Cause**: 
+- `.env` was configured correctly with `VITE_API_URL=/api`
+- Vite proxy was configured correctly
+- BUT several service files had hardcoded `API_BASE_URL` constants that bypassed the configuration
+
+**Files Fixed**:
+1. **`src/services/dashboardApi.ts`**: 
+   - Changed from `const API_BASE_URL = 'http://localhost:8000'`
+   - Changed to `const API_BASE_URL = import.meta.env.VITE_API_URL || '/api'`
+   - Removed duplicate `/api` prefix in endpoint paths
+
+2. **`src/services/presetService.ts`**:
+   - Same fix as above
+   - Now respects environment variable and uses proxy
+
+3. **`src/services/runtimeParamsService.ts`**:
+   - Same fix as above
+   - All endpoints now use relative paths through proxy
+
+**Pattern Applied**:
+```typescript
+// Before (hardcoded):
+const API_BASE = 'http://localhost:8000';
+const response = await axios.get(`${API_BASE}/api/dashboard/gpu-status`);
+
+// After (proxy-aware):
+const API_BASE = import.meta.env.VITE_API_URL || '/api';
+const response = await axios.get(`${API_BASE}/dashboard/gpu-status`);
+```
+
+**Why This Matters**:
+- Hardcoded URLs cause CORS issues in development
+- Bypasses the Vite proxy configuration
+- Makes production deployment more difficult
+- Inconsistent with the main API client (`api.ts`)
+
+**Verification**:
+- Searched all `.ts` and `.tsx` files for `localhost:8000`
+- Only comment references remain (in useWebSocket.ts JSDoc)
+- All API services now use environment-based configuration
+
+**Next Step**: Restart frontend dev server for changes to take effect
+```bash
+# Kill existing dev server
+pkill -f "vite"
+
+# Restart
+cd frontend && npm run dev
+```
+
+</details>
