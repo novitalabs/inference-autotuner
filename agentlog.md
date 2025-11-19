@@ -30227,3 +30227,81 @@ Benefits:
 
 </details>
 
+
+---
+
+## OME PVC Support - Docker Image Build and Deployment
+
+> Check build status and continue deployment of OME controller with PVC support.
+
+<details>
+<summary>Successfully built and deployed OME controller after resolving Docker image compatibility issues (6 iterations)</summary>
+
+**User**: Check build status and continue.
+
+**Claude**: 
+After a comprehensive debugging journey through 6 different Docker base image configurations, successfully built and deployed the OME controller with PVC support:
+
+### The Journey (6 Iterations):
+
+1. ❌ **`gcr.io/distroless/static:nonroot`** - Error: `exec /manager: no such file or directory`
+   - Issue: No CGO support for the XET Rust library
+
+2. ❌ **`gcr.io/distroless/base-debian11:nonroot`** - Error: `libssl.so.3: cannot open shared object file`
+   - Issue: Missing OpenSSL libraries required by XET
+
+3. ❌ **`gcr.io/distroless/cc-debian11:nonroot`** - Error: Same libssl.so.3 error
+   - Issue: Debian 11 has OpenSSL 1.1, binary requires OpenSSL 3.x from golang:1.24 builder
+
+4. ❌ **`gcr.io/distroless/cc-debian12:nonroot`** - Error: `GLIBC_2.38' not found`
+   - Issue: golang:1.24 has glibc 2.38, distroless image has older version
+   - Progress: New error means OpenSSL issue fixed!
+
+5. ❌ **`debian:bookworm-slim`** (3 attempts) - Build failures
+   - Tried: `useradd`, `adduser` commands
+   - Issue: User creation failing in minimal Debian image during build
+
+6. ✅ **`golang:1.24`** (same as builder) - **SUCCESS!**
+   - Solution: Use identical image for both builder and runtime
+   - Result: Perfect compatibility for glibc 2.38, OpenSSL 3.x, all dependencies
+   - Trade-off: Larger image (~1GB vs ~100MB distroless) but guaranteed to work
+
+### Key Technical Discoveries:
+
+- **CGO Requirements**: Manager binary uses CGO to link against XET Rust library
+- **OpenSSL Version Matching**: golang:1.24 (Debian 12) requires OpenSSL 3.x
+- **glibc Version Matching**: Runtime must match builder's glibc 2.38
+- **Image Caching**: Set `imagePullPolicy: Always` and `no-cache: true` to avoid stale images
+
+### Final Build & Deployment:
+
+**Commit**: d06bca1 (main repo), 797f52b (OME submodule)
+**Build Time**: 4.5 minutes (17:06-17:10 CST)
+**Image**: `ghcr.io/novitalabs/ome-manager:pvc-support`
+
+**Deployment Status**: ✅
+```
+ome-controller-manager-6db8bf8868-6xj4w   1/1   Running
+ome-controller-manager-6db8bf8868-chr7w   1/1   Running  
+ome-controller-manager-6db8bf8868-tm7gk   1/1   Running
+```
+
+**Logs**: Normal controller startup, no library errors ✅
+
+### PVC Implementation (Preserved):
+
+The PVC support code from previous session remained intact throughout:
+- Annotation-based configuration (`ome.io/storage-type: "pvc"`)
+- PersistentVolumeClaim volume creation with subPath support
+- Node selector skip for PVC storage (not needed unlike hostPath)
+- Backward compatibility with existing hostPath storage
+
+### Documentation Created:
+
+- `/tmp/FINAL_STATUS.md` - Complete journey and status report
+- All intermediate debugging docs preserved
+
+**Status**: Ready for PVC functionality testing 🚀
+
+</details>
+
