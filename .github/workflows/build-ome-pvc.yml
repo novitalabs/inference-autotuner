@@ -75,8 +75,7 @@ jobs:
             VERSION=${{ steps.meta.outputs.git_tag }}
             GIT_TAG=${{ steps.meta.outputs.git_tag }}
             GIT_COMMIT=${{ steps.meta.outputs.git_commit }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          no-cache: true
 
       - name: Image digest
         run: |
