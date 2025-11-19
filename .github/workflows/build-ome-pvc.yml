@@ -1,4 +1,5 @@
 name: Build OME Controller with PVC Support
+# Force trigger: CGO-compatible Dockerfile (base-debian11)
 
 on:
   # Allow manual trigger from GitHub UI
