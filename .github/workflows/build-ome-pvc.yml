@@ -6,11 +6,11 @@ on:
     inputs:
       registry:
         description: 'Container registry (e.g., ghcr.io/username)'
-        required: true
-        default: 'ghcr.io/moirai-internal'
+        required: false
+        default: ''
       tag:
         description: 'Image tag'
-        required: true
+        required: false
         default: 'pvc-support'
   # Trigger on push to feature/ome branch
   push:
@@ -21,8 +21,8 @@ on:
       - '.github/workflows/build-ome-pvc.yml'
 
 env:
-  # Use workflow inputs or defaults
-  REGISTRY: ${{ github.event.inputs.registry || 'ghcr.io/moirai-internal' }}
+  # Use workflow inputs or defaults (use repository owner for registry)
+  REGISTRY: ${{ github.event.inputs.registry || format('ghcr.io/{0}', github.repository_owner) }}
   IMAGE_TAG: ${{ github.event.inputs.tag || 'pvc-support' }}
 
 jobs:
