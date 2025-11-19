@@ -1,5 +1,5 @@
 name: Build OME Controller with PVC Support
-# Force trigger: cc-debian11 with libssl support
+# Force trigger: cc-debian12 for OpenSSL 3.x (Bookworm)
 
 on:
   # Allow manual trigger from GitHub UI
