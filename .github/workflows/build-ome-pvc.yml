@@ -1,5 +1,5 @@
 name: Build OME Controller with PVC Support
-# Force trigger: bookworm-slim with adduser (glibc 2.38 + OpenSSL 3.x)
+# Force trigger: golang:1.24 runtime for perfect compatibility
 
 on:
   # Allow manual trigger from GitHub UI
