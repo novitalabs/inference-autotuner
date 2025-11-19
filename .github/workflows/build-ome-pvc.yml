@@ -96,3 +96,4 @@ jobs:
           echo "  docker run --rm -it -v ~/.kube/config:/config \\"
           echo "    ${{ steps.meta.outputs.image_name }} \\"
           echo "    --kubeconfig /config"
+# golang:1.24 runtime test
