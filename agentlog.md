@@ -30812,3 +30812,151 @@ Created comprehensive documentation in `docs/GPU_ALLOCATION.md` covering:
 - Future enhancement ideas
 
 </details>
+
+---
+
+## Bug Fix - Benchmark NoneType Error in Environment Variables
+
+> **User**: Continue with the last task (fixing Task 24/25 failures)
+
+<details>
+<summary>Fixed critical bug causing benchmark execution to fail with NoneType error</summary>
+
+### Problem Discovery
+
+After fixing the InferenceService deployment issues (affinity placement, model name conversion), experiments were still failing during the benchmark phase with the error:
+
+```
+[Benchmark] Error running genai-bench: expected str, bytes or os.PathLike object, not NoneType
+```
+
+The InferenceService was successfully deployed and reached Ready state, port-forward was established, but genai-bench failed to execute.
+
+### Root Cause Analysis
+
+**File**: `src/controllers/direct_benchmark_controller.py:312-315`
+
+**Bug**: Environment variables were being set to `None` when no proxy was configured:
+
+```python
+# Check if proxy is configured in environment or use default
+proxy_url = os.environ.get('HTTPS_PROXY') or os.environ.get('https_proxy')  # Returns None if not set
+env['HTTP_PROXY'] = proxy_url  # ❌ Setting to None
+env['http_proxy'] = proxy_url  # ❌ Setting to None
+env['HTTPS_PROXY'] = proxy_url  # ❌ Setting to None
+env['https_proxy'] = proxy_url  # ❌ Setting to None
+```
+
+**Why it fails**: Python's `subprocess.run()` and `subprocess.Popen()` require environment variable values to be strings (or bytes/os.PathLike objects). When `proxy_url` is `None`, setting `env[key] = None` violates this constraint, causing the subprocess to fail with a TypeError.
+
+### Solution
+
+Added conditional check to only set proxy environment variables when proxy_url is not None:
+
+```python
+# Check if proxy is configured in environment or use default
+proxy_url = os.environ.get('HTTPS_PROXY') or os.environ.get('https_proxy')
+if proxy_url:
+    # Only set proxy env vars if proxy is configured (env vars must be strings, not None)
+    env['HTTP_PROXY'] = proxy_url
+    env['http_proxy'] = proxy_url
+    env['HTTPS_PROXY'] = proxy_url
+    env['https_proxy'] = proxy_url
+env['NO_PROXY'] = 'localhost,127.0.0.1,.local'
+env['no_proxy'] = 'localhost,127.0.0.1,.local'
+```
+
+### Verification
+
+Ran test with `/tmp/task_final.json` (Llama-3.2-3B model):
+
+**Before fix**:
+```
+[Benchmark] Using proxy: None
+[Benchmark] Error running genai-bench: expected str, bytes or os.PathLike object, not NoneType
+```
+
+**After fix**:
+```
+[Benchmark] Using proxy: None
+[Benchmark] Completed in 171.8s
+[Benchmark] Exit code: 1
+[genai-bench] INFO Welcome to genai-bench 0.0.2!
+...
+```
+
+genai-bench executed successfully for 171.8 seconds. Exit code 1 was due to HuggingFace connectivity timeout (needs proxy for international network access), not the NoneType error.
+
+### Impact
+
+This bug affected:
+- **Direct benchmark mode** (used by both Docker and OME deployment modes with `--direct` flag)
+- **All environments** where `HTTPS_PROXY` or `https_proxy` environment variables were not set
+- Prevented any benchmarks from running, making experiments fail at Step 3/4
+
+### Related Issues
+
+After fixing this bug, discovered that genai-bench needs network access to download tokenizers from HuggingFace. According to CLAUDE.local.md, a proxy is available at `http://127.0.0.1:1081`. The fix ensures proxy settings are properly passed to genai-bench when they are configured.
+
+Next steps: Configure proxy environment variables and rerun the task.
+
+</details>
+
+---
+
+## Enhanced Tokenizer Pre-Download with Automatic Caching
+
+**User Request**: "Looking at your current solution, will it still fail if the tokenizer is not cached?"
+
+<details>
+<summary>Implemented automatic tokenizer pre-download with proxy support</summary>
+
+**Problem**: The previous solution required manual tokenizer pre-download. If tokenizer was not cached, the offline mode would fail during benchmark execution.
+
+**Solution Implemented**:
+
+1. **Added `_ensure_tokenizer_cached()` method** to `DirectBenchmarkController` (lines 109-173):
+   - Automatically checks if tokenizer is cached in `~/.cache/huggingface/hub/`
+   - If not cached, attempts to download using proxy (if configured)
+   - Downloads via subprocess with isolated environment
+   - Timeout: 120 seconds
+   - Returns True if cached or successfully downloaded, False otherwise
+
+2. **Integrated into `run_benchmark()` method** (lines 304-308):
+   - Automatically called before each benchmark execution
+   - Gracefully continues even if pre-download fails (offline mode will use any existing cache)
+   - Provides clear logging of download status
+
+3. **Key Features**:
+   - **Intelligent cache detection**: Uses HuggingFace cache naming convention (`models--org--model-name`)
+   - **Proxy support**: Automatically uses `HTTPS_PROXY` environment variable from parent process
+   - **Isolated execution**: Downloads in subprocess to avoid breaking Kubernetes API calls
+   - **Graceful degradation**: Continues with offline mode even if download fails
+   - **Clear logging**: Reports cache status, download progress, and any failures
+
+**Test Results**:
+```
+[Tokenizer] Not cached, downloading: meta-llama/Llama-3.2-3B-Instruct
+[Tokenizer] Download timeout after 120s
+[Benchmark] Failed to ensure tokenizer is cached: meta-llama/Llama-3.2-3B-Instruct
+[Benchmark] Continuing anyway, offline mode may fail if tokenizer not cached
+```
+
+**Answer to User's Question**: Yes, without proxy configuration, the download will timeout after 120 seconds. However:
+- System gracefully continues with offline mode enabled
+- If tokenizer happens to be cached from previous runs, it will still work
+- The solution attempts automatic download but doesn't block execution on failure
+
+**Recommended Usage**:
+For first-time use with a new model tokenizer, ensure proxy is configured in environment:
+```bash
+export HTTPS_PROXY=http://127.0.0.1:1081
+```
+Then run the autotuner. Subsequent runs will use the cached tokenizer without needing proxy.
+
+**Files Modified**:
+- `src/controllers/direct_benchmark_controller.py:109-173` - Added tokenizer caching method
+- `src/controllers/direct_benchmark_controller.py:304-308` - Integrated into benchmark workflow
+
+</details>
+

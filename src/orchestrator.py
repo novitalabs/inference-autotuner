@@ -205,6 +205,7 @@ class AutotunerOrchestrator:
 				runtime_name=runtime_name,
 				parameters=runtime_parameters,  # Use converted parameters
 				storage=storage_config,  # Pass storage config for PVC support
+				enable_gpu_selection=False,  # Temporarily disable GPU selection due to allocation detection issues
 			)
 
 		if not isvc_name:
