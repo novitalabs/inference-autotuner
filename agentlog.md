@@ -30552,3 +30552,130 @@ export HF_TOKEN="hf_xxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 
 </details>
 
+---
+
+## Cluster-wide GPU Monitoring in Dashboard
+
+> Extend GPU Status panel in dashboard for ome environment, to watch all GPUs in entire cluster.
+> Can we show GPU memory occupancy rate for cluster GPUs?
+> We are working on .157, why the data of .157 node is not consistent with local data?
+
+<details>
+<summary>Implementation of cluster-wide GPU monitoring with real-time metrics and data consistency fixes</summary>
+
+### User Requirements
+
+1. Extend GPU Status panel to show all GPUs across the entire Kubernetes cluster (4 nodes × 8 GPUs = 32 total)
+2. Display GPU memory occupancy rates for cluster GPUs
+3. Fix data inconsistency between local and cluster views for node .157
+
+### Implementation Details
+
+**Backend Enhancement** (`src/web/routes/dashboard.py`):
+
+Added `/api/dashboard/cluster-gpu-status` endpoint with:
+- Cluster-wide GPU discovery via `kubectl get nodes -o json`
+- Parsing `nvidia.com/gpu` capacity/allocatable from node status
+- Real-time GPU metrics collection:
+  - **Local node (.157)**: Direct `nvidia-smi` execution
+  - **Remote nodes**: `kubectl exec` in pods with GPU resource requests
+- Metrics collected: memory total/used/free, utilization %, temperature
+
+**Frontend Enhancement** (`frontend/src/pages/Dashboard.tsx`):
+
+Enhanced GPU Status card with:
+- Toggle between "Local" and "Cluster" views (default: cluster)
+- Grouped display by node name
+- Color-coded visual indicators:
+  - Green border: GPU allocatable (available for scheduling)
+  - Red border: GPU not allocatable (already allocated)
+  - Memory bars: Blue (< 70%), Yellow (70-90%), Red (> 90%)
+  - Utilization badges: Green (< 50%), Yellow (50-80%), Red (> 80%)
+- Hover tooltips with full metrics
+- Graceful fallback: "No metrics" for GPUs without running pods
+
+**API Service** (`frontend/src/services/dashboardApi.ts`):
+
+Added TypeScript interface and API client function:
+```typescript
+export interface ClusterGPUStatus {
+  available: boolean;
+  mode: 'cluster';
+  nodes?: Array<{
+    index: number;
+    node_name: string;
+    name: string;
+    capacity: number;
+    allocatable: number;
+    has_metrics?: boolean;
+    memory_total_mb?: number;
+    memory_used_mb?: number;
+    memory_free_mb?: number;
+    memory_usage_percent?: number;
+    utilization_percent?: number;
+    temperature_c?: number;
+    is_local?: boolean;
+  }>;
+  total_gpus?: number;
+  total_allocatable_gpus?: number;
+  error?: string;
+  timestamp: string;
+}
+```
+
+### Data Consistency Fix
+
+**Problem**: Local view and cluster view showed different data for node .157 (the API server host).
+
+**Root Cause**:
+- Local view used direct `nvidia-smi` (correct, shows real data)
+- Cluster view was trying to exec into random pods (most don't have GPU access)
+- This caused inconsistent/missing data for .157
+
+**Solution**:
+```python
+# Detect local hostname
+local_hostname = subprocess.run(["hostname"], capture_output=True, text=True).stdout.strip()
+
+# For local node (.157): use direct nvidia-smi
+if node_name == local_hostname:
+    nvidia_result = subprocess.run(["nvidia-smi", "--query-gpu=..."], ...)
+# For remote nodes: find pods with GPU access
+else:
+    # Find pods with nvidia.com/gpu in resource requests/limits
+    if any("nvidia.com/gpu" in key for key in list(limits.keys()) + list(requests.keys())):
+        target_pod = pod_name
+        # Then exec nvidia-smi in that pod
+```
+
+**Verification**:
+```bash
+# Local view (GPU 0): 96.2% memory, 85% utilization, 46°C
+# Cluster view for .157 (GPU 0): 96.2% memory, 88% utilization, 45°C
+# ✅ Data now consistent (minor differences due to polling intervals)
+```
+
+### Metrics Availability Across Cluster
+
+After implementation:
+- **Node .157 (local)**: 8/8 GPUs with metrics ✅
+- **Node .143**: 1/8 GPUs with metrics (has GPU-enabled pod running) ✅
+- **Nodes .155, .156**: 0/8 GPUs with metrics (no GPU-enabled pods currently)
+
+This is expected behavior - remote nodes only show metrics when GPU-enabled pods are running.
+
+### User Experience
+
+1. **Quick Toggle**: Switch between detailed local view and cluster overview
+2. **Visual Scanning**: Color-coded indicators for quick status assessment
+3. **Detailed Info**: Hover tooltips show full metrics without cluttering UI
+4. **Consistent Data**: Local node always shows accurate real-time metrics
+5. **Scalability**: Handles 32 GPUs across 4 nodes efficiently
+
+### Files Modified
+
+- `/root/work/inference-autotuner/src/web/routes/dashboard.py` (lines 218-441)
+- `/root/work/inference-autotuner/frontend/src/pages/Dashboard.tsx` (lines 36, 52-58, 94-279)
+- `/root/work/inference-autotuner/frontend/src/services/dashboardApi.ts` (lines 13-44)
+
+</details>

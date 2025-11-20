@@ -217,8 +217,16 @@ async def get_db_statistics(db: AsyncSession = Depends(get_db)) -> Dict[str, Any
 
 @router.get("/cluster-gpu-status")
 async def get_cluster_gpu_status() -> Dict[str, Any]:
-	"""Get GPU status across all nodes in the Kubernetes cluster."""
+	"""Get GPU status across all nodes in the Kubernetes cluster with detailed metrics."""
 	try:
+		# Get current node hostname to use local nvidia-smi for it
+		local_hostname = subprocess.run(
+			["hostname"],
+			capture_output=True,
+			text=True,
+			timeout=2
+		).stdout.strip()
+
 		# Query Kubernetes nodes with GPU resources
 		result = subprocess.run(
 			[
@@ -265,35 +273,155 @@ async def get_cluster_gpu_status() -> Dict[str, Any]:
 					break
 
 			if gpu_capacity > 0:
-				# Try to get detailed GPU info from the node
+				# Get actual GPU metrics from the node
 				node_gpus = []
-				try:
-					# Run nvidia-smi on specific node via kubectl exec on a pod or SSH
-					# For now, we'll get basic info from node status
-					# Get node conditions and labels for more info
-					labels = node["metadata"].get("labels", {})
-					gpu_type = labels.get("nvidia.com/gpu.product", "Unknown")
+				gpu_metrics = {}
 
-					# Create GPU entries for this node
-					for i in range(gpu_capacity):
-						node_gpus.append({
-							"index": i,
-							"node_name": node_name,
-							"name": gpu_type,
-							"capacity": 1,
-							"allocatable": 1 if i < gpu_allocatable else 0
+				# If this is the local node, use direct nvidia-smi
+				if node_name == local_hostname:
+					try:
+						nvidia_result = subprocess.run(
+							[
+								"nvidia-smi",
+								"--query-gpu=index,name,memory.total,memory.used,memory.free,utilization.gpu,temperature.gpu",
+								"--format=csv,noheader,nounits"
+							],
+							capture_output=True,
+							text=True,
+							timeout=5
+						)
+
+						if nvidia_result.returncode == 0 and nvidia_result.stdout:
+							for line in nvidia_result.stdout.strip().split("\n"):
+								if not line:
+									continue
+								parts = [p.strip() for p in line.split(",")]
+								if len(parts) >= 7:
+									gpu_idx = int(parts[0])
+									gpu_metrics[gpu_idx] = {
+										"name": parts[1],
+										"memory_total_mb": int(parts[2]),
+										"memory_used_mb": int(parts[3]),
+										"memory_free_mb": int(parts[4]),
+										"utilization_percent": int(parts[5]),
+										"temperature_c": int(parts[6]),
+										"memory_usage_percent": round(int(parts[3]) / int(parts[2]) * 100, 1)
+									}
+					except Exception as e:
+						print(f"Error getting local GPU metrics: {e}")
+				else:
+					# For remote nodes, try to find a pod with GPU access (has nvidia.com/gpu resource request)
+					try:
+						pod_result = subprocess.run(
+							[
+								"kubectl",
+								"get",
+								"pods",
+								"--all-namespaces",
+								"--field-selector",
+								f"spec.nodeName={node_name}",
+								"-o",
+								"json"
+							],
+							capture_output=True,
+							text=True,
+							timeout=5
+						)
+
+						if pod_result.returncode == 0:
+							pods_data = json.loads(pod_result.stdout)
+
+							# Find a pod that has GPU access (has nvidia.com/gpu in resources)
+							target_pod = None
+							target_namespace = None
+
+							for pod in pods_data.get("items", []):
+								pod_name = pod["metadata"]["name"]
+								pod_namespace = pod["metadata"]["namespace"]
+
+								# Check if pod has GPU resources
+								containers = pod["spec"].get("containers", [])
+								for container in containers:
+									resources = container.get("resources", {})
+									limits = resources.get("limits", {})
+									requests = resources.get("requests", {})
+
+									if any("nvidia.com/gpu" in key for key in list(limits.keys()) + list(requests.keys())):
+										target_pod = pod_name
+										target_namespace = pod_namespace
+										break
+
+								if target_pod:
+									break
+
+							# If we found a pod with GPU access, exec nvidia-smi in it
+							if target_pod:
+								nvidia_result = subprocess.run(
+									[
+										"kubectl",
+										"exec",
+										"-n",
+										target_namespace,
+										target_pod,
+										"--",
+										"nvidia-smi",
+										"--query-gpu=index,name,memory.total,memory.used,memory.free,utilization.gpu,temperature.gpu",
+										"--format=csv,noheader,nounits"
+									],
+									capture_output=True,
+									text=True,
+									timeout=5
+								)
+
+								if nvidia_result.returncode == 0 and nvidia_result.stdout:
+									for line in nvidia_result.stdout.strip().split("\n"):
+										if not line:
+											continue
+										parts = [p.strip() for p in line.split(",")]
+										if len(parts) >= 7:
+											gpu_idx = int(parts[0])
+											gpu_metrics[gpu_idx] = {
+												"name": parts[1],
+												"memory_total_mb": int(parts[2]),
+												"memory_used_mb": int(parts[3]),
+												"memory_free_mb": int(parts[4]),
+												"utilization_percent": int(parts[5]),
+												"temperature_c": int(parts[6]),
+												"memory_usage_percent": round(int(parts[3]) / int(parts[2]) * 100, 1)
+											}
+					except Exception as e:
+						print(f"Could not get GPU metrics for remote node {node_name}: {e}")
+
+				# Get node labels for GPU type
+				labels = node["metadata"].get("labels", {})
+				gpu_type = labels.get("nvidia.com/gpu.product", "Unknown")
+
+				# Create GPU entries for this node
+				for i in range(gpu_capacity):
+					gpu_entry = {
+						"index": i,
+						"node_name": node_name,
+						"name": gpu_metrics.get(i, {}).get("name", gpu_type),
+						"capacity": 1,
+						"allocatable": 1 if i < gpu_allocatable else 0,
+						"is_local": node_name == local_hostname
+					}
+
+					# Add detailed metrics if available
+					if i in gpu_metrics:
+						gpu_entry.update({
+							"memory_total_mb": gpu_metrics[i]["memory_total_mb"],
+							"memory_used_mb": gpu_metrics[i]["memory_used_mb"],
+							"memory_free_mb": gpu_metrics[i]["memory_free_mb"],
+							"memory_usage_percent": gpu_metrics[i]["memory_usage_percent"],
+							"utilization_percent": gpu_metrics[i]["utilization_percent"],
+							"temperature_c": gpu_metrics[i]["temperature_c"],
+							"has_metrics": True
 						})
-				except Exception as e:
-					print(f"Error getting GPU details for node {node_name}: {e}")
-					# Fallback: create basic entries
-					for i in range(gpu_capacity):
-						node_gpus.append({
-							"index": i,
-							"node_name": node_name,
-							"name": "Unknown GPU",
-							"capacity": 1,
-							"allocatable": 1 if i < gpu_allocatable else 0
-						})
+					else:
+						gpu_entry["has_metrics"] = False
+
+					node_gpus.append(gpu_entry)
 
 				cluster_gpus.extend(node_gpus)
 
@@ -303,6 +431,7 @@ async def get_cluster_gpu_status() -> Dict[str, Any]:
 			"nodes": cluster_gpus,
 			"total_gpus": total_gpus,
 			"total_allocatable_gpus": total_allocatable_gpus,
+			"local_hostname": local_hostname,
 			"timestamp": datetime.now().isoformat()
 		}
 

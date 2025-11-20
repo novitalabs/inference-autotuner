@@ -222,18 +222,51 @@ export default function Dashboard() {
 											{gpus.filter(g => g.allocatable).length}/{gpus.length} available
 										</span>
 									</div>
-									<div className="grid grid-cols-4 gap-1">
+									<div className="grid grid-cols-4 gap-2">
 										{gpus.map((gpu, idx) => (
 											<div
 												key={idx}
-												className={`p-1 rounded text-xs text-center ${
+												className={`p-2 rounded border ${
 													gpu.allocatable
-														? 'bg-green-100 text-green-800'
-														: 'bg-red-100 text-red-800'
+														? 'bg-white border-green-300'
+														: 'bg-gray-100 border-red-300'
 												}`}
-												title={`GPU ${gpu.index}: ${gpu.name}`}
+												title={`GPU ${gpu.index}: ${gpu.name}${gpu.has_metrics ? `\nMemory: ${gpu.memory_used_mb}MB / ${gpu.memory_total_mb}MB\nUtil: ${gpu.utilization_percent}%\nTemp: ${gpu.temperature_c}°C` : ''}`}
 											>
-												GPU {gpu.index}
+												<div className="flex justify-between items-center mb-1">
+													<span className="text-xs font-medium">GPU {gpu.index}</span>
+													{gpu.has_metrics && (
+														<span className="text-xs text-gray-500">{gpu.temperature_c}°C</span>
+													)}
+												</div>
+												{gpu.has_metrics ? (
+													<>
+														{/* Memory usage bar */}
+														<div className="mb-1">
+															<div className="w-full bg-gray-200 rounded-full h-1.5">
+																<div
+																	className={`h-1.5 rounded-full ${gpu.memory_usage_percent > 90 ? 'bg-red-600' : gpu.memory_usage_percent > 70 ? 'bg-yellow-500' : 'bg-blue-600'}`}
+																	style={{ width: `${gpu.memory_usage_percent}%` }}
+																></div>
+															</div>
+															<div className="flex justify-between text-[10px] text-gray-600 mt-0.5">
+																<span>Mem</span>
+																<span>{gpu.memory_usage_percent.toFixed(0)}%</span>
+															</div>
+														</div>
+														{/* Utilization badge */}
+														<div className="flex justify-between items-center">
+															<span className="text-[10px] text-gray-500">Util</span>
+															<span className={`px-1 py-0.5 text-[10px] rounded ${gpu.utilization_percent > 80 ? 'bg-red-100 text-red-800' : gpu.utilization_percent > 50 ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800'}`}>
+																{gpu.utilization_percent}%
+															</span>
+														</div>
+													</>
+												) : (
+													<div className="text-[10px] text-gray-500 text-center py-1">
+														No metrics
+													</div>
+												)}
 											</div>
 										))}
 									</div>
