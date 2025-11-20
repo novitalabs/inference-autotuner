@@ -7,6 +7,7 @@ Manages the lifecycle of InferenceService resources for autotuning experiments.
 import re
 import time
 import yaml
+import sys
 from pathlib import Path
 from typing import Dict, Any, Optional
 from jinja2 import Template
@@ -14,6 +15,13 @@ from kubernetes import client, config
 from kubernetes.client.rest import ApiException
 
 from .base_controller import BaseModelController
+
+# Import GPU discovery utility with absolute import
+# Add parent directory to path if needed
+if str(Path(__file__).parent.parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from utils.gpu_discovery import find_best_node_for_deployment
 
 
 def sanitize_dns_name(name: str) -> str:
@@ -115,6 +123,7 @@ class OMEController(BaseModelController):
 		runtime_name: str,
 		parameters: Dict[str, Any],
 		storage: Optional[Dict[str, Any]] = None,
+		enable_gpu_selection: bool = True,
 	) -> Optional[str]:
 		"""Deploy an InferenceService with specified parameters.
 
@@ -132,6 +141,7 @@ class OMEController(BaseModelController):
 		                 'pvc_subpath': 'meta/llama-3-2-1b-instruct',
 		                 'mount_path': '/raid/models/meta/llama-3-2-1b-instruct'
 		             }
+		    enable_gpu_selection: If True, intelligently select node with idle GPUs (default: True)
 
 		Returns:
 		    InferenceService name if successful, None otherwise
@@ -142,7 +152,24 @@ class OMEController(BaseModelController):
 
 		# Sanitize model_name to match ClusterBaseModel naming convention
 		# Convert "meta-llama/Llama-3.2-3B-Instruct" to "llama-3-2-3b-instruct"
-		safe_model_name = sanitize_dns_name(model_name)
+		# Strip namespace prefix (everything before and including the slash) first
+		model_basename = model_name.split('/')[-1] if '/' in model_name else model_name
+		safe_model_name = sanitize_dns_name(model_basename)
+
+		# Determine required GPUs from parameters
+		required_gpus = parameters.get('tpsize', parameters.get('tp_size', parameters.get('tp-size', 1)))
+
+		# Find best node for deployment if enabled
+		selected_node = None
+		if enable_gpu_selection:
+			print(f"\n=== GPU Node Selection ===")
+			print(f"Looking for node with {required_gpus} idle GPU(s)...")
+			selected_node = find_best_node_for_deployment(required_gpus=required_gpus)
+			if selected_node:
+				print(f"✓ Selected node: {selected_node}")
+			else:
+				print("⚠ No specific node selected (will use Kubernetes scheduler)")
+			print("=" * 26 + "\n")
 
 		# Render template
 		rendered = self.isvc_template.render(
@@ -154,6 +181,7 @@ class OMEController(BaseModelController):
 			runtime_name=runtime_name,
 			params=parameters,
 			storage=storage,
+			selected_node=selected_node,  # Pass to template
 		)
 
 		# Parse YAML (contains namespace + InferenceService)
@@ -172,7 +200,8 @@ class OMEController(BaseModelController):
 				plural="inferenceservices",
 				body=isvc_resource,
 			)
-			print(f"Created InferenceService '{isvc_name}' in namespace '{namespace}'")
+			node_info = f" on node '{selected_node}'" if selected_node else ""
+			print(f"Created InferenceService '{isvc_name}' in namespace '{namespace}'{node_info}")
 			return isvc_name
 		except ApiException as e:
 			print(f"Error creating InferenceService: {e}")

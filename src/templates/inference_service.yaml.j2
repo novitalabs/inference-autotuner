@@ -40,3 +40,15 @@ spec:
           nvidia.com/gpu: {{ params.get('tpsize', params.get('tp_size', params.get('tp-size', 1))) }}
         requests:
           nvidia.com/gpu: {{ params.get('tpsize', params.get('tp_size', params.get('tp-size', 1))) }}
+    {% if selected_node %}
+    # Intelligent GPU node selection based on cluster utilization
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+              - {{ selected_node }}
+    {% endif %}

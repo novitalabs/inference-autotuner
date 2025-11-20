@@ -30679,3 +30679,136 @@ This is expected behavior - remote nodes only show metrics when GPU-enabled pods
 - `/root/work/inference-autotuner/frontend/src/services/dashboardApi.ts` (lines 13-44)
 
 </details>
+
+---
+
+## Intelligent GPU Allocation for OME Deployments
+
+> Now when deploy an ome task, find idle GPUs in whole cluster
+
+<function_calls>
+Implemented automatic GPU node selection for OME deployments based on real-time cluster utilization
+
+---
+
+## Intelligent GPU Allocation for OME Deployments
+
+> Now when deploy an ome task, find idle GPUs in whole cluster
+
+<details>
+<summary>Implemented automatic GPU node selection based on real-time cluster utilization</summary>
+
+### Implementation
+
+Created a comprehensive GPU allocation system that intelligently selects nodes with idle GPUs for OME deployments.
+
+**New Files Created:**
+1. `src/utils/gpu_discovery.py` - GPU discovery and node selection utility (445 lines)
+2. `docs/GPU_ALLOCATION.md` - Comprehensive documentation
+
+**Modified Files:**
+1. `src/controllers/ome_controller.py` - Integrated GPU selection logic
+2. `src/templates/inference_service.yaml.j2` - Added conditional node affinity
+
+### Features
+
+1. **Cluster-wide GPU Discovery**:
+   - Queries all nodes via `kubectl get nodes -o json`
+   - Collects real-time metrics (utilization, memory, temperature) using nvidia-smi
+   - Handles local node (direct nvidia-smi) and remote nodes (kubectl exec)
+   - Graceful handling of nodes without metrics
+
+2. **Intelligent Selection Algorithm**:
+   - Idle GPU definition: < 30% utilization AND < 50% memory usage
+   - Ranking criteria:
+     1. Nodes with idle GPUs (highest priority)
+     2. Idle GPU count (more is better)
+     3. Lowest average utilization
+   - Falls back to Kubernetes scheduler if no suitable node found
+
+3. **Automatic Node Affinity**:
+   - Adds `kubernetes.io/hostname` node affinity to InferenceService
+   - Only applies when a node is selected
+   - Maintains backward compatibility
+
+### Usage
+
+**Automatic (Default)**:
+```python
+controller = OMEController()
+controller.deploy_inference_service(
+    task_name="my-task",
+    experiment_id="1",
+    namespace="autotuner",
+    model_name="llama-3-2-1b-instruct",
+    runtime_name="sglang-llama-small",
+    parameters={"tp-size": 1}
+    # GPU selection happens automatically
+)
+```
+
+**Manual Disable**:
+```python
+controller.deploy_inference_service(
+    ...,
+    enable_gpu_selection=False  # Use Kubernetes scheduler
+)
+```
+
+### Testing Results
+
+**Cluster Status** (4 nodes, 32 GPUs total):
+- Node .155: 8 idle GPUs (0% util, 0% mem) ← **Selected**
+- Node .156: 8 idle GPUs (0% util, 0% mem)
+- Node .143: 0 idle GPUs (0% util, 96.5% mem)
+- Node .157: 0 idle GPUs (0% util, 96.2% mem)
+
+**Selection Output**:
+```
+=== GPU Node Selection ===
+Looking for node with 1 idle GPU(s)...
+Selected node 'host-10-97-65-155' for deployment:
+  - Allocatable GPUs: 8/8
+  - Idle GPUs: 8
+  - Avg Utilization: 0.0%
+  - Avg Memory Usage: 0.0%
+✓ Selected node: host-10-97-65-155
+==========================
+```
+
+### Import Error Fix
+
+**Problem**: Initial relative import caused `ImportError: attempted relative import beyond top-level package`
+
+**Solution**: Changed from relative to absolute import with dynamic path insertion:
+```python
+import sys
+from pathlib import Path
+
+# Add parent directory to path if needed
+if str(Path(__file__).parent.parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from utils.gpu_discovery import find_best_node_for_deployment
+```
+
+**Required**: Cleared Python cache (`__pycache__` directories) and restarted ARQ worker
+
+### Benefits
+
+1. **Load Balancing**: Distributes workloads across idle nodes automatically
+2. **Performance**: Experiments run faster on less-loaded GPUs
+3. **Resource Efficiency**: Avoids oversubscribing busy nodes
+4. **Transparency**: Clear logging shows selection reasoning
+5. **Flexibility**: Can be disabled per deployment if needed
+
+### Documentation
+
+Created comprehensive documentation in `docs/GPU_ALLOCATION.md` covering:
+- Architecture and design patterns
+- Usage examples (automatic and manual)
+- Selection criteria and configurable thresholds
+- Troubleshooting guide
+- Future enhancement ideas
+
+</details>
