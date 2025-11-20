@@ -4,6 +4,7 @@ OME Deployment Controller
 Manages the lifecycle of InferenceService resources for autotuning experiments.
 """
 
+import re
 import time
 import yaml
 from pathlib import Path
@@ -13,6 +14,41 @@ from kubernetes import client, config
 from kubernetes.client.rest import ApiException
 
 from .base_controller import BaseModelController
+
+
+def sanitize_dns_name(name: str) -> str:
+	"""
+	Sanitize a name to be OME webhook compliant.
+
+	OME webhook requires names to match: [a-z]([-a-z0-9]*[a-z0-9])?
+	Rules:
+	- lowercase letters, numbers, '-' only (NO periods)
+	- must start with a lowercase letter
+	- must end with alphanumeric character
+	- max 253 characters
+
+	Args:
+	    name: The name to sanitize
+
+	Returns:
+	    OME-compliant name
+	"""
+	# Convert to lowercase
+	name = name.lower()
+	# Replace invalid characters (including periods) with dash
+	name = re.sub(r'[^a-z0-9-]', '-', name)
+	# Remove leading non-letters (must start with letter)
+	name = re.sub(r'^[^a-z]+', '', name)
+	# Remove trailing non-alphanumeric
+	name = re.sub(r'[^a-z0-9]+$', '', name)
+	# Replace multiple consecutive dashes with single dash
+	name = re.sub(r'-+', '-', name)
+	# Truncate to 253 characters
+	name = name[:253]
+	# Ensure name starts with a letter (if empty after sanitization, use 'task')
+	if not name or not name[0].isalpha():
+		name = 'task-' + name
+	return name
 
 
 class OMEController(BaseModelController):
@@ -100,7 +136,13 @@ class OMEController(BaseModelController):
 		Returns:
 		    InferenceService name if successful, None otherwise
 		"""
-		isvc_name = f"{task_name}-exp{experiment_id}"
+		# Sanitize task_name to be DNS-1123 compliant
+		safe_task_name = sanitize_dns_name(task_name)
+		isvc_name = f"{safe_task_name}-exp{experiment_id}"
+
+		# Sanitize model_name to match ClusterBaseModel naming convention
+		# Convert "meta-llama/Llama-3.2-3B-Instruct" to "llama-3-2-3b-instruct"
+		safe_model_name = sanitize_dns_name(model_name)
 
 		# Render template
 		rendered = self.isvc_template.render(
@@ -108,7 +150,7 @@ class OMEController(BaseModelController):
 			isvc_name=isvc_name,
 			task_name=task_name,
 			experiment_id=experiment_id,
-			model_name=model_name,
+			model_name=safe_model_name,
 			runtime_name=runtime_name,
 			params=parameters,
 			storage=storage,

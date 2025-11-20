@@ -5,6 +5,7 @@ Manages the lifecycle of model inference services using standalone Docker contai
 No Kubernetes required - direct Docker container management.
 """
 
+import re
 import time
 import requests
 from pathlib import Path
@@ -18,6 +19,31 @@ except ImportError:
 
 from controllers.base_controller import BaseModelController
 from utils.gpu_monitor import get_gpu_monitor
+
+
+def sanitize_container_name(name: str) -> str:
+	"""
+	Sanitize a name for Docker container naming.
+
+	Docker allows [a-zA-Z0-9][a-zA-Z0-9_.-]+ but we'll be more restrictive
+	to match Kubernetes naming for consistency.
+
+	Args:
+	    name: The name to sanitize
+
+	Returns:
+	    Container-safe name
+	"""
+	# Convert to lowercase
+	name = name.lower()
+	# Replace invalid characters with dash
+	name = re.sub(r'[^a-z0-9-._]', '-', name)
+	# Remove leading/trailing non-alphanumeric
+	name = re.sub(r'^[^a-z0-9]+', '', name)
+	name = re.sub(r'[^a-z0-9]+$', '', name)
+	# Replace multiple consecutive dashes with single dash
+	name = re.sub(r'-+', '-', name)
+	return name
 
 
 class DockerController(BaseModelController):
@@ -88,7 +114,10 @@ class DockerController(BaseModelController):
 		Returns:
 		    Container ID if successful, None otherwise
 		"""
-		service_id = f"{namespace}-{task_name}-exp{experiment_id}"
+		# Sanitize names for container naming
+		safe_task_name = sanitize_container_name(task_name)
+		safe_namespace = sanitize_container_name(namespace)
+		service_id = f"{safe_namespace}-{safe_task_name}-exp{experiment_id}"
 		container_name = service_id
 
 		# Determine if model_name is a local path or HuggingFace model ID
