@@ -8,6 +8,7 @@ import {
 	ServerIcon,
 	CircleStackIcon,
 	ClockIcon,
+	ViewColumnsIcon,
 } from '@heroicons/react/24/outline';
 
 function formatBytes(mb: number): string {
@@ -31,6 +32,8 @@ type GPUHistory = Record<number, number[]>;
 export default function Dashboard() {
 	// Track GPU utilization history
 	const [gpuHistory, setGpuHistory] = useState<GPUHistory>({});
+	// Track which GPU view mode (local or cluster)
+	const [gpuViewMode, setGpuViewMode] = useState<'local' | 'cluster'>('cluster');
 
 	// Track selected experiment for log viewer
 	const [selectedExperiment, setSelectedExperiment] = useState<{ taskId: number; experimentId: number } | null>(null);
@@ -43,6 +46,15 @@ export default function Dashboard() {
 		queryKey: ['gpuStatus'],
 		queryFn: dashboardApi.getGPUStatus,
 		refetchInterval: 5000, // Refresh every 5 seconds
+		enabled: gpuViewMode === 'local',
+	});
+
+	// Fetch cluster GPU status
+	const { data: clusterGpuStatus, isLoading: clusterGpuLoading } = useQuery({
+		queryKey: ['clusterGpuStatus'],
+		queryFn: dashboardApi.getClusterGPUStatus,
+		refetchInterval: 10000, // Refresh every 10 seconds
+		enabled: gpuViewMode === 'cluster',
 	});
 
 	// Update GPU history when new data arrives
@@ -84,77 +96,152 @@ export default function Dashboard() {
 			<div className="flex items-center justify-between mb-3">
 				<h3 className="text-base font-medium text-gray-900 flex items-center">
 					<CpuChipIcon className="h-5 w-5 mr-2 text-blue-500" />
-					GPU Status
+					GPU Status {gpuViewMode === 'cluster' && '(Cluster-wide)'}
 				</h3>
-				{gpuStatus && (
-					<span className={`px-2 py-0.5 text-xs rounded-full ${gpuStatus.available ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-						{gpuStatus.available ? 'Available' : 'Unavailable'}
-					</span>
-				)}
+				<div className="flex items-center gap-2">
+					{/* Mode toggle buttons */}
+					<button
+						onClick={() => setGpuViewMode('local')}
+						className={`px-2 py-0.5 text-xs rounded ${gpuViewMode === 'local' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-600'}`}
+					>
+						Local
+					</button>
+					<button
+						onClick={() => setGpuViewMode('cluster')}
+						className={`px-2 py-0.5 text-xs rounded ${gpuViewMode === 'cluster' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-600'}`}
+					>
+						Cluster
+					</button>
+					{gpuViewMode === 'local' && gpuStatus && (
+						<span className={`px-2 py-0.5 text-xs rounded-full ${gpuStatus.available ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+							{gpuStatus.available ? 'Available' : 'Unavailable'}
+						</span>
+					)}
+					{gpuViewMode === 'cluster' && clusterGpuStatus && (
+						<span className={`px-2 py-0.5 text-xs rounded-full ${clusterGpuStatus.available ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+							{clusterGpuStatus.available ? `${clusterGpuStatus.total_allocatable_gpus}/${clusterGpuStatus.total_gpus} Available` : 'Unavailable'}
+						</span>
+					)}
+				</div>
 			</div>
 
-			{gpuLoading && <p className="text-gray-500 text-sm">Loading...</p>}
-			{gpuStatus?.error && <p className="text-red-500 text-sm">Error: {gpuStatus.error}</p>}
+			{/* Local GPU View */}
+			{gpuViewMode === 'local' && (
+				<>
+					{gpuLoading && <p className="text-gray-500 text-sm">Loading...</p>}
+					{gpuStatus?.error && <p className="text-red-500 text-sm">Error: {gpuStatus.error}</p>}
 
-			{gpuStatus?.gpus && (
-				<div className="space-y-2">
-					{gpuStatus.gpus.map((gpu) => {
-						const history = gpuHistory[gpu.index] || [];
-						return (
-							<div key={gpu.index} className="border rounded p-2">
-								<div className="flex justify-between items-center">
-									<div className="flex items-center gap-2">
-										<strong className="text-sm font-medium">GPU {gpu.index}: {gpu.name}</strong>
-										<span className="text-xs text-gray-500">{gpu.temperature_c}°C</span>
-									</div>
-									<div className="flex items-center gap-2">
-										<span className={`px-1.5 py-0.5 text-xs rounded ${gpu.utilization_percent > 80 ? 'bg-red-100 text-red-800' : gpu.utilization_percent > 50 ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800'}`}>
-											{gpu.utilization_percent}%
-										</span>
-										{/* Tiny utilization history sparkline */}
-										{history.length > 1 && (
-											<div className="flex items-end gap-px" style={{ height: '16px' }}>
-												{history.map((util, idx) => (
-													<div
-														key={idx}
-														className={`${
-															util > 80
-																? 'bg-red-400'
-																: util > 50
-																? 'bg-yellow-400'
-																: 'bg-green-400'
-														}`}
-														style={{
-															width: '2px',
-															height: `${Math.max(util * 0.16, 2)}px`,
-															minHeight: '2px'
-														}}
-														title={`${util}%`}
-													></div>
-												))}
+					{gpuStatus?.gpus && (
+						<div className="space-y-2">
+							{gpuStatus.gpus.map((gpu) => {
+								const history = gpuHistory[gpu.index] || [];
+								return (
+									<div key={gpu.index} className="border rounded p-2">
+										<div className="flex justify-between items-center">
+											<div className="flex items-center gap-2">
+												<strong className="text-sm font-medium">GPU {gpu.index}: {gpu.name}</strong>
+												<span className="text-xs text-gray-500">{gpu.temperature_c}°C</span>
 											</div>
-										)}
+											<div className="flex items-center gap-2">
+												<span className={`px-1.5 py-0.5 text-xs rounded ${gpu.utilization_percent > 80 ? 'bg-red-100 text-red-800' : gpu.utilization_percent > 50 ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800'}`}>
+													{gpu.utilization_percent}%
+												</span>
+												{/* Tiny utilization history sparkline */}
+												{history.length > 1 && (
+													<div className="flex items-end gap-px" style={{ height: '16px' }}>
+														{history.map((util, idx) => (
+															<div
+																key={idx}
+																className={`${
+																	util > 80
+																		? 'bg-red-400'
+																		: util > 50
+																		? 'bg-yellow-400'
+																		: 'bg-green-400'
+																}`}
+																style={{
+																	width: '2px',
+																	height: `${Math.max(util * 0.16, 2)}px`,
+																	minHeight: '2px'
+																}}
+																title={`${util}%`}
+															></div>
+														))}
+													</div>
+												)}
+											</div>
+										</div>
+
+										{/* Memory Usage Bar */}
+										<div className="mt-1">
+										<div className="flex justify-between text-xs text-gray-600 mb-1">
+											<span>Memory</span>
+											<span>{formatBytes(gpu.memory_used_mb)} / {formatBytes(gpu.memory_total_mb)}</span>
+										</div>
+										<div className="w-full bg-gray-200 rounded-full h-2">
+											<div
+												className={`h-2 rounded-full ${gpu.memory_usage_percent > 90 ? 'bg-red-600' : gpu.memory_usage_percent > 70 ? 'bg-yellow-500' : 'bg-blue-600'}`}
+												style={{ width: `${gpu.memory_usage_percent}%` }}
+											></div>
+										</div>
+										<p className="text-xs text-gray-500 mt-0.5">{gpu.memory_usage_percent.toFixed(1)}% used</p>
 									</div>
 								</div>
-
-								{/* Memory Usage Bar */}
-								<div className="mt-1">
-								<div className="flex justify-between text-xs text-gray-600 mb-1">
-									<span>Memory</span>
-									<span>{formatBytes(gpu.memory_used_mb)} / {formatBytes(gpu.memory_total_mb)}</span>
-								</div>
-								<div className="w-full bg-gray-200 rounded-full h-2">
-									<div
-										className={`h-2 rounded-full ${gpu.memory_usage_percent > 90 ? 'bg-red-600' : gpu.memory_usage_percent > 70 ? 'bg-yellow-500' : 'bg-blue-600'}`}
-										style={{ width: `${gpu.memory_usage_percent}%` }}
-									></div>
-								</div>
-								<p className="text-xs text-gray-500 mt-0.5">{gpu.memory_usage_percent.toFixed(1)}% used</p>
-							</div>
+								);
+							})}
 						</div>
-						);
-					})}
-				</div>
+					)}
+				</>
+			)}
+
+			{/* Cluster GPU View */}
+			{gpuViewMode === 'cluster' && (
+				<>
+					{clusterGpuLoading && <p className="text-gray-500 text-sm">Loading cluster GPUs...</p>}
+					{clusterGpuStatus?.error && <p className="text-red-500 text-sm">Error: {clusterGpuStatus.error}</p>}
+
+					{clusterGpuStatus?.nodes && (
+						<div className="space-y-3">
+							{/* Group GPUs by node */}
+							{Object.entries(
+								clusterGpuStatus.nodes.reduce((acc: Record<string, any[]>, gpu: any) => {
+									if (!acc[gpu.node_name]) {
+										acc[gpu.node_name] = [];
+									}
+									acc[gpu.node_name].push(gpu);
+									return acc;
+								}, {})
+							).map(([nodeName, gpus]: [string, any[]]) => (
+								<div key={nodeName} className="border rounded p-2 bg-gray-50">
+									<div className="flex items-center justify-between mb-2">
+										<h4 className="text-sm font-semibold text-gray-700 flex items-center">
+											<ServerIcon className="h-4 w-4 mr-1 text-gray-600" />
+											{nodeName}
+										</h4>
+										<span className="text-xs text-gray-600">
+											{gpus.filter(g => g.allocatable).length}/{gpus.length} available
+										</span>
+									</div>
+									<div className="grid grid-cols-4 gap-1">
+										{gpus.map((gpu, idx) => (
+											<div
+												key={idx}
+												className={`p-1 rounded text-xs text-center ${
+													gpu.allocatable
+														? 'bg-green-100 text-green-800'
+														: 'bg-red-100 text-red-800'
+												}`}
+												title={`GPU ${gpu.index}: ${gpu.name}`}
+											>
+												GPU {gpu.index}
+											</div>
+										))}
+									</div>
+								</div>
+							))}
+						</div>
+					)}
+				</>
 			)}
 		</div>
 	);

@@ -215,6 +215,103 @@ async def get_db_statistics(db: AsyncSession = Depends(get_db)) -> Dict[str, Any
 	}
 
 
+@router.get("/cluster-gpu-status")
+async def get_cluster_gpu_status() -> Dict[str, Any]:
+	"""Get GPU status across all nodes in the Kubernetes cluster."""
+	try:
+		# Query Kubernetes nodes with GPU resources
+		result = subprocess.run(
+			[
+				"kubectl",
+				"get",
+				"nodes",
+				"-o",
+				"json"
+			],
+			capture_output=True,
+			text=True,
+			timeout=10
+		)
+
+		if result.returncode != 0:
+			return {"available": False, "error": "kubectl command failed", "mode": "cluster"}
+
+		import json
+		nodes_data = json.loads(result.stdout)
+
+		cluster_gpus = []
+		total_gpus = 0
+		total_allocatable_gpus = 0
+
+		for node in nodes_data.get("items", []):
+			node_name = node["metadata"]["name"]
+			capacity = node["status"].get("capacity", {})
+			allocatable = node["status"].get("allocatable", {})
+
+			# Check for NVIDIA GPUs
+			gpu_capacity = 0
+			gpu_allocatable = 0
+
+			for key in capacity:
+				if "nvidia.com/gpu" in key:
+					gpu_capacity = int(capacity[key])
+					total_gpus += gpu_capacity
+					break
+
+			for key in allocatable:
+				if "nvidia.com/gpu" in key:
+					gpu_allocatable = int(allocatable[key])
+					total_allocatable_gpus += gpu_allocatable
+					break
+
+			if gpu_capacity > 0:
+				# Try to get detailed GPU info from the node
+				node_gpus = []
+				try:
+					# Run nvidia-smi on specific node via kubectl exec on a pod or SSH
+					# For now, we'll get basic info from node status
+					# Get node conditions and labels for more info
+					labels = node["metadata"].get("labels", {})
+					gpu_type = labels.get("nvidia.com/gpu.product", "Unknown")
+
+					# Create GPU entries for this node
+					for i in range(gpu_capacity):
+						node_gpus.append({
+							"index": i,
+							"node_name": node_name,
+							"name": gpu_type,
+							"capacity": 1,
+							"allocatable": 1 if i < gpu_allocatable else 0
+						})
+				except Exception as e:
+					print(f"Error getting GPU details for node {node_name}: {e}")
+					# Fallback: create basic entries
+					for i in range(gpu_capacity):
+						node_gpus.append({
+							"index": i,
+							"node_name": node_name,
+							"name": "Unknown GPU",
+							"capacity": 1,
+							"allocatable": 1 if i < gpu_allocatable else 0
+						})
+
+				cluster_gpus.extend(node_gpus)
+
+		return {
+			"available": True,
+			"mode": "cluster",
+			"nodes": cluster_gpus,
+			"total_gpus": total_gpus,
+			"total_allocatable_gpus": total_allocatable_gpus,
+			"timestamp": datetime.now().isoformat()
+		}
+
+	except FileNotFoundError:
+		return {"available": False, "error": "kubectl not found", "mode": "cluster"}
+	except Exception as e:
+		return {"available": False, "error": str(e), "mode": "cluster"}
+
+
 @router.get("/experiment-timeline")
 async def get_experiment_timeline(
 	hours: int = 24,

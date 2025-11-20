@@ -10,9 +10,30 @@ import type {
 
 const API_BASE_URL = 'http://localhost:8000';
 
+export interface ClusterGPUStatus {
+	available: boolean;
+	mode: 'cluster';
+	nodes?: Array<{
+		index: number;
+		node_name: string;
+		name: string;
+		capacity: number;
+		allocatable: number;
+	}>;
+	total_gpus?: number;
+	total_allocatable_gpus?: number;
+	error?: string;
+	timestamp: string;
+}
+
 export const dashboardApi = {
 	async getGPUStatus(): Promise<GPUStatus> {
 		const response = await axios.get<GPUStatus>(`${API_BASE_URL}/api/dashboard/gpu-status`);
+		return response.data;
+	},
+
+	async getClusterGPUStatus(): Promise<ClusterGPUStatus> {
+		const response = await axios.get<ClusterGPUStatus>(`${API_BASE_URL}/api/dashboard/cluster-gpu-status`);
 		return response.data;
 	},
 
