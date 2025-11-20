@@ -107,14 +107,14 @@ class DirectBenchmarkController:
 		return snapshots
 
 	def setup_port_forward(
-		self, service_name: str, namespace: str, remote_port: int = 8000, local_port: int = 8080
+		self, service_name: str, namespace: str, remote_port: int = 8080, local_port: int = 8080
 	) -> Optional[str]:
 		"""Setup kubectl port-forward for accessing InferenceService.
 
 		Args:
 		    service_name: InferenceService name (used to find pods)
 		    namespace: K8s namespace
-		    remote_port: Remote service port (default 8000 for SGLang)
+		    remote_port: Remote service port (default 8080 for OME InferenceServices)
 		    local_port: Local port to forward to
 
 		Returns:
@@ -135,7 +135,7 @@ class DirectBenchmarkController:
 					"-n",
 					namespace,
 					"-l",
-					f"serving.kserve.io/inferenceservice={service_name}",
+					f"ome.io/inferenceservice={service_name}",
 					"-o",
 					"jsonpath={.items[0].metadata.name}",
 				],
@@ -146,9 +146,9 @@ class DirectBenchmarkController:
 
 			if result.returncode != 0 or not result.stdout.strip():
 				print(f"[Port Forward] No pods found for InferenceService {service_name}")
-				print(f"[Port Forward] Trying direct service name...")
-				# Fallback to service name
-				pod_or_svc = f"svc/{service_name}"
+				print(f"[Port Forward] Trying direct service name with -engine suffix...")
+				# Fallback to service name with -engine suffix
+				pod_or_svc = f"svc/{service_name}-engine"
 			else:
 				pod_name = result.stdout.strip()
 				print(f"[Port Forward] Found pod: {pod_name}")
@@ -156,7 +156,7 @@ class DirectBenchmarkController:
 
 		except Exception as e:
 			print(f"[Port Forward] Error finding pod: {e}")
-			pod_or_svc = f"svc/{service_name}"
+			pod_or_svc = f"svc/{service_name}-engine"
 
 		# Start port-forward in background
 		cmd = [
@@ -242,7 +242,7 @@ class DirectBenchmarkController:
 			need_cleanup = False
 		else:
 			# Setup port forward (Kubernetes mode)
-			endpoint_url = self.setup_port_forward(service_name, namespace, 8000, local_port)
+			endpoint_url = self.setup_port_forward(service_name, namespace, 8080, local_port)
 			if not endpoint_url:
 				print(f"[Benchmark] Failed to setup port forward")
 				return None
@@ -308,7 +308,7 @@ class DirectBenchmarkController:
 		env = os.environ.copy()
 
 		# Check if proxy is configured in environment or use default
-		proxy_url = os.environ.get('HTTPS_PROXY') or os.environ.get('https_proxy') or 'http://172.17.0.1:1081'
+		proxy_url = os.environ.get('HTTPS_PROXY') or os.environ.get('https_proxy')
 		env['HTTP_PROXY'] = proxy_url
 		env['http_proxy'] = proxy_url
 		env['HTTPS_PROXY'] = proxy_url

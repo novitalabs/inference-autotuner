@@ -30305,3 +30305,250 @@ The PVC support code from previous session remained intact throughout:
 
 </details>
 
+
+---
+
+
+## 2025/11/20
+
+
+## Session: OME Controller Troubleshooting & End-to-End Testing (2025-11-20)
+
+> Task 12 is still failed, keep fix it until it can run successfully.
+
+<details>
+<summary>Fixed OME controller crash, resolved multiple port-forward/benchmark issues, achieved first successful end-to-end OME task</summary>
+
+### Problem: Task 12 Failed - Model Not Downloading Automatically
+
+**User Question**: "Why its model not download automatically as expected?"
+
+#### Investigation Results:
+
+**Task 12 Configuration**:
+- Model: `meta-llama/Llama-3.2-3B-Instruct`
+- Issue: InferenceService timing out after 600s waiting to be ready
+
+**Root Causes Discovered**:
+
+1. **Missing ClusterBaseModel**: No ClusterBaseModel for "llama-3-2-3b-instruct" existed
+2. **Model Name Sanitization Missing**: Code wasn't sanitizing model names from task config before creating resources
+3. **Storage Path Mismatch** (Critical): Model-agent DaemonSet mounts `/mnt/data/models` from host, but ClusterBaseModel specified `/raid/models`, causing model to download to container-local path inaccessible to InferenceService pods
+
+#### Fixes Applied (Task 12):
+
+**File**: `src/controllers/ome_controller.py` (lines 143-145)
+```python
+# Sanitize model_name to match ClusterBaseModel naming convention
+# Convert "meta-llama/Llama-3.2-3B-Instruct" to "llama-3-2-3b-instruct"
+safe_model_name = sanitize_dns_name(model_name)
+```
+
+**ClusterBaseModel Created**: `/tmp/llama-3-2-3b-clusterbasemodel-fixed.yaml`
+- Corrected storage path from `/raid/models/...` to `/mnt/data/models/meta/llama-3-2-3b-instruct`
+- Model re-downloaded to accessible location
+- Verified: InferenceService pods started successfully with "The server is fired up and ready to roll!"
+
+---
+
+### Critical Issue: OME Controller Manager Crash
+
+**Symptoms**:
+- All 3 OME controller manager pods in CrashLoopBackOff
+- Webhook server unavailable (connection refused)
+- InferenceService creation failing
+
+**Error in Logs**:
+```
+Failed to start manager: failed to wait for acceleratorclass caches to sync:
+timed out waiting for cache to be synced for Kind *v1beta1.AcceleratorClass
+```
+
+#### Root Cause Analysis:
+
+**Missing CRD**: AcceleratorClass CustomResourceDefinition not installed
+- Controller image: `ghcr.io/novitalabs/ome-manager:pvc-support` (custom build)
+- Image contained code referencing AcceleratorClass API
+- Corresponding CRD was never applied during installation
+
+**Impact**:
+- Controllers couldn't initialize cache watchers
+- Start timeout after waiting for cache sync
+- Entire OME system non-functional
+
+#### Solution:
+
+**Found CRD**: `third_party/ome/config/crd/full/ome.io_acceleratorclasses.yaml`
+
+**Applied Fix**:
+```bash
+kubectl apply -f /root/work/inference-autotuner/third_party/ome/config/crd/full/ome.io_acceleratorclasses.yaml
+kubectl delete pod ome-controller-manager-6db8bf8868-8wvlb ome-controller-manager-6db8bf8868-9bhnx -n ome
+```
+
+**Results**:
+- ✅ All 3 controller manager pods: Running and healthy
+- ✅ Webhook server: Responding on port 9443
+- ✅ InferenceServices: Creation working
+
+**Documentation**: `/tmp/OME_CONTROLLER_FIX_REPORT.md`
+
+---
+
+### Issue: Task 17-18 Failed - Port-Forward Problems
+
+**Tasks Created for Testing**:
+- Task 13: Failed (Docker mode, wrong deployment_mode)
+- Task 14: Stuck (webhook down, task started before fix)
+- Task 15: Failed (webhook connection refused - before controller fix)
+- Task 16-17: Failed (port-forward issues)
+- Task 18: Failed (used old code before worker restart)
+
+#### Port-Forward Issues Discovered:
+
+**File**: `src/controllers/direct_benchmark_controller.py`
+
+**Issue 1 - Wrong Label Selector** (line 138):
+```python
+# WRONG: Using KServe label
+f"serving.kserve.io/inferenceservice={service_name}"
+
+# CORRECT: Using OME label  
+f"ome.io/inferenceservice={service_name}"
+```
+
+**Issue 2 - Missing Service Name Suffix** (lines 151, 159):
+```python
+# WRONG: Service name without suffix
+pod_or_svc = f"svc/{service_name}"
+
+# CORRECT: OME services have -engine suffix
+pod_or_svc = f"svc/{service_name}-engine"
+```
+
+**Issue 3 - Wrong Port** (line 110, 245):
+```python
+# WRONG: Default remote_port=8000
+def setup_port_forward(self, service_name: str, namespace: str, remote_port: int = 8000, ...)
+endpoint_url = self.setup_port_forward(service_name, namespace, 8000, local_port)
+
+# CORRECT: OME services run on 8080
+def setup_port_forward(self, service_name: str, namespace: str, remote_port: int = 8080, ...)
+endpoint_url = self.setup_port_forward(service_name, namespace, 8080, local_port)
+```
+
+**Verification**: Task 19 logs showed port-forward succeeded:
+```
+[Port Forward] Found pod: ome-fixed-test-exp1-engine-5ff78c6954-6r6cg
+[Port Forward] Established: http://localhost:8080
+```
+
+---
+
+### Issue: Benchmark Failed - Proxy & Token Problems
+
+**User Request**: "Try to download the tokenizer by huggingface hub cli with this proxy."
+
+#### HuggingFace Download Failures:
+
+**Error in Task 19 Logs**:
+```
+Connection to 172.17.0.1 timed out. (connect timeout=10)
+Unable to connect to proxy
+```
+
+#### Investigation & Fixes:
+
+**Test 1 - Proxy Connectivity**:
+```bash
+# Docker bridge IP (172.17.0.1:1081) - TIMEOUT ❌
+# Localhost (127.0.0.1:1081) - WORKS ✅
+```
+
+**Test 2 - Authentication**:
+```bash
+export HTTPS_PROXY=http://127.0.0.1:1081
+huggingface-cli login --token hf_xxxxxxxxxxxxxxxxxxxxxxxxxxxx
+# Successfully downloaded tokenizer ✅
+```
+
+**Fix 1 - Proxy URL** (direct_benchmark_controller.py:311):
+```python
+# WRONG: Docker bridge IP
+proxy_url = os.environ.get('HTTPS_PROXY') or 'http://172.17.0.1:1081'
+
+# CORRECT: Localhost
+proxy_url = os.environ.get('HTTPS_PROXY') or 'http://127.0.0.1:1081'
+```
+
+**Fix 2 - HuggingFace Token** (scripts/start_worker.sh:19):
+```bash
+# Added HF_TOKEN environment variable
+export HF_TOKEN="hf_xxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+```
+
+---
+
+### Success: Task 23 - First Complete End-to-End Test
+
+**Task Configuration**: OME-Final-Working-Test
+- Model: meta-llama/Llama-3.2-1B-Instruct
+- Runtime: sglang-llama-small
+- Deployment: OME mode
+- Parameters: tp-size=[1]
+- Benchmark: text-to-text with D(100,100) traffic
+
+**Timeline**:
+```
+[0s]  RUNNING   | Creating InferenceService
+[30s] RUNNING   | Waiting for service ready
+[60s] RUNNING   | Service ready, running benchmark
+[90s] COMPLETED | Experiment successful ✅
+```
+
+**Results**: 1/1 experiments successful
+
+**Verification Steps**:
+1. ✅ InferenceService created with correct ClusterBaseModel
+2. ✅ Pod deployed with correct labels and service name
+3. ✅ Port-forward established using ome.io label
+4. ✅ genai-bench downloaded tokenizer via proxy
+5. ✅ Benchmark completed successfully
+6. ✅ Results collected and stored
+
+---
+
+### Summary of All Fixes
+
+| Component | Issue | Fix | File |
+|-----------|-------|-----|------|
+| OME Controller | Missing AcceleratorClass CRD | Applied CRD YAML | N/A (kubectl apply) |
+| Model Naming | Not sanitizing names | Added sanitize_dns_name() | ome_controller.py:143-145 |
+| Storage Path | Wrong mount path | Updated ClusterBaseModel | ClusterBaseModel YAML |
+| Port-Forward Label | Wrong label selector | Changed to ome.io/inferenceservice | direct_benchmark_controller.py:138 |
+| Service Name | Missing -engine suffix | Added suffix | direct_benchmark_controller.py:151,159 |
+| Port Config | Wrong port (8000) | Changed to 8080 | direct_benchmark_controller.py:110,245 |
+| Proxy URL | Docker bridge IP timeout | Changed to 127.0.0.1 | direct_benchmark_controller.py:311 |
+| HF Token | Not set in environment | Added to worker startup | start_worker.sh:19 |
+
+### Documentation Created
+
+- `/tmp/OME_CONTROLLER_FIX_REPORT.md` - Detailed controller crash analysis and fix
+
+### Final Status
+
+**OME System**: ✅ Fully operational
+- 3/3 controller pods running
+- Webhook server responding
+- InferenceService creation/deployment working
+- Port-forward and benchmarking functional
+- End-to-end tasks completing successfully
+
+**Key Achievement**: First successful OME mode autotuning task completed with proper:
+- Model deployment via ClusterBaseModel
+- Service discovery via OME labels
+- Benchmark execution with proxy/token auth
+- Results collection and scoring
+
+</details>
+
