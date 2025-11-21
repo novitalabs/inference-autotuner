@@ -404,6 +404,9 @@ class DirectBenchmarkController:
 		env['TRANSFORMERS_OFFLINE'] = '1'
 		print(f"[Benchmark] HuggingFace offline mode enabled (using cached tokenizers)")
 
+		# Filter out None values from environment (subprocess requires all values to be strings)
+		env = {k: v for k, v in env.items() if v is not None}
+
 		# Setup GPU monitoring if GPU indices provided
 		gpu_monitor_thread = None
 		gpu_snapshots = []
