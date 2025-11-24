@@ -12,24 +12,43 @@ metadata:
   labels:
     autotuner.io/task: "{{ task_name }}"
     autotuner.io/experiment-id: "{{ experiment_id }}"
+  annotations:
+    {% if storage and storage.type == 'pvc' %}
+    ome.io/storage-type: "pvc"
+    ome.io/pvc-name: "{{ storage.pvc_name }}"
+    {% if storage.pvc_subpath %}
+    ome.io/pvc-subpath: "{{ storage.pvc_subpath }}"
+    {% endif %}
+    {% if storage.mount_path %}
+    ome.io/mount-path: "{{ storage.mount_path }}"
+    {% endif %}
+    {% endif %}
 spec:
   model:
     name: {{ model_name }}
+  runtime:
+    name: {{ runtime_name }}
+    apiGroup: ome.io
+    kind: ClusterServingRuntime
   engine:
     minReplicas: 1
     maxReplicas: 1
-    containers:
-      - name: ome-container
-        args:
-          - --host=0.0.0.0
-          - --port=8080
-          - --model-path=/mnt/data/models/{{ model_name }}
-          - --tp-size={{ tp_size }}
-          - --mem-frac={{ mem_frac }}{% if max_total_tokens %}
-          - --max-total-tokens={{ max_total_tokens }}{% endif %}{% if schedule_policy %}
-          - --schedule-policy={{ schedule_policy }}{% endif %}
-        resources:
-          limits:
-            nvidia.com/gpu: {{ tp_size }}
-          requests:
-            nvidia.com/gpu: {{ tp_size }}
+    runner:
+      name: ome-container
+      resources:
+        limits:
+          nvidia.com/gpu: {{ params.get('tpsize', params.get('tp_size', params.get('tp-size', 1))) }}
+        requests:
+          nvidia.com/gpu: {{ params.get('tpsize', params.get('tp_size', params.get('tp-size', 1))) }}
+    {% if selected_node %}
+    # Intelligent GPU node selection based on cluster utilization
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+              - {{ selected_node }}
+    {% endif %}

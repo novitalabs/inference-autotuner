@@ -15,6 +15,16 @@ source env/bin/activate
 # Add src directory to PYTHONPATH so imports work
 export PYTHONPATH="$PROJECT_ROOT/src:$PYTHONPATH"
 
+# Load environment variables from .env.local if it exists
+if [ -f "$PROJECT_ROOT/.env.local" ]; then
+    echo "Loading environment variables from .env.local..."
+    source "$PROJECT_ROOT/.env.local"
+    # Explicitly export variables for child processes
+    export HF_TOKEN
+else
+    echo "Warning: .env.local not found. HF_TOKEN may not be set."
+fi
+
 # Start ARQ worker with nohup to survive session end
 # Worker settings are in src/web/workers/autotuner_worker.py
 echo "Starting ARQ worker with nohup..."

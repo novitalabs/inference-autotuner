@@ -4,8 +4,10 @@ OME Deployment Controller
 Manages the lifecycle of InferenceService resources for autotuning experiments.
 """
 
+import re
 import time
 import yaml
+import sys
 from pathlib import Path
 from typing import Dict, Any, Optional
 from jinja2 import Template
@@ -13,6 +15,48 @@ from kubernetes import client, config
 from kubernetes.client.rest import ApiException
 
 from .base_controller import BaseModelController
+
+# Import GPU discovery utility with absolute import
+# Add parent directory to path if needed
+if str(Path(__file__).parent.parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from utils.gpu_discovery import find_best_node_for_deployment
+
+
+def sanitize_dns_name(name: str) -> str:
+	"""
+	Sanitize a name to be OME webhook compliant.
+
+	OME webhook requires names to match: [a-z]([-a-z0-9]*[a-z0-9])?
+	Rules:
+	- lowercase letters, numbers, '-' only (NO periods)
+	- must start with a lowercase letter
+	- must end with alphanumeric character
+	- max 253 characters
+
+	Args:
+	    name: The name to sanitize
+
+	Returns:
+	    OME-compliant name
+	"""
+	# Convert to lowercase
+	name = name.lower()
+	# Replace invalid characters (including periods) with dash
+	name = re.sub(r'[^a-z0-9-]', '-', name)
+	# Remove leading non-letters (must start with letter)
+	name = re.sub(r'^[^a-z]+', '', name)
+	# Remove trailing non-alphanumeric
+	name = re.sub(r'[^a-z0-9]+$', '', name)
+	# Replace multiple consecutive dashes with single dash
+	name = re.sub(r'-+', '-', name)
+	# Truncate to 253 characters
+	name = name[:253]
+	# Ensure name starts with a letter (if empty after sanitization, use 'task')
+	if not name or not name[0].isalpha():
+		name = 'task-' + name
+	return name
 
 
 class OMEController(BaseModelController):
@@ -41,6 +85,10 @@ class OMEController(BaseModelController):
 		template_dir = Path(__file__).parent.parent / "templates"
 		with open(template_dir / "inference_service.yaml.j2") as f:
 			self.isvc_template = Template(f.read())
+		with open(template_dir / "clusterbasemodel.yaml.j2") as f:
+			self.cbm_template = Template(f.read())
+		with open(template_dir / "clusterservingruntime.yaml.j2") as f:
+			self.csr_template = Template(f.read())
 
 	def create_namespace(self, namespace: str) -> bool:
 		"""Create namespace if it doesn't exist.
@@ -74,6 +122,8 @@ class OMEController(BaseModelController):
 		model_name: str,
 		runtime_name: str,
 		parameters: Dict[str, Any],
+		storage: Optional[Dict[str, Any]] = None,
+		enable_gpu_selection: bool = True,
 	) -> Optional[str]:
 		"""Deploy an InferenceService with specified parameters.
 
@@ -84,11 +134,42 @@ class OMEController(BaseModelController):
 		    model_name: Model name
 		    runtime_name: ServingRuntime name
 		    parameters: SGLang parameters (tp_size, mem_frac, etc.)
+		    storage: Optional storage configuration for PVC support
+		             {
+		                 'type': 'pvc',
+		                 'pvc_name': 'model-storage-pvc',
+		                 'pvc_subpath': 'meta/llama-3-2-1b-instruct',
+		                 'mount_path': '/raid/models/meta/llama-3-2-1b-instruct'
+		             }
+		    enable_gpu_selection: If True, intelligently select node with idle GPUs (default: True)
 
 		Returns:
 		    InferenceService name if successful, None otherwise
 		"""
-		isvc_name = f"{task_name}-exp{experiment_id}"
+		# Sanitize task_name to be DNS-1123 compliant
+		safe_task_name = sanitize_dns_name(task_name)
+		isvc_name = f"{safe_task_name}-exp{experiment_id}"
+
+		# Sanitize model_name to match ClusterBaseModel naming convention
+		# Convert "meta-llama/Llama-3.2-3B-Instruct" to "llama-3-2-3b-instruct"
+		# Strip namespace prefix (everything before and including the slash) first
+		model_basename = model_name.split('/')[-1] if '/' in model_name else model_name
+		safe_model_name = sanitize_dns_name(model_basename)
+
+		# Determine required GPUs from parameters
+		required_gpus = parameters.get('tpsize', parameters.get('tp_size', parameters.get('tp-size', 1)))
+
+		# Find best node for deployment if enabled
+		selected_node = None
+		if enable_gpu_selection:
+			print(f"\n=== GPU Node Selection ===")
+			print(f"Looking for node with {required_gpus} idle GPU(s)...")
+			selected_node = find_best_node_for_deployment(required_gpus=required_gpus)
+			if selected_node:
+				print(f"✓ Selected node: {selected_node}")
+			else:
+				print("⚠ No specific node selected (will use Kubernetes scheduler)")
+			print("=" * 26 + "\n")
 
 		# Render template
 		rendered = self.isvc_template.render(
@@ -96,9 +177,11 @@ class OMEController(BaseModelController):
 			isvc_name=isvc_name,
 			task_name=task_name,
 			experiment_id=experiment_id,
-			model_name=model_name,
+			model_name=safe_model_name,
 			runtime_name=runtime_name,
-			**parameters,
+			params=parameters,
+			storage=storage,
+			selected_node=selected_node,  # Pass to template
 		)
 
 		# Parse YAML (contains namespace + InferenceService)
@@ -117,7 +200,8 @@ class OMEController(BaseModelController):
 				plural="inferenceservices",
 				body=isvc_resource,
 			)
-			print(f"Created InferenceService '{isvc_name}' in namespace '{namespace}'")
+			node_info = f" on node '{selected_node}'" if selected_node else ""
+			print(f"Created InferenceService '{isvc_name}' in namespace '{namespace}'{node_info}")
 			return isvc_name
 		except ApiException as e:
 			print(f"Error creating InferenceService: {e}")
@@ -222,4 +306,194 @@ class OMEController(BaseModelController):
 			return isvc.get("status", {}).get("url")
 		except ApiException as e:
 			print(f"Error getting service URL: {e}")
+			return None
+
+	# ClusterBaseModel Management
+	def ensure_clusterbasemodel(
+		self,
+		name: str,
+		spec: Dict[str, Any],
+		labels: Optional[Dict[str, str]] = None,
+		annotations: Optional[Dict[str, str]] = None
+	) -> bool:
+		"""Ensure ClusterBaseModel exists, create if missing.
+
+		Args:
+		    name: ClusterBaseModel name
+		    spec: ClusterBaseModel specification
+		    labels: Optional labels to add
+		    annotations: Optional annotations to add
+
+		Returns:
+		    True if exists or created successfully, False otherwise
+		"""
+		try:
+			# Check if ClusterBaseModel already exists
+			self.custom_api.get_cluster_custom_object(
+				group="ome.io",
+				version="v1beta1",
+				plural="clusterbasemodels",
+				name=name
+			)
+			print(f"ClusterBaseModel '{name}' already exists")
+			return True
+		except ApiException as e:
+			if e.status == 404:
+				# Create ClusterBaseModel
+				return self._create_clusterbasemodel(name, spec, labels, annotations)
+			else:
+				print(f"Error checking ClusterBaseModel '{name}': {e}")
+				return False
+
+	def _create_clusterbasemodel(
+		self,
+		name: str,
+		spec: Dict[str, Any],
+		labels: Optional[Dict[str, str]] = None,
+		annotations: Optional[Dict[str, str]] = None
+	) -> bool:
+		"""Create ClusterBaseModel from spec.
+
+		Args:
+		    name: ClusterBaseModel name
+		    spec: ClusterBaseModel specification
+		    labels: Optional labels to add
+		    annotations: Optional annotations to add
+
+		Returns:
+		    True if created successfully, False otherwise
+		"""
+		try:
+			# Render template
+			rendered = self.cbm_template.render(
+				name=name,
+				spec=spec,
+				labels=labels or {},
+				annotations=annotations or {}
+			)
+
+			# Parse YAML and create resource
+			resource = yaml.safe_load(rendered)
+			self.custom_api.create_cluster_custom_object(
+				group="ome.io",
+				version="v1beta1",
+				plural="clusterbasemodels",
+				body=resource
+			)
+			print(f"Created ClusterBaseModel '{name}'")
+			return True
+		except ApiException as e:
+			print(f"Error creating ClusterBaseModel '{name}': {e}")
+			return False
+
+	def list_clusterbasemodels(self) -> Optional[Dict[str, Any]]:
+		"""List all ClusterBaseModels in the cluster.
+
+		Returns:
+		    List of ClusterBaseModels or None on error
+		"""
+		try:
+			result = self.custom_api.list_cluster_custom_object(
+				group="ome.io",
+				version="v1beta1",
+				plural="clusterbasemodels"
+			)
+			return result
+		except ApiException as e:
+			print(f"Error listing ClusterBaseModels: {e}")
+			return None
+
+	# ClusterServingRuntime Management
+	def ensure_clusterservingruntime(
+		self,
+		name: str,
+		spec: Dict[str, Any],
+		labels: Optional[Dict[str, str]] = None,
+		annotations: Optional[Dict[str, str]] = None
+	) -> bool:
+		"""Ensure ClusterServingRuntime exists, create if missing.
+
+		Args:
+		    name: ClusterServingRuntime name
+		    spec: ClusterServingRuntime specification
+		    labels: Optional labels to add
+		    annotations: Optional annotations to add
+
+		Returns:
+		    True if exists or created successfully, False otherwise
+		"""
+		try:
+			# Check if ClusterServingRuntime already exists
+			self.custom_api.get_cluster_custom_object(
+				group="ome.io",
+				version="v1beta1",
+				plural="clusterservingruntimes",
+				name=name
+			)
+			print(f"ClusterServingRuntime '{name}' already exists")
+			return True
+		except ApiException as e:
+			if e.status == 404:
+				# Create ClusterServingRuntime
+				return self._create_clusterservingruntime(name, spec, labels, annotations)
+			else:
+				print(f"Error checking ClusterServingRuntime '{name}': {e}")
+				return False
+
+	def _create_clusterservingruntime(
+		self,
+		name: str,
+		spec: Dict[str, Any],
+		labels: Optional[Dict[str, str]] = None,
+		annotations: Optional[Dict[str, str]] = None
+	) -> bool:
+		"""Create ClusterServingRuntime from spec.
+
+		Args:
+		    name: ClusterServingRuntime name
+		    spec: ClusterServingRuntime specification
+		    labels: Optional labels to add
+		    annotations: Optional annotations to add
+
+		Returns:
+		    True if created successfully, False otherwise
+		"""
+		try:
+			# Render template
+			rendered = self.csr_template.render(
+				name=name,
+				spec=spec,
+				labels=labels or {},
+				annotations=annotations or {}
+			)
+
+			# Parse YAML and create resource
+			resource = yaml.safe_load(rendered)
+			self.custom_api.create_cluster_custom_object(
+				group="ome.io",
+				version="v1beta1",
+				plural="clusterservingruntimes",
+				body=resource
+			)
+			print(f"Created ClusterServingRuntime '{name}'")
+			return True
+		except ApiException as e:
+			print(f"Error creating ClusterServingRuntime '{name}': {e}")
+			return False
+
+	def list_clusterservingruntimes(self) -> Optional[Dict[str, Any]]:
+		"""List all ClusterServingRuntimes in the cluster.
+
+		Returns:
+		    List of ClusterServingRuntimes or None on error
+		"""
+		try:
+			result = self.custom_api.list_cluster_custom_object(
+				group="ome.io",
+				version="v1beta1",
+				plural="clusterservingruntimes"
+			)
+			return result
+		except ApiException as e:
+			print(f"Error listing ClusterServingRuntimes: {e}")
 			return None

@@ -201,6 +201,9 @@ async def run_autotuning_task(ctx: Dict[str, Any], task_id: int) -> Dict[str, An
 				"parameters": task.parameters,
 				"optimization": task.optimization_config,
 				"benchmark": task.benchmark_config,
+				"deployment_mode": task.deployment_mode,
+				"clusterbasemodel_config": task.clusterbasemodel_config,
+				"clusterservingruntime_config": task.clusterservingruntime_config,
 			}
 
 			# Check GPU availability before starting task (only for Docker mode)
@@ -477,6 +480,19 @@ async def run_autotuning_task(ctx: Dict[str, Any], task_id: int) -> Dict[str, An
 					db_experiment.gpu_info = result.get("gpu_info")  # Save GPU information
 					db_experiment.error_message = result.get("error_message")  # Save error message for failed experiments
 					db_experiment.completed_at = datetime.utcnow()
+
+					# Save created resources to task (only on first experiment)
+					if iteration == 1:
+						created_resources = result.get("created_resources", {})
+						if created_resources:
+							cbm_name = created_resources.get("clusterbasemodel")
+							csr_name = created_resources.get("clusterservingruntime")
+							if cbm_name:
+								task.created_clusterbasemodel = cbm_name
+								logger.info(f"[ARQ Worker] Task created ClusterBaseModel: {cbm_name}")
+							if csr_name:
+								task.created_clusterservingruntime = csr_name
+								logger.info(f"[ARQ Worker] Task created ClusterServingRuntime: {csr_name}")
 
 					if db_experiment.started_at:
 						elapsed = (db_experiment.completed_at - db_experiment.started_at).total_seconds()

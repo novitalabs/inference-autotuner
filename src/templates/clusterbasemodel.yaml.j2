@@ -1,0 +1,61 @@
+apiVersion: ome.io/v1beta1
+kind: ClusterBaseModel
+metadata:
+  name: {{ name }}
+  {% if labels %}
+  labels:
+    {% for key, value in labels.items() %}
+    {{ key }}: "{{ value }}"
+    {% endfor %}
+  {% endif %}
+  {% if annotations %}
+  annotations:
+    {% for key, value in annotations.items() %}
+    {{ key }}: "{{ value }}"
+    {% endfor %}
+  {% endif %}
+spec:
+  displayName: {{ spec.displayName }}
+  vendor: {{ spec.vendor }}
+  disabled: {{ spec.disabled | lower }}
+  version: "{{ spec.version }}"
+  {% if spec.get('description') %}
+  description: {{ spec.description }}
+  {% endif %}
+  {% if spec.get('modelFormat') %}
+  modelFormat:
+    name: "{{ spec.modelFormat.name }}"
+    operator: {{ spec.modelFormat.operator }}
+    {% if spec.modelFormat.get('version') %}
+    version: "{{ spec.modelFormat.version }}"
+    {% endif %}
+    {% if spec.modelFormat.get('weight') %}
+    weight: {{ spec.modelFormat.weight }}
+    {% endif %}
+  {% endif %}
+  {% if spec.get('modelArchitecture') %}
+  modelArchitecture: {{ spec.modelArchitecture }}
+  {% endif %}
+  {% if spec.get('modelFramework') %}
+  modelFramework:
+    name: "{{ spec.modelFramework.name }}"
+    operator: {{ spec.modelFramework.operator }}
+    {% if spec.modelFramework.get('version') %}
+    version: "{{ spec.modelFramework.version }}"
+    {% endif %}
+  {% endif %}
+  storage:
+    storageUri: {{ spec.storage.storageUri }}
+    path: {{ spec.storage.path }}
+    {% if spec.storage.get('key') %}
+    key: "{{ spec.storage.key }}"
+    {% endif %}
+    {% if spec.storage.get('storageType') %}
+    storageType: {{ spec.storage.storageType }}
+    {% endif %}
+  {% if spec.get('nodeSelector') %}
+  nodeSelector:
+    {% for key, value in spec.nodeSelector.items() %}
+    {{ key }}: "{{ value }}"
+    {% endfor %}
+  {% endif %}

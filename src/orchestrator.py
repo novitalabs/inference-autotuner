@@ -19,6 +19,7 @@ from controllers.benchmark_controller import BenchmarkController
 from controllers.direct_benchmark_controller import DirectBenchmarkController
 from utils.optimizer import generate_parameter_grid, calculate_objective_score, create_optimization_strategy
 from utils.quantization_integration import prepare_runtime_parameters
+from config import clusterbasemodel_presets, clusterservingruntime_presets
 
 
 class AutotunerOrchestrator:
@@ -119,6 +120,40 @@ class AutotunerOrchestrator:
 		# Optional: custom Docker image tag
 		image_tag = task.get("runtime_image_tag")
 
+		# Step 0: Ensure ClusterBaseModel and ClusterServingRuntime exist (OME mode only)
+		created_resources = {"clusterbasemodel": None, "clusterservingruntime": None}
+
+		if self.deployment_mode == "ome":
+			# Handle ClusterBaseModel creation
+			cbm_config = task.get("clusterbasemodel_config")
+			if cbm_config:
+				print(f"\n[Step 0a/4] Ensuring ClusterBaseModel exists...")
+				cbm_name, cbm_created = self._ensure_clusterbasemodel(cbm_config, model_name)
+				if cbm_created:
+					created_resources["clusterbasemodel"] = cbm_name
+					print(f"ClusterBaseModel '{cbm_name}' is ready")
+				elif cbm_name:
+					print(f"Using existing ClusterBaseModel '{cbm_name}'")
+				else:
+					print("Warning: Failed to ensure ClusterBaseModel, using model_name as fallback")
+
+			# Handle ClusterServingRuntime creation
+			csr_config = task.get("clusterservingruntime_config")
+			if csr_config:
+				print(f"\n[Step 0b/4] Ensuring ClusterServingRuntime exists...")
+				csr_name, csr_created = self._ensure_clusterservingruntime(csr_config, runtime_name)
+				if csr_created:
+					created_resources["clusterservingruntime"] = csr_name
+					print(f"ClusterServingRuntime '{csr_name}' is ready")
+				elif csr_name:
+					print(f"Using existing ClusterServingRuntime '{csr_name}'")
+				else:
+					print("Warning: Failed to ensure ClusterServingRuntime, using runtime_name as fallback")
+
+				# Update runtime_name to use the created/ensured runtime
+				if csr_name:
+					runtime_name = csr_name
+
 		print(f"\n{'='*80}")
 		print(f"Experiment {experiment_id}")
 		print(f"Parameters: {parameters}")
@@ -140,11 +175,15 @@ class AutotunerOrchestrator:
 			"status": "failed",
 			"metrics": None,
 			"container_logs": None,  # Will store container logs for Docker mode
-			"error_message": None,  # Will store error details for failed experiments
+		"error_message": None,  # Will store error details for failed experiments
+		"created_resources": created_resources,  # Track created resources
 		}
 
 		# Step 1: Deploy InferenceService
 		print(f"[Step 1/4] Deploying InferenceService...")
+
+		# Extract storage configuration if present (for PVC support)
+		storage_config = task.get("storage")
 
 		# Pass image_tag if deploying with DockerController
 		if hasattr(self.model_controller, "client"):  # DockerController has 'client' attribute
@@ -157,7 +196,7 @@ class AutotunerOrchestrator:
 				parameters=runtime_parameters,  # Use converted parameters
 				image_tag=image_tag,
 			)
-		else:  # OMEController doesn't support image_tag yet
+		else:  # OMEController
 			isvc_name = self.model_controller.deploy_inference_service(
 				task_name=task_name,
 				experiment_id=experiment_id,
@@ -165,6 +204,8 @@ class AutotunerOrchestrator:
 				model_name=model_name,
 				runtime_name=runtime_name,
 				parameters=runtime_parameters,  # Use converted parameters
+				storage=storage_config,  # Pass storage config for PVC support
+				enable_gpu_selection=False,  # Temporarily disable GPU selection due to allocation detection issues
 			)
 
 		if not isvc_name:
@@ -495,3 +536,114 @@ class AutotunerOrchestrator:
 			"best_result": best_result,
 			"all_results": self.results,
 		}
+
+	def _ensure_clusterbasemodel(self, config: Dict[str, Any], fallback_name: str) -> tuple[str, bool]:
+		"""Ensure ClusterBaseModel exists, create if needed.
+
+		Args:
+		    config: ClusterBaseModel configuration (preset or spec)
+		    fallback_name: Fallback name if config doesn't specify
+
+		Returns:
+		    Tuple of (resource_name, was_created)
+		"""
+		if not isinstance(self.model_controller, OMEController):
+			print("Warning: ClusterBaseModel creation only supported in OME mode")
+			return (fallback_name, False)
+
+		# Check if config specifies a preset
+		preset_name = config.get("preset")
+		if preset_name:
+			try:
+				preset = clusterbasemodel_presets.get_preset(preset_name)
+				name = preset["name"]
+				spec = preset["spec"]
+				print(f"Using ClusterBaseModel preset: {preset['display_name']}")
+			except ValueError as e:
+				print(f"Error loading preset: {e}")
+				return (fallback_name, False)
+		else:
+			# Custom configuration
+			name = config.get("name", fallback_name)
+			spec = config.get("spec")
+			if not spec:
+				print("Error: ClusterBaseModel config must have 'preset' or 'spec'")
+				return (fallback_name, False)
+
+		# Apply any overrides
+		overrides = config.get("overrides", {})
+		if overrides:
+			# Deep merge overrides into spec
+			for key, value in overrides.items():
+				if isinstance(value, dict) and key in spec and isinstance(spec[key], dict):
+					spec[key] = {**spec[key], **value}
+				else:
+					spec[key] = value
+
+		# Ensure resource exists
+		success = self.model_controller.ensure_clusterbasemodel(
+			name=name,
+			spec=spec,
+			labels=config.get("labels"),
+			annotations=config.get("annotations")
+		)
+
+		return (name if success else fallback_name, success)
+
+	def _ensure_clusterservingruntime(self, config: Dict[str, Any], fallback_name: str) -> tuple[str, bool]:
+		"""Ensure ClusterServingRuntime exists, create if needed.
+
+		Args:
+		    config: ClusterServingRuntime configuration (preset or spec)
+		    fallback_name: Fallback name if config doesn't specify
+
+		Returns:
+		    Tuple of (resource_name, was_created)
+		"""
+		if not isinstance(self.model_controller, OMEController):
+			print("Warning: ClusterServingRuntime creation only supported in OME mode")
+			return (fallback_name, False)
+
+		# Check if config specifies a preset
+		preset_name = config.get("preset")
+		if preset_name:
+			try:
+				preset = clusterservingruntime_presets.get_preset(preset_name)
+				name = preset["name"]
+				spec = preset["spec"]
+				print(f"Using ClusterServingRuntime preset: {preset['display_name']}")
+			except ValueError as e:
+				print(f"Error loading preset: {e}")
+				return (fallback_name, False)
+		else:
+			# Custom configuration
+			name = config.get("name", fallback_name)
+			spec = config.get("spec")
+			if not spec:
+				print("Error: ClusterServingRuntime config must have 'preset' or 'spec'")
+				return (fallback_name, False)
+
+		# Apply any overrides
+		overrides = config.get("overrides", {})
+		if overrides:
+			# Deep merge overrides into spec
+			def deep_merge(base, override):
+				result = base.copy()
+				for key, value in override.items():
+					if isinstance(value, dict) and key in result and isinstance(result[key], dict):
+						result[key] = deep_merge(result[key], value)
+					else:
+						result[key] = value
+				return result
+
+			spec = deep_merge(spec, overrides)
+
+		# Ensure resource exists
+		success = self.model_controller.ensure_clusterservingruntime(
+			name=name,
+			spec=spec,
+			labels=config.get("labels"),
+			annotations=config.get("annotations")
+		)
+
+		return (name if success else fallback_name, success)

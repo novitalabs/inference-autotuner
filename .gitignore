@@ -7,3 +7,5 @@
 logs/
 
 .env
+
+/env/

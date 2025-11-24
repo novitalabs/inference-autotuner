@@ -106,15 +106,81 @@ class DirectBenchmarkController:
 		print(f"[GPU Monitor] Collected {len(snapshots)} snapshots over {time.time() - start_time:.1f}s")
 		return snapshots
 
+	def _ensure_tokenizer_cached(self, model_tokenizer: str) -> bool:
+		"""Ensure tokenizer is cached locally, downloading with proxy if needed.
+
+		Args:
+		    model_tokenizer: HuggingFace tokenizer ID (e.g., "meta-llama/Llama-3.2-3B-Instruct")
+
+		Returns:
+		    True if tokenizer is cached or successfully downloaded, False otherwise
+		"""
+		import os
+		from pathlib import Path
+
+		# Check if tokenizer is already cached
+		cache_dir = Path.home() / ".cache" / "huggingface" / "hub"
+		# HuggingFace cache uses format: models--org--model-name
+		cache_name = "models--" + model_tokenizer.replace("/", "--")
+		cached_path = cache_dir / cache_name
+
+		if cached_path.exists():
+			print(f"[Tokenizer] Already cached: {model_tokenizer}")
+			return True
+
+		print(f"[Tokenizer] Not cached, downloading: {model_tokenizer}")
+
+		# Try to download with proxy if configured
+		proxy_url = os.environ.get('HTTPS_PROXY') or os.environ.get('https_proxy')
+
+		try:
+			# Setup environment for download
+			env = os.environ.copy()
+			if proxy_url:
+				env['HTTP_PROXY'] = proxy_url
+				env['http_proxy'] = proxy_url
+				env['HTTPS_PROXY'] = proxy_url
+				env['https_proxy'] = proxy_url
+				print(f"[Tokenizer] Using proxy for download: {proxy_url}")
+
+			# Pass through HF_TOKEN if set
+			if 'HF_TOKEN' in os.environ:
+				env['HF_TOKEN'] = os.environ['HF_TOKEN']
+
+			# Download tokenizer using Python subprocess
+			import subprocess
+			code = f"from transformers import AutoTokenizer; AutoTokenizer.from_pretrained('{model_tokenizer}')"
+			result = subprocess.run(
+				["python3", "-c", code],
+				env=env,
+				capture_output=True,
+				text=True,
+				timeout=120  # 2 minutes timeout
+			)
+
+			if result.returncode != 0:
+				print(f"[Tokenizer] Download failed: {result.stderr}")
+				return False
+
+			print(f"[Tokenizer] Successfully downloaded and cached: {model_tokenizer}")
+			return True
+
+		except subprocess.TimeoutExpired:
+			print(f"[Tokenizer] Download timeout after 120s")
+			return False
+		except Exception as e:
+			print(f"[Tokenizer] Error downloading tokenizer: {e}")
+			return False
+
 	def setup_port_forward(
-		self, service_name: str, namespace: str, remote_port: int = 8000, local_port: int = 8080
+		self, service_name: str, namespace: str, remote_port: int = 8080, local_port: int = 8080
 	) -> Optional[str]:
 		"""Setup kubectl port-forward for accessing InferenceService.
 
 		Args:
 		    service_name: InferenceService name (used to find pods)
 		    namespace: K8s namespace
-		    remote_port: Remote service port (default 8000 for SGLang)
+		    remote_port: Remote service port (default 8080 for OME InferenceServices)
 		    local_port: Local port to forward to
 
 		Returns:
@@ -135,7 +201,7 @@ class DirectBenchmarkController:
 					"-n",
 					namespace,
 					"-l",
-					f"serving.kserve.io/inferenceservice={service_name}",
+					f"ome.io/inferenceservice={service_name}",
 					"-o",
 					"jsonpath={.items[0].metadata.name}",
 				],
@@ -146,9 +212,9 @@ class DirectBenchmarkController:
 
 			if result.returncode != 0 or not result.stdout.strip():
 				print(f"[Port Forward] No pods found for InferenceService {service_name}")
-				print(f"[Port Forward] Trying direct service name...")
-				# Fallback to service name
-				pod_or_svc = f"svc/{service_name}"
+				print(f"[Port Forward] Trying direct service name with -engine suffix...")
+				# Fallback to service name with -engine suffix
+				pod_or_svc = f"svc/{service_name}-engine"
 			else:
 				pod_name = result.stdout.strip()
 				print(f"[Port Forward] Found pod: {pod_name}")
@@ -156,7 +222,7 @@ class DirectBenchmarkController:
 
 		except Exception as e:
 			print(f"[Port Forward] Error finding pod: {e}")
-			pod_or_svc = f"svc/{service_name}"
+			pod_or_svc = f"svc/{service_name}-engine"
 
 		# Start port-forward in background
 		cmd = [
@@ -235,6 +301,12 @@ class DirectBenchmarkController:
 		benchmark_name = f"{task_name}-exp{experiment_id}"
 		output_dir = self.results_dir / benchmark_name
 
+		# Ensure tokenizer is cached before running benchmark
+		model_tokenizer = benchmark_config.get("model_tokenizer", "gpt2")
+		if not self._ensure_tokenizer_cached(model_tokenizer):
+			print(f"[Benchmark] Failed to ensure tokenizer is cached: {model_tokenizer}")
+			print(f"[Benchmark] Continuing anyway, offline mode may fail if tokenizer not cached")
+
 		# Setup endpoint URL
 		if endpoint_url:
 			# Direct URL provided (Docker mode)
@@ -242,7 +314,7 @@ class DirectBenchmarkController:
 			need_cleanup = False
 		else:
 			# Setup port forward (Kubernetes mode)
-			endpoint_url = self.setup_port_forward(service_name, namespace, 8000, local_port)
+			endpoint_url = self.setup_port_forward(service_name, namespace, 8080, local_port)
 			if not endpoint_url:
 				print(f"[Benchmark] Failed to setup port forward")
 				return None
@@ -308,11 +380,13 @@ class DirectBenchmarkController:
 		env = os.environ.copy()
 
 		# Check if proxy is configured in environment or use default
-		proxy_url = os.environ.get('HTTPS_PROXY') or os.environ.get('https_proxy') or 'http://172.17.0.1:1081'
-		env['HTTP_PROXY'] = proxy_url
-		env['http_proxy'] = proxy_url
-		env['HTTPS_PROXY'] = proxy_url
-		env['https_proxy'] = proxy_url
+		proxy_url = os.environ.get('HTTPS_PROXY') or os.environ.get('https_proxy')
+		if proxy_url:
+			# Only set proxy env vars if proxy is configured (env vars must be strings, not None)
+			env['HTTP_PROXY'] = proxy_url
+			env['http_proxy'] = proxy_url
+			env['HTTPS_PROXY'] = proxy_url
+			env['https_proxy'] = proxy_url
 		env['NO_PROXY'] = 'localhost,127.0.0.1,.local'
 		env['no_proxy'] = 'localhost,127.0.0.1,.local'
 
@@ -324,6 +398,14 @@ class DirectBenchmarkController:
 			print(f"[Benchmark] HF_TOKEN is set (for accessing gated models)")
 		else:
 			print(f"[Benchmark] HF_TOKEN not set (only public models accessible)")
+
+		# Force HuggingFace offline mode to use cached tokenizers without network verification
+		env['HF_HUB_OFFLINE'] = '1'
+		env['TRANSFORMERS_OFFLINE'] = '1'
+		print(f"[Benchmark] HuggingFace offline mode enabled (using cached tokenizers)")
+
+		# Filter out None values from environment (subprocess requires all values to be strings)
+		env = {k: v for k, v in env.items() if v is not None}
 
 		# Setup GPU monitoring if GPU indices provided
 		gpu_monitor_thread = None
