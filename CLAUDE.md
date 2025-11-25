@@ -501,8 +501,8 @@ HF_TOKEN=<your-token>            # Optional: for gated models
 - ✅ **Enhanced result visualization** with multi-experiment comparison, sensitivity analysis, and Pareto frontier
 - ✅ **Bayesian optimization** with Optuna TPE sampler (backend + frontend + docs complete)
 - ✅ **SLO-aware scoring** with exponential penalties and tiered enforcement
+- ✅ **WebSocket support for real-time updates** (backend + frontend with automatic reconnection)
 - ✅ REST API with background processing
 - ✅ Docker and OME deployment modes
 - ✅ Parameter preset selector for common configurations
 - ✅ GPU resource tracking with intelligent allocation and real-time monitoring
-- ⏳ WebSocket support for real-time updates (TODO)

@@ -535,6 +535,7 @@ gpu_info = {
 **Infrastructure:**
 - ✅ FastAPI backend with async support
 - ✅ React 18 frontend with TypeScript
+- ✅ WebSocket real-time communication (backend + frontend)
 - ✅ SQLite database with WAL mode (XDG-compliant location)
 - ✅ Redis task queue with ARQ worker
 - ✅ Docker container management
@@ -544,83 +545,237 @@ gpu_info = {
 
 ## Future Roadmap
 
-### 🔵 Phase 4: Real-Time Communication (Planned)
+### 🔵 Phase 4: Configuration & I/O Improvements (Planned)
 
 **Priority**: High
 **Effort**: 1-2 weeks
 **Value**: ⭐⭐⭐⭐⭐
 
-#### 4.1 WebSocket Integration
-- [ ] Backend WebSocket endpoint `/ws/tasks/{task_id}`
-- [ ] ARQ worker event broadcasting via Redis pub/sub
-- [ ] Frontend WebSocket client hooks
-- [ ] Real-time task status updates
-- [ ] Real-time experiment progress
-- [ ] Live log streaming (replace polling)
+#### 4.1 YAML-Based Task Configuration
+- [ ] YAML task file format support (in addition to JSON)
+- [ ] YAML parser with schema validation
+- [ ] Automatic conversion between JSON ↔ YAML
+- [ ] YAML syntax highlighting in frontend
+- [ ] Multi-line comment support for documentation
 
 **Benefits:**
-- Reduced server load (no polling)
-- Instant UI updates (< 100ms latency)
-- Better user experience
-- Lower network traffic
+- More human-readable configuration files
+- Better for version control (cleaner diffs)
+- Comments for documenting parameter choices
+- Industry-standard format for DevOps workflows
 
-**Technical Approach:**
-- FastAPI WebSocket support
-- Redis pub/sub for worker-to-API communication
-- React custom hook: `useWebSocket()`
-- Automatic reconnection with exponential backoff
+**Example YAML Format:**
+```yaml
+task_name: llama-3-70b-optimization
+model:
+  id_or_path: llama-3-70b
+  namespace: autotuner
+base_runtime: sglang
+
+parameters:
+  tp-size: [2, 4, 8]  # Tensor parallelism degrees
+  mem-fraction-static: [0.85, 0.9]  # Memory allocation
+
+optimization:
+  strategy: bayesian
+  objective: maximize_throughput
+  max_iterations: 30
+```
+
+#### 4.2 Import/Export Features
+- [ ] Export task configuration to YAML/JSON
+- [ ] Export experiment results to CSV
+- [ ] Export results to JSON for analysis
+- [ ] Batch import multiple task configs
+- [ ] Template library (export/import task templates)
+- [ ] Share configurations via file or URL
+
+**Benefits:**
+- Reusable configurations across teams
+- Easy integration with CI/CD pipelines
+- Data portability for analysis tools
+- Configuration versioning and rollback
+
+**Export Formats:**
+- Task Config: `.json`, `.yaml`
+- Experiment Results: `.csv`, `.json`, `.xlsx`
+- Templates: Zip archive with metadata
+
+#### 4.3 WebSocket Real-Time Communication ✅ **COMPLETED (2025/11/14)**
+
+**Status**: ✅ Fully implemented and operational
+
+**Implementation:**
+- [x] Backend WebSocket endpoint `/ws/tasks/{task_id}` (FastAPI)
+- [x] Event broadcaster with Redis pub/sub (`src/web/events/broadcaster.py`)
+- [x] Frontend WebSocket hooks (`useWebSocket`, `useTaskWebSocket`)
+- [x] Real-time task status updates
+- [x] Real-time experiment progress notifications
+- [x] Automatic reconnection with exponential backoff
+- [x] Connection state management (CONNECTING, OPEN, CLOSED)
+- [x] Message history tracking
+
+**Files:**
+- Backend: `src/web/routes/websocket.py`, `src/web/events/broadcaster.py`
+- Frontend: `frontend/src/hooks/useWebSocket.ts`, `frontend/src/hooks/useTaskWebSocket.ts`
+- Integration: `frontend/src/pages/Tasks.tsx`, `frontend/src/pages/Experiments.tsx`
+
+**Usage:**
+```typescript
+// Frontend usage
+const { isConnected, lastMessage } = useTaskWebSocket(taskId);
+```
+
+**Benefits Achieved:**
+- ✅ Reduced server load (polling reduced to 30s fallback)
+- ✅ Instant UI updates (< 100ms latency)
+- ✅ Better user experience with real-time progress
+- ✅ Lower network traffic
+
+**Note**: Polling is still used as fallback (30s interval) for robustness.
 
 ---
 
-### 🔵 Phase 5: Parallel Execution Enhancement (Planned)
+### 🔵 Phase 5: Distributed Architecture & Parallel Execution (Planned)
 
-**Priority**: Medium
-**Effort**: 2-3 weeks
-**Value**: ⭐⭐⭐⭐
+**Priority**: High
+**Effort**: 3-4 weeks
+**Value**: ⭐⭐⭐⭐⭐
 
-#### 5.1 Advanced Parallel Execution
+#### 5.1 Distributed Worker Architecture
+- [ ] **Central Web Manager**: Single control plane for multiple workers
+- [ ] **Worker Registration**: Auto-discovery and registration via Redis
+- [ ] **Heartbeat Monitoring**: Worker health checks and failure detection
+- [ ] **Work Stealing**: Dynamic task redistribution across workers
+- [ ] **Worker Pools**: Group workers by capabilities (GPU type, region, etc.)
+
+**Architecture Design:**
+```
+                    ┌─────────────────────┐
+                    │  Central Web Manager│
+                    │  (FastAPI + Redis)  │
+                    └──────────┬──────────┘
+                               │
+           ┌───────────────────┼───────────────────┐
+           │                   │                   │
+    ┌──────▼──────┐    ┌──────▼──────┐    ┌──────▼──────┐
+    │  Worker 1   │    │  Worker 2   │    │  Worker 3   │
+    │  8×A100 GPUs│    │  8×H100 GPUs│    │  4×L40S GPUs│
+    │  Node: gpu-1│    │  Node: gpu-2│    │  Node: gpu-3│
+    └─────────────┘    └─────────────┘    └─────────────┘
+```
+
+**Components:**
+- **Manager**:
+  - Task queue management
+  - Worker registry with capabilities
+  - Experiment distribution algorithm
+  - Result aggregation service
+  - Centralized logging
+
+- **Worker**:
+  - Capability advertisement (GPU count, model, memory)
+  - Experiment execution engine
+  - Result reporting via REST API
+  - Local checkpoint storage
+  - Worker-level parallelism (max_parallel per worker)
+
+**Benefits:**
+- **Horizontal Scaling**: Add workers to increase throughput
+- **Resource Isolation**: Different workers for different GPU types
+- **Fault Tolerance**: Worker failures don't affect others
+- **Geographic Distribution**: Workers in different data centers
+- **Cost Optimization**: Use spot instances for workers
+
+**Implementation Plan:**
+1. Week 1: Worker registration and discovery
+2. Week 2: Task distribution and scheduling
+3. Week 3: Result aggregation and monitoring
+4. Week 4: Frontend dashboard and testing
+
+#### 5.2 Advanced Parallel Execution
 - [ ] User-configurable max_parallel setting (currently hardcoded at 5)
+- [ ] Per-worker parallelism configuration
 - [ ] Dynamic parallelism based on GPU availability
 - [ ] Experiment dependency graph
-- [ ] Priority-based scheduling
-- [ ] Resource reservation system
+- [ ] Priority-based scheduling (high/normal/low priority tasks)
+- [ ] Resource reservation system (reserve GPUs for specific tasks)
 
 **Benefits:**
-- Faster task completion (2-5x speedup)
-- Better GPU utilization
-- Configurable resource allocation
+- Faster task completion (5-10x speedup with multiple workers)
+- Better GPU utilization across cluster
+- Configurable resource allocation per task
+- Fair scheduling with priority queues
 
-#### 5.2 Distributed Execution
-- [ ] Multi-node experiment execution
-- [ ] Task sharding across machines
-- [ ] Central coordinator for distributed workers
-- [ ] Result aggregation from multiple nodes
+#### 5.3 Task Sharding & Load Balancing
+- [ ] Automatic task splitting across workers
+- [ ] Load-aware scheduling (balance by GPU count)
+- [ ] Locality-aware scheduling (prefer same-node experiments)
+- [ ] Cross-worker result aggregation
+- [ ] Consistent hashing for worker selection
 
 ---
 
-### 🔵 Phase 6: Advanced Optimization Strategies (Planned)
+### 🔵 Phase 6: Advanced Optimization & Runtime Features (Planned)
 
 **Priority**: Medium
 **Effort**: 2-4 weeks
 **Value**: ⭐⭐⭐⭐
 
-#### 6.1 Multi-Fidelity Optimization
+#### 6.1 Runtime-Specific Optimizations
+
+**SGLang Radix Cache Management:**
+- [ ] **Reset radix cache at experiment start**: Clear cache before each experiment
+- [ ] **Benchmark purity**: Ensure fair comparison without cache pollution
+- [ ] **Cache warming option**: Optional pre-fill for production scenarios
+- [ ] **Cache statistics tracking**: Monitor hit rate and memory usage
+
+**Implementation:**
+```python
+# Before each experiment
+def reset_sglang_radix_cache(container_id: str):
+    """Reset SGLang radix cache via HTTP API"""
+    response = requests.post(
+        f"http://localhost:{port}/reset_cache",
+        json={"cache_type": "radix"}
+    )
+    logger.info(f"Radix cache reset: {response.json()}")
+```
+
+**Benefits:**
+- Fair experiment comparisons (no cached KV states)
+- Reproducible benchmark results
+- Accurate TTFT measurements
+- Option to test both cold-start and warm-cache scenarios
+
+**Additional Runtime Features:**
+- [ ] vLLM prefix caching control
+- [ ] TensorRT-LLM engine rebuild triggers
+- [ ] Runtime-specific profiling hooks
+- [ ] Memory defragmentation between experiments
+
+#### 6.2 Multi-Fidelity Optimization
 - [ ] Progressive benchmark complexity
 - [ ] Early stopping for poor configurations
 - [ ] Hyperband algorithm integration
 - [ ] Adaptive resource allocation
+- [ ] Quick validation runs (low concurrency, short duration)
+- [ ] Full benchmark only for promising configs
 
-#### 6.2 Transfer Learning
-- [ ] Model similarity detection
+#### 6.3 Transfer Learning
+- [ ] Model similarity detection (architecture, size, quantization)
 - [ ] Cross-model parameter transfer
-- [ ] Historical performance database
+- [ ] Historical performance database (SQLite → PostgreSQL)
 - [ ] Meta-learning for initialization
+- [ ] Warmstart Bayesian optimization with historical data
 
-#### 6.3 Enhanced Multi-Objective Optimization
+#### 6.4 Enhanced Multi-Objective Optimization
 - [ ] NSGA-II algorithm for Pareto frontier
-- [ ] 3+ objective support (latency, throughput, cost, energy)
+- [ ] 3+ objective support (latency, throughput, cost, energy, memory)
 - [ ] Interactive trade-off exploration
 - [ ] User preference learning
+- [ ] Weighted objective combination
+- [ ] Pareto frontier approximation with surrogate models
 
 ---
 
