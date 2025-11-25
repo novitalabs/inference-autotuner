@@ -533,9 +533,22 @@ For production implementation:
 
 ## Documentation
 
+### Project Overview
+- [ROADMAP.md](docs/ROADMAP.md) - **Product roadmap with completed milestones and future plans**
+
+### Setup & Deployment
 - [DOCKER_MODE.md](docs/DOCKER_MODE.md) - Docker deployment guide
 - [OME_INSTALLATION.md](docs/OME_INSTALLATION.md) - Kubernetes/OME setup
+
+### Features & Configuration
 - [SLO_SCORING.md](docs/SLO_SCORING.md) - SLO-aware scoring with exponential penalties
+- [BAYESIAN_OPTIMIZATION.md](docs/BAYESIAN_OPTIMIZATION.md) - Bayesian optimization strategy
+- [GPU_TRACKING.md](docs/GPU_TRACKING.md) - GPU intelligent scheduling
+- [CHECKPOINT_MECHANISM.md](docs/CHECKPOINT_MECHANISM.md) - Fault tolerance with checkpoints
+- [MULTI_OBJECTIVE_OPTIMIZATION_STRATEGY.md](docs/MULTI_OBJECTIVE_OPTIMIZATION_STRATEGY.md) - Pareto optimization
+- [MODEL_CACHING_OPTIMIZATION.md](docs/MODEL_CACHING_OPTIMIZATION.md) - HuggingFace cache optimization
+
+### Operations & Troubleshooting
 - [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) - Common issues and solutions
 - [GENAI_BENCH_LOGS.md](docs/GENAI_BENCH_LOGS.md) - Viewing benchmark logs
 
