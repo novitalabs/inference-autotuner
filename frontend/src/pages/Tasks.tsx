@@ -14,7 +14,7 @@ import toast from "react-hot-toast";
 export default function Tasks() {
 	const queryClient = useQueryClient();
 	const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
-	const [showCreateForm, setShowCreateForm] = useState(false);
+	
 	const [statusFilter, setStatusFilter] = useState<string>("all");
 	const [logViewerTask, setLogViewerTask] = useState<Task | null>(null);
 	const [resultsTask, setResultsTask] = useState<Task | null>(null);
@@ -221,7 +221,7 @@ export default function Tasks() {
 						{statusFilter === "all" && (
 							<div className="mt-6">
 								<button
-									onClick={() => setShowCreateForm(true)}
+									onClick={() => navigateTo('new-task')}
 									className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"
 								>
 									<svg
@@ -468,7 +468,7 @@ export default function Tasks() {
 		)*/}
 
 		{/* Create Task Modal */}
-		{showCreateForm && <CreateTaskModal onClose={() => setShowCreateForm(false)} />}
+		
 
 		{/* Experiment Log Viewer Modal */}
 		{selectedExperiment && (
@@ -754,48 +754,3 @@ function TaskDetailModal({ task, onClose }: { task: Task; onClose: () => void })
 	);
 }
 
-// Create Task Modal Component
-function CreateTaskModal({ onClose }: { onClose: () => void }) {
-	return (
-		<div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center p-4 z-50">
-			<div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-				<div className="px-6 py-4 border-b border-gray-200">
-					<div className="flex items-center justify-between">
-						<h2 className="text-xl font-bold text-gray-900">Create New Task</h2>
-						<button onClick={onClose} className="text-gray-400 hover:text-gray-500">
-							<svg
-								className="h-6 w-6"
-								fill="none"
-								viewBox="0 0 24 24"
-								stroke="currentColor"
-							>
-								<path
-									strokeLinecap="round"
-									strokeLinejoin="round"
-									strokeWidth={2}
-									d="M6 18L18 6M6 6l12 12"
-								/>
-							</svg>
-						</button>
-					</div>
-				</div>
-
-				<div className="px-6 py-4">
-					<p className="text-sm text-gray-600">
-						Task creation form will be implemented here. For now, please use the API or
-						backend interface to create tasks.
-					</p>
-				</div>
-
-				<div className="px-6 py-4 border-t border-gray-200 bg-gray-50">
-					<button
-						onClick={onClose}
-						className="w-full sm:w-auto px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300"
-					>
-						Close
-					</button>
-				</div>
-			</div>
-		</div>
-	);
-}
