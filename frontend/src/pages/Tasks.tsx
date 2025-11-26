@@ -28,7 +28,7 @@ export default function Tasks() {
 	});
 
 	// Fetch tasks with adaptive polling
-	// Fast polling (30s) only when tasks are running, otherwise slow polling (5min)
+	// Fast polling (3s) when tasks are running, slower (30s) when no tasks running
 	const {
 		data: tasks = [],
 		isLoading,
@@ -41,9 +41,9 @@ export default function Tasks() {
 		refetchInterval: (query) => {
 			const data = query.state.data;
 			const hasRunningTask = data && Array.isArray(data) && data.some((task: Task) => task.status === "running");
-			// If tasks are running: 30s (WebSocket fallback)
-			// If no tasks running: 5 minutes (less frequent polling)
-			return hasRunningTask ? 30000 : 300000;
+			// If tasks are running: 3s (real-time updates)
+			// If no tasks running: 30 seconds (moderate polling)
+			return hasRunningTask ? 3000 : 30000;
 		}
 	});
 
