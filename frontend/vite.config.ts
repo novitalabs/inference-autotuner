@@ -8,6 +8,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
+  // Load .env from parent directory (project root)
+  envDir: '../',
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
