@@ -32,8 +32,16 @@ type GPUHistory = Record<number, number[]>;
 export default function Dashboard() {
 	// Track GPU utilization history
 	const [gpuHistory, setGpuHistory] = useState<GPUHistory>({});
-	// Track which GPU view mode (local or cluster)
-	const [gpuViewMode, setGpuViewMode] = useState<'local' | 'cluster'>('cluster');
+	// Track which GPU view mode (local or cluster) - persist in localStorage
+	const [gpuViewMode, setGpuViewMode] = useState<'local' | 'cluster'>(() => {
+		const saved = localStorage.getItem('gpuViewMode');
+		return (saved === 'local' || saved === 'cluster') ? saved : 'cluster';
+	});
+
+	// Save GPU view mode to localStorage whenever it changes
+	useEffect(() => {
+		localStorage.setItem('gpuViewMode', gpuViewMode);
+	}, [gpuViewMode]);
 
 	// Track selected experiment for log viewer
 	const [selectedExperiment, setSelectedExperiment] = useState<{ taskId: number; experimentId: number } | null>(null);
