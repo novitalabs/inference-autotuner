@@ -174,7 +174,7 @@ async def replace_task(task_id: int, task_data: TaskCreate, db: AsyncSession = D
 
 @router.delete("/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_task(task_id: int, db: AsyncSession = Depends(get_db)):
-	"""Delete task."""
+	"""Delete task from database (does not clean up log files - use /clear endpoint instead)."""
 	result = await db.execute(select(Task).where(Task.id == task_id))
 	task = result.scalar_one_or_none()
 
@@ -187,8 +187,11 @@ async def delete_task(task_id: int, db: AsyncSession = Depends(get_db)):
 			status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot delete running task. Cancel it first."
 		)
 
+	# Delete task from database (cascades to experiments)
 	await db.delete(task)
 	await db.commit()
+
+	print(f"[API] Deleted task {task_id} from database")
 
 
 @router.post("/{task_id}/start", response_model=TaskResponse)
@@ -285,6 +288,60 @@ async def restart_task(task_id: int, db: AsyncSession = Depends(get_db)):
 	job_id = await enqueue_autotuning_task(task.id)
 	print(f"[API] Restarted and enqueued task {task.id} with job_id: {job_id}")
 
+	return task
+
+
+@router.post("/{task_id}/clear", response_model=TaskResponse)
+async def clear_task(task_id: int, db: AsyncSession = Depends(get_db)):
+	"""Clear task experiments and logs without deleting the task configuration.
+
+	This endpoint:
+	- Deletes all experiments for the task
+	- Clears the task log file
+	- Resets task status and counters
+	- Keeps the task configuration for future runs
+	"""
+	result = await db.execute(select(Task).where(Task.id == task_id))
+	task = result.scalar_one_or_none()
+
+	if not task:
+		raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Task {task_id} not found")
+
+	# Don't allow clearing running tasks
+	if task.status == TaskStatus.RUNNING:
+		raise HTTPException(
+			status_code=status.HTTP_400_BAD_REQUEST,
+			detail="Cannot clear running task. Cancel it first."
+		)
+
+	# Delete all experiments for this task
+	delete_result = await db.execute(delete(Experiment).where(Experiment.task_id == task_id))
+	experiments_deleted = delete_result.rowcount
+	print(f"[API] Deleted {experiments_deleted} experiments for task {task_id}")
+
+	# Reset task fields
+	task.completed_at = None
+	task.elapsed_time = None
+	task.started_at = None
+	task.total_experiments = 0
+	task.successful_experiments = 0
+	task.best_experiment_id = None
+	task.task_metadata = None
+	task.status = TaskStatus.PENDING
+
+	await db.commit()
+	await db.refresh(task)
+
+	# Clear log file (delete it entirely)
+	log_file = get_task_log_file(task_id)
+	if log_file.exists():
+		try:
+			log_file.unlink()
+			print(f"[API] Deleted log file for task {task_id}: {log_file}")
+		except Exception as e:
+			print(f"[API] Warning: Failed to delete log file {log_file}: {e}")
+
+	print(f"[API] Cleared task {task_id}: deleted {experiments_deleted} experiments and reset task state")
 	return task
 
 

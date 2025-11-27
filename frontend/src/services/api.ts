@@ -115,6 +115,11 @@ class ApiClient {
 		return data;
 	}
 
+	async clearTask(id: number): Promise<Task> {
+		const { data } = await this.client.post(`/tasks/${id}/clear`);
+		return data;
+	}
+
 	async patchTask(id: number, updates: { description?: string }): Promise<Task> {
 		const { data } = await this.client.patch(`/tasks/${id}`, updates);
 		return data;

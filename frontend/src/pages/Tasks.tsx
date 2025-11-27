@@ -81,6 +81,15 @@ export default function Tasks() {
 		}
 	});
 
+	// Clear task mutation
+	const clearTaskMutation = useMutation({
+		mutationFn: (taskId: number) => apiClient.clearTask(taskId),
+		onSuccess: () => {
+			queryClient.invalidateQueries({ queryKey: ["tasks"] });
+			toast.success("Task data cleared successfully");
+		}
+	});
+
 	// Note: Create task mutation will be implemented when form is added
 	// const createTaskMutation = useMutation({
 	// 	mutationFn: (task: TaskCreate) => apiClient.createTask(task),
@@ -420,6 +429,33 @@ export default function Tasks() {
 													>
 														<svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
 															<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+														</svg>
+													</button>
+												)}
+
+												{/* Clear Button - For non-running tasks that have data */}
+												{task.status !== 'running' && (task.total_experiments > 0 || task.status === 'completed' || task.status === 'failed' || task.status === 'cancelled') && (
+													<button
+														onClick={() => {
+															if (confirm(`Are you sure you want to clear all data for task "${task.task_name}"? This will delete all experiments and logs, but keep the task configuration.`)) {
+																clearTaskMutation.mutate(task.id);
+															}
+														}}
+														disabled={clearTaskMutation.isPending}
+														className="p-1.5 text-yellow-600 hover:text-yellow-900 hover:bg-yellow-50 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+														title="Clear Task Data"
+													>
+														<svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+															{/* Broom handle - diagonal line from top right to center */}
+															<path strokeLinecap="round" strokeLinejoin="round" d="M17 3L9 11" />
+															{/* Broom head base - wider part */}
+															<path strokeLinecap="round" strokeLinejoin="round" d="M9 11L7 13" />
+															<path strokeLinecap="round" strokeLinejoin="round" d="M9 11L11 13" />
+															{/* Bristles - multiple lines going down */}
+															<path strokeLinecap="round" strokeLinejoin="round" d="M7 13L3 21" />
+															<path strokeLinecap="round" strokeLinejoin="round" d="M9 13L6 21" />
+															<path strokeLinecap="round" strokeLinejoin="round" d="M11 13L9 21" />
+															<path strokeLinecap="round" strokeLinejoin="round" d="M9 11L12 21" />
 														</svg>
 													</button>
 												)}
