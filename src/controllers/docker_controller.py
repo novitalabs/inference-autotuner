@@ -358,10 +358,13 @@ class DockerController(BaseModelController):
 		container_info = self.containers[service_id]
 		container = container_info["container"]
 		host_port = container_info["host_port"]
+		# Check both /health and /v1/models endpoints
+		# /health may return 503 if warmup fails, but /v1/models will return 200 if service is ready
 		health_url = f"http://localhost:{host_port}/health"
+		models_url = f"http://localhost:{host_port}/v1/models"
 
 		start_time = time.time()
-		print(f"[Docker] Waiting for service to be ready at {health_url}...")
+		print(f"[Docker] Waiting for service to be ready (checking /health and /v1/models)...")
 
 		# Track consecutive failures for crash-loop detection
 		consecutive_exits = 0
@@ -382,13 +385,20 @@ class DockerController(BaseModelController):
 					consecutive_exits = 0  # Reset counter
 
 					try:
-						response = requests.get(health_url, timeout=5)
-						if response.status_code == 200:
-							print(f"[Docker] Service is ready! URL: http://localhost:{host_port}")
+						# Check both endpoints, service is ready if either returns 200
+						health_response = requests.get(health_url, timeout=5)
+						models_response = requests.get(models_url, timeout=5)
+						
+						if health_response.status_code == 200:
+							print(f"[Docker] Service is ready! (via /health) URL: http://localhost:{host_port}")
+							return True
+						elif models_response.status_code == 200:
+							print(f"[Docker] Service is ready! (via /v1/models) URL: http://localhost:{host_port}")
 							return True
 					except requests.RequestException:
-						# Health endpoint not ready yet, continue waiting
+						# Endpoints not ready yet, continue waiting
 						pass
+
 
 				elif container.status in ["exited", "dead"]:
 					# Container has stopped - this is a failure
