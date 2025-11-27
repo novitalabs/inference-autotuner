@@ -96,6 +96,29 @@ Task and experiment data is stored in SQLite at:
 
 This location follows XDG Base Directory standards and persists independently of the codebase.
 
+### Proxy Configuration
+
+If you're behind a corporate proxy or need to access HuggingFace.co through a proxy:
+
+**IMPORTANT**: The ARQ worker needs proxy settings to download models and tokenizers from HuggingFace. However, `NO_PROXY` must be configured to prevent localhost connections from being proxied (which would break health checks and benchmarking).
+
+To configure proxy for the worker:
+
+1. Edit `scripts/start_worker.sh` or `scripts/start_dev.sh`
+2. Uncomment and update the proxy variables:
+   ```bash
+   export HTTP_PROXY=http://your-proxy-server:port
+   export HTTPS_PROXY=http://your-proxy-server:port
+   export NO_PROXY=localhost,127.0.0.1
+   ```
+3. Restart the worker for changes to take effect
+
+**Why NO_PROXY is crucial**: Without `NO_PROXY`, the Python `requests` library will attempt to proxy all HTTP requests including those to `localhost`. This causes:
+- Health check failures (can't connect to local inference services)
+- Benchmark failures (genai-bench can't reach the local endpoint)
+- Service readiness detection timeouts
+
+
 ## Prerequisites
 
 ### For OME Mode

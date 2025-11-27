@@ -399,10 +399,10 @@ class DirectBenchmarkController:
 		else:
 			print(f"[Benchmark] HF_TOKEN not set (only public models accessible)")
 
-		# Force HuggingFace offline mode to use cached tokenizers without network verification
-		env['HF_HUB_OFFLINE'] = '1'
-		env['TRANSFORMERS_OFFLINE'] = '1'
-		print(f"[Benchmark] HuggingFace offline mode enabled (using cached tokenizers)")
+		# Note: HF_HUB_OFFLINE is intentionally NOT set here
+		# genai-bench needs to fetch tokenizer metadata from HuggingFace even when using cached models
+		# The proxy configuration above will be used if accessing HuggingFace is needed
+		print(f"[Benchmark] HuggingFace online mode enabled (allows fetching tokenizer metadata)")
 
 		# Filter out None values from environment (subprocess requires all values to be strings)
 		env = {k: v for k, v in env.items() if v is not None}
@@ -434,10 +434,15 @@ class DirectBenchmarkController:
 		try:
 			start_time = time.time()
 
+			# Use results directory as working directory (writable by all users)
+			# This prevents permission errors when genai-bench creates log files
+			work_dir = output_dir.parent
+			print(f"[Benchmark] Working directory: {work_dir}")
+
 			if self.verbose:
 				# Stream output in real-time
 				print(f"[Benchmark] Starting genai-bench (streaming output)...")
-				process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, env=env)
+				process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, env=env, cwd=str(work_dir))
 
 				stdout_lines = []
 				for line in process.stdout:
@@ -457,6 +462,7 @@ class DirectBenchmarkController:
 					timeout=timeout,
 					check=False,  # Don't raise exception on non-zero exit
 					env=env,
+					cwd=str(work_dir),
 				)
 				result_returncode = result.returncode
 				result_stdout = result.stdout

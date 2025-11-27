@@ -15,6 +15,24 @@ source env/bin/activate
 # Set PYTHONPATH
 export PYTHONPATH="$PROJECT_ROOT/src:$PYTHONPATH"
 
+# Configure proxy settings for HuggingFace downloads
+# These will be read from .env file or environment variables
+# Set HTTP_PROXY, HTTPS_PROXY, NO_PROXY in .env or export them before running this script
+# Example in .env:
+#   HTTP_PROXY=http://your-proxy:port
+#   HTTPS_PROXY=http://your-proxy:port
+#   NO_PROXY=localhost,127.0.0.1
+#
+# Load from .env if it exists
+if [ -f "$PROJECT_ROOT/.env" ]; then
+    export $(grep -v '^#' "$PROJECT_ROOT/.env" | grep -E '^(HTTP_PROXY|HTTPS_PROXY|NO_PROXY)=' | xargs)
+fi
+
+
+# Unset HF_HUB_OFFLINE to allow genai-bench to fetch tokenizer info from HuggingFace
+unset HF_HUB_OFFLINE
+
+
 echo "🚀 Starting Inference Autotuner Development Environment..."
 echo ""
 
