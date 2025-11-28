@@ -630,7 +630,13 @@ export default function Dashboard() {
 											onClick={() => setSelectedExperiment({ taskId: exp.task_id, experimentId: exp.experiment_id })}
 											title={`Experiment ${exp.experiment_id}\nDuration: ${Math.round(
 												duration / 1000
-											)}s\nStatus: ${exp.status}\nScore: ${exp.objective_score?.toFixed(2) || 'N/A'}\n\nClick to view logs`}
+											)}s\nStatus: ${exp.status}\nScore: ${
+												exp.objective_score !== null && exp.objective_score !== undefined
+													? Math.abs(exp.objective_score) >= 100
+														? exp.objective_score.toFixed(1)
+														: exp.objective_score.toFixed(4)
+													: 'N/A'
+											}\n\nClick to view logs`}
 										>
 											{/* Duration label (only show if wide enough) */}
 											{widthPercent > 5 && (

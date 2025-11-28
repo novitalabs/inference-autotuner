@@ -660,6 +660,9 @@ async def run_autotuning_task(ctx: Dict[str, Any], task_id: int) -> Dict[str, An
 							error_message=result.get("error_message", ""),
 							objective_name=objective_name
 						)
+						# Save penalty score to database for frontend display
+						db_experiment.objective_score = penalty_score
+
 
 						logger.info(f"[Experiment {iteration}] Failed with penalty score: {penalty_score:.1f}")
 						logger.info(f"[Experiment {iteration}] Elapsed: {(db_experiment.completed_at - db_experiment.started_at).total_seconds():.1f}s / {timeout_per_iteration}s")
@@ -762,6 +765,9 @@ async def run_autotuning_task(ctx: Dict[str, Any], task_id: int) -> Dict[str, An
 						error_message=db_experiment.error_message,
 						objective_name=objective_name
 					)
+					# Save penalty score to database for frontend display
+					db_experiment.objective_score = penalty_score
+
 
 					logger.info(f"[Experiment {iteration}] Timeout penalty score: {penalty_score:.1f}")
 
@@ -813,6 +819,9 @@ async def run_autotuning_task(ctx: Dict[str, Any], task_id: int) -> Dict[str, An
 						error_message=db_experiment.error_message,
 						objective_name=objective_name
 					)
+					# Save penalty score to database for frontend display
+					db_experiment.objective_score = penalty_score
+
 
 					logger.info(f"[Experiment {iteration}] Exception penalty score: {penalty_score:.1f}")
 

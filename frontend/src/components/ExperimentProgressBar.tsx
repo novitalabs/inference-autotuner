@@ -43,7 +43,21 @@ export default function ExperimentProgressBar({
     const paramStr = Object.entries(exp.parameters || {})
       .map(([k, v]) => `${k}: ${v}`)
       .join(', ');
-    return `Experiment ${exp.experiment_id}\nStatus: ${exp.status}\nParams: ${paramStr}`;
+
+    let title = `Experiment ${exp.experiment_id}\nStatus: ${exp.status}`;
+
+    // Add objective score if experiment is completed (success or failed)
+    if ((exp.status === 'success' || exp.status === 'failed') && exp.objective_score !== undefined && exp.objective_score !== null) {
+      // Format score based on magnitude
+      const score = exp.objective_score;
+      const formattedScore = Math.abs(score) >= 100
+        ? score.toFixed(1)  // Show 1 decimal for large values
+        : score.toFixed(4); // Show 4 decimals for small values
+      title += `\nScore: ${formattedScore}`;
+    }
+
+    title += `\nParams: ${paramStr}`;
+    return title;
   };
 
   // Combine actual experiments with planned placeholders
