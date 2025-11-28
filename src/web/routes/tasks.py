@@ -352,6 +352,13 @@ def get_task_log_file(task_id: int) -> Path:
 	return log_dir / f"task_{task_id}.log"
 
 
+def get_experiment_log_file(task_id: int, experiment_id: int) -> Path:
+	"""Get the log file path for a specific experiment."""
+	log_dir = Path.home() / ".local/share/inference-autotuner/logs"
+	log_dir.mkdir(parents=True, exist_ok=True)
+	return log_dir / f"task_{task_id}_exp_{experiment_id}.log"
+
+
 async def stream_log_file(log_file: Path, follow: bool = False):
 	"""Stream log file contents, optionally following new lines."""
 	try:
@@ -469,3 +476,70 @@ async def clear_task_logs(task_id: int, db: AsyncSession = Depends(get_db)):
 		# Clear file content by opening in write mode with truncation
 		with open(log_file, 'w') as f:
 			pass  # Empty write truncates the file
+
+@router.get("/{task_id}/experiments/{experiment_id}/logs")
+async def get_experiment_logs(
+	task_id: int,
+	experiment_id: int,
+	follow: bool = False,
+	db: AsyncSession = Depends(get_db)
+):
+	"""
+	Get experiment-specific execution logs.
+	
+	Args:
+		task_id: Task ID
+		experiment_id: Experiment ID
+		follow: If True, streams logs in real-time (Server-Sent Events)
+	
+	Returns:
+		Log content as text or streaming response
+	"""
+	# Verify task exists
+	result = await db.execute(select(Task).where(Task.id == task_id))
+	task = result.scalar_one_or_none()
+	
+	if not task:
+		raise HTTPException(
+			status_code=status.HTTP_404_NOT_FOUND,
+			detail=f"Task {task_id} not found"
+		)
+	
+	# Verify experiment exists
+	from db.models import Experiment
+	result = await db.execute(
+		select(Experiment).where(
+			Experiment.task_id == task_id,
+			Experiment.experiment_id == experiment_id
+		)
+	)
+	experiment = result.scalar_one_or_none()
+	
+	if not experiment:
+		raise HTTPException(
+			status_code=status.HTTP_404_NOT_FOUND,
+			detail=f"Experiment {experiment_id} not found for task {task_id}"
+		)
+	
+	log_file = get_experiment_log_file(task_id, experiment_id)
+	
+	# If follow mode, return streaming response (Server-Sent Events)
+	if follow:
+		return StreamingResponse(
+			stream_log_file(log_file, follow=True),
+			media_type="text/event-stream",
+			headers={
+				"Cache-Control": "no-cache",
+				"Connection": "keep-alive",
+				"X-Accel-Buffering": "no"
+			}
+		)
+	
+	# Otherwise return static log content
+	if not log_file.exists():
+		return {"logs": "No logs available yet for this experiment."}
+	
+	with open(log_file, "r") as f:
+		logs = f.read()
+	
+	return {"logs": logs}

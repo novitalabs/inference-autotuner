@@ -97,6 +97,64 @@ def setup_task_logging(task_id: int):
 	return logger
 
 
+def setup_experiment_logging(task_id: int, experiment_id: int):
+	"""Setup logging for a specific experiment.
+
+	This creates a separate log file for each experiment to prevent log pollution
+	when experiments timeout but their subprocesses continue running.
+
+	Args:
+	    task_id: Task ID
+	    experiment_id: Experiment ID
+
+	Returns:
+	    Logger instance configured for this experiment
+	"""
+	# Create log directory
+	log_dir = Path.home() / ".local/share/inference-autotuner/logs"
+	log_dir.mkdir(parents=True, exist_ok=True)
+
+	# Create separate log files for task and experiment
+	task_log_file = log_dir / f"task_{task_id}.log"
+	experiment_log_file = log_dir / f"task_{task_id}_exp_{experiment_id}.log"
+
+	# Create logger for this experiment
+	logger_name = f"task_{task_id}_exp_{experiment_id}"
+	logger = logging.getLogger(logger_name)
+	logger.setLevel(logging.DEBUG)
+	logger.handlers.clear()
+	logger.propagate = False
+
+	# Create file handler for experiment-specific log
+	exp_file_handler = logging.FileHandler(experiment_log_file, mode="w")  # Overwrite mode
+	exp_file_handler.setLevel(logging.DEBUG)
+
+	# Also write to task log for aggregated view
+	task_file_handler = logging.FileHandler(task_log_file, mode="a")  # Append mode
+	task_file_handler.setLevel(logging.DEBUG)
+
+	# Create console handler
+	console_handler = logging.StreamHandler(sys.__stdout__)
+	console_handler.setLevel(logging.INFO)
+
+	# Create formatter
+	formatter = logging.Formatter("[%(asctime)s] [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
+	exp_file_handler.setFormatter(formatter)
+	task_file_handler.setFormatter(formatter)
+	console_handler.setFormatter(formatter)
+
+	# Add handlers to logger
+	logger.addHandler(exp_file_handler)
+	logger.addHandler(task_file_handler)
+	logger.addHandler(console_handler)
+
+	# Redirect stdout and stderr to logger
+	sys.stdout = StreamToLogger(logger, logging.INFO)
+	sys.stderr = StreamToLogger(logger, logging.ERROR)
+
+	return logger
+
+
 async def run_experiment_with_timeout(
 	orchestrator: AutotunerOrchestrator,
 	task_config: Dict[str, Any],
@@ -376,6 +434,10 @@ async def run_autotuning_task(ctx: Dict[str, Any], task_id: int) -> Dict[str, An
 					break
 
 				logger.info(f"[ARQ Worker] Running experiment {iteration} with params: {params}")
+
+				# Switch to experiment-specific logging to prevent log pollution from zombie processes
+				logger = setup_experiment_logging(task_id, iteration)
+				logger.info(f"[Experiment {iteration}] Logging to experiment-specific file")
 
 				# Create experiment record
 				db_experiment = Experiment(
