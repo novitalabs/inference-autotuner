@@ -511,9 +511,9 @@ async def get_experiment_logs(
 		select(Experiment).where(
 			Experiment.task_id == task_id,
 			Experiment.experiment_id == experiment_id
-		)
+		).order_by(Experiment.created_at.desc())
 	)
-	experiment = result.scalar_one_or_none()
+	experiment = result.scalars().first()
 	
 	if not experiment:
 		raise HTTPException(

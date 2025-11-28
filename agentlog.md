@@ -31762,3 +31762,131 @@ New worker has all proxy variables!
 - Document any additional issues discovered during end-to-end test
 
 </details>
+
+---
+
+
+## 2025/11/28
+
+
+## Solved Log Pollution from Zombie Processes
+
+<details>
+<summary>Implemented separate experiment logs to prevent log mixing when experiments timeout</summary>
+
+**Problem:** Logs from different experiments were getting mixed together
+
+**User Request:** "检查日志出现问题的原因" (Check the cause of the log problem)
+
+**Symptom Discovered:**
+- Task 9 Experiment 3 logs appeared in Experiment 4's log section
+- Experiment 3 ran from 10:31:40 to 10:38:18 (timeout at 600s)
+- Subprocess completed at 10:45:55 (7 minutes after timeout)
+- Output appeared in wrong experiment's logs
+
+**Root Cause Analysis:**
+
+The log pollution was caused by a complex interaction between asyncio timeouts, ThreadPoolExecutor, and subprocess behavior:
+
+1. **ARQ Worker timeout** (`asyncio.wait_for()`): 600 seconds
+2. **subprocess.run() timeout**: 900 seconds (longer than worker timeout)
+3. **ThreadPoolExecutor behavior**: `asyncio.wait_for()` doesn't terminate executor threads
+4. **Zombie processes**: `subprocess.run()` continues running after ARQ timeout
+5. **Global log redirection**: All output goes to currently active logger via `sys.stdout = StreamToLogger(logger)`
+
+**Timeline:**
+```
+10:31:40 - Experiment 3 starts, logger set to exp3
+10:38:18 - ARQ worker times out, moves to Experiment 4, logger switches to exp4
+10:38:18 - Experiment 4 starts, logger set to exp4
+10:45:55 - Experiment 3's subprocess finally completes, writes to sys.stdout
+10:45:55 - Output captured by exp4's logger (currently active)
+Result: Experiment 3's logs appear in Experiment 4's log file
+```
+
+**Solution Implemented: Separate Experiment Logs (Solution 4)**
+
+Created individual log files for each experiment to isolate zombie process output.
+
+**Files Modified:**
+
+1. **`src/web/workers/autotuner_worker.py`**:
+   - Added `setup_experiment_logging(task_id, experiment_id)` function (lines 100-155)
+   - Creates separate log files: `task_{id}_exp_{exp_id}.log`
+   - Writes to both experiment-specific log AND task aggregate log
+   - Called at start of each experiment (line 439)
+
+2. **`src/web/routes/tasks.py`**:
+   - Added `get_experiment_log_file(task_id, experiment_id)` helper (lines 355-359)
+   - Added new API endpoint: `GET /api/tasks/{task_id}/experiments/{experiment_id}/logs` (lines 480-545)
+   - Fixed query to handle duplicate experiments by selecting most recent (line 514)
+
+3. **`docs/SEPARATE_EXPERIMENT_LOGS.md`**:
+   - Created comprehensive documentation of problem and solution
+   - Usage examples for API and filesystem access
+   - Log structure comparison
+
+**Log File Structure:**
+```
+~/.local/share/inference-autotuner/logs/
+├── task_9.log                    # Task-level aggregate (all experiments)
+├── task_9_exp_1.log              # Experiment 1 only
+├── task_9_exp_2.log              # Experiment 2 only
+├── task_9_exp_3.log              # Experiment 3 only (includes zombie output)
+└── task_9_exp_4.log              # Experiment 4 only (clean)
+```
+
+**API Usage:**
+```bash
+# Task aggregate logs (all experiments)
+curl http://localhost:8000/api/tasks/9/logs
+
+# Specific experiment logs
+curl http://localhost:8000/api/tasks/9/experiments/3/logs
+
+# Real-time streaming (Server-Sent Events)
+curl http://localhost:8000/api/tasks/9/experiments/3/logs?follow=true
+```
+
+**Benefits:**
+1. **Isolates zombie output**: Delayed subprocess output only pollutes its own log
+2. **Clear structure**: Easy to debug specific experiments
+3. **Backward compatible**: Task-level aggregate log still available
+4. **Parallel-ready**: Supports future concurrent experiment execution
+
+**Bug Fix During Implementation:**
+
+Fixed API error when querying experiment logs with duplicate records:
+- **Error**: `sqlalchemy.exc.MultipleResultsFound` when task restarted multiple times
+- **Root Cause**: No unique constraint on `(task_id, experiment_id)` in database
+- **Fix**: Added `.order_by(Experiment.created_at.desc())` to select most recent experiment
+
+**Testing:**
+```bash
+# Verified API endpoint works
+curl http://localhost:8000/api/tasks/9/experiments/3/logs | jq -r '.logs' | head -30
+
+# Verified log files created
+ls -lh ~/.local/share/inference-autotuner/logs/task_9_exp_*.log
+# Output:
+# task_9_exp_2.log (108K)
+# task_9_exp_3.log (36K)
+# task_9_exp_4.log (7.0K)
+```
+
+**Key Learnings:**
+
+1. **asyncio.wait_for() limitations**: Only cancels the coroutine, not executor threads or subprocesses
+2. **ThreadPoolExecutor behavior**: Synchronous code in executor continues after timeout
+3. **subprocess.run() independence**: Has its own timeout mechanism, unaffected by parent
+4. **Global state hazards**: `sys.stdout` redirection affects all code in the process
+5. **Log isolation strategy**: Per-experiment files prevent cross-contamination
+
+**Status:**
+- ✅ Solution 4 fully implemented and tested
+- ✅ API endpoint working with duplicate experiment handling
+- ✅ Documentation created (SEPARATE_EXPERIMENT_LOGS.md)
+- ✅ ARQ worker restarted with new code
+- ⏭️ Future improvement: Implement subprocess termination (Solution 2) to eliminate zombies entirely
+
+</details>
