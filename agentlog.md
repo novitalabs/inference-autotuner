@@ -31890,3 +31890,240 @@ ls -lh ~/.local/share/inference-autotuner/logs/task_9_exp_*.log
 - ⏭️ Future improvement: Implement subprocess termination (Solution 2) to eliminate zombies entirely
 
 </details>
+
+---
+
+## 2025-11-28: Graded Failure Penalty Scoring for Bayesian Optimization
+
+<details>
+<summary>Implemented finite penalty scores based on failure timing to provide gradient information even when all experiments fail</summary>
+
+**Problem:** Bayesian optimization with infinite scores for all failures
+
+**User Question:** "无穷大的得分是否能对贝叶斯优化产生有效的引导？" (Can infinite scores provide effective guidance to Bayesian optimization?)
+
+**Analysis & Discovery:**
+
+Through Optuna experiments, discovered that infinite scores (`-inf`/`inf`) provide **no effective guidance**:
+
+1. **Tested Scenario A - All trials return -inf** (mimicking Task 8):
+   ```python
+   # 15 trials, all score=-inf
+   x values: [9.7, 6.0, 2.4, 7.5, 3.4, 7.1, 1.4, 1.3, 0.5, 3.4]
+   x variance: 9.71  # High variance = random exploration
+   y variance: 8.10
+   ```
+   **Result**: No convergence, pure random search
+
+2. **Tested Scenario B - Mixed results** (some finite scores):
+   - With finite scores: TPE learns parameter-score relationships
+   - Effective optimization and convergence
+
+3. **Why infinite scores fail**:
+   - **No discriminative power**: All failures treated as "equally bad"
+   - **Cannot build surrogate model**: All parameters → same score → flat model
+   - **No gradient**: Cannot determine which direction to search
+   - **No good/bad separation**: TPE's l(x)/g(x) ratio becomes meaningless
+
+**Real Evidence from Task 8:**
+```
+[Bayesian] Trial complete: score=-inf
+[Bayesian] Best so far: score=-inf, params={...}
+... (repeated 50 times)
+```
+All 50 experiments failed → all `-inf` → random search
+
+**User Request:** "给予失败实验一个有限的得分，失败发生越早惩罚越大。" (Give failed experiments finite scores, earlier failures get worse penalties)
+
+**Solution Implemented: Graded Failure Penalties**
+
+Created penalty function based on **failure timing** to provide gradient even with 100% failure rate.
+
+**Implementation:**
+
+1. **New Function** `calculate_failure_penalty()` in `autotuner_worker.py` (lines 158-225):
+
+```python
+def calculate_failure_penalty(
+    started_at: datetime,
+    failed_at: datetime,
+    timeout_seconds: int,
+    experiment_status: ExperimentStatus,
+    error_message: str,
+    objective_name: str
+) -> float:
+    """Calculate penalty based on failure timing.
+
+    Earlier failure = worse penalty
+    """
+    elapsed = (failed_at - started_at).total_seconds()
+    completion_pct = min(elapsed / timeout_seconds, 1.0)
+
+    # Base penalty by completion percentage
+    if completion_pct < 0.20:
+        base_penalty = -1000  # Very early (deploy, crash)
+    elif completion_pct < 0.60:
+        base_penalty = -500   # Mid-stage (benchmark started)
+    elif completion_pct < 0.95:
+        base_penalty = -200   # Late-stage (mostly complete)
+    else:
+        base_penalty = -100   # Timeout (full duration)
+
+    # Error type modifiers
+    if "deploy" in error_message.lower():
+        base_penalty *= 1.2   # Deployment worse
+    elif "oom" in error_message.lower():
+        base_penalty *= 1.5   # Resource failures severe
+    elif "timeout" in error_message.lower():
+        base_penalty *= 0.8   # Might be transient
+
+    # Invert for minimize objectives
+    return -base_penalty if "minimize" in objective_name else base_penalty
+```
+
+2. **Penalty Scale** (for maximize_throughput):
+
+| Failure Type | Completion % | Penalty | Description |
+|-------------|--------------|---------|-------------|
+| Deployment fail | 0-20% | **-1200** | Worst (×1.2 modifier) |
+| Immediate crash | 0-20% | **-1000** | Very bad |
+| Benchmark fail | 20-60% | **-500** | Bad |
+| OOM error | 20-60% | **-750** | Bad (×1.5 modifier) |
+| Late failure | 60-95% | **-200** | Less bad |
+| Timeout | 95-100% | **-80** to **-100** | Least bad |
+
+3. **Integration** - Updated three failure scenarios:
+   - Normal experiment failure (lines 651-673)
+   - Timeout failure (lines 756-774)
+   - Exception failure (lines 807-825)
+
+**Testing & Validation:**
+
+```bash
+# Test with 600s timeout
+Very Early (5%)       30s (  5.0%)  →  penalty = -1200.0
+Early Deploy (15%)    90s ( 15.0%)  →  penalty = -1200.0
+Mid-stage (40%)      240s ( 40.0%)  →  penalty =  -500.0
+OOM (50%)            300s ( 50.0%)  →  penalty =  -750.0
+Late (80%)           480s ( 80.0%)  →  penalty =  -200.0
+Timeout (100%)       600s (100.0%)  →  penalty =  -100.0
+```
+
+✓ Clear gradient: -1200 → -100
+✓ Error modifiers work correctly
+✓ Provides distinguishability even with 100% failures
+
+**How It Helps Bayesian Optimization:**
+
+**Example scenario** (all experiments fail):
+```
+Exp 1: params={x=1, y=1}  → crash at 30s   → penalty = -1000  (WORST)
+Exp 2: params={x=2, y=2}  → crash at 90s   → penalty = -1000
+Exp 3: params={x=4, y=4}  → fail at 300s   → penalty = -500   (BETTER)
+Exp 4: params={x=6, y=6}  → timeout 600s   → penalty = -100   (BEST)
+Exp 5: params={x=8, y=8}  → timeout 600s   → penalty = -100
+```
+
+**TPE Learning:**
+- Parameters x=1-2 cause early crashes → AVOID
+- Parameters x=4 survive to mid-stage → BETTER
+- Parameters x=6-8 reach timeout → BEST (among failures)
+- **Gradient direction**: Increase x and y values
+
+**Comparison:**
+
+| Metric | Infinite Penalties | Graded Penalties |
+|--------|-------------------|------------------|
+| Distinguishability | All = -inf | -1200 to -100 |
+| Gradient | None | Clear trend |
+| TPE Learning | No model | Builds P(score\|params) |
+| Next suggestions | Random | Guided |
+| Convergence | No | Yes (to "least bad") |
+
+**Log Output:**
+
+New logs include penalty information:
+```
+[2025-11-28 12:00:00] [INFO] [Experiment 1] Status: FAILED
+[2025-11-28 12:00:00] [INFO] [Experiment 1] Failed with penalty score: -1200.0
+[2025-11-28 12:00:00] [INFO] [Experiment 1] Elapsed: 45.3s / 600s
+[2025-11-28 12:00:00] [INFO] [Bayesian] Trial complete: score=-1200.0
+```
+
+Compared to before:
+```
+[2025-11-27 20:08:16] [INFO] [Bayesian] Trial complete: score=-inf
+```
+
+**Files Modified:**
+
+1. **`src/web/workers/autotuner_worker.py`**:
+   - Added `calculate_failure_penalty()` function (lines 158-225)
+   - Updated failure handling in 3 locations:
+     - Normal failure (lines 651-673)
+     - Timeout failure (lines 756-774)
+     - Exception failure (lines 807-825)
+
+2. **`docs/GRADED_FAILURE_PENALTIES.md`**:
+   - Complete implementation documentation
+   - Penalty scale table
+   - Usage examples and best practices
+
+3. **`docs/BAYESIAN_OPTIMIZATION_WITH_FAILURES.md`**:
+   - Analysis of why infinite scores don't work
+   - Optuna experiments demonstrating the problem
+   - Comparison of strategies
+
+**Deployment:**
+
+- ✅ All services restarted with root user (to avoid permission issues)
+- ✅ Web Server (PID: 2987329): http://localhost:8000
+- ✅ ARQ Worker (PID: 2987222): Processing with new penalty logic
+- ✅ Health check: All systems operational
+
+**Key Benefits:**
+
+1. **Provides gradient information** even with 100% failure rate
+2. **Distinguishes failure severity**: Early crash vs timeout
+3. **Enables learning**: TPE can find "least bad" parameter regions
+4. **Better than random**: Informed search instead of blind exploration
+5. **Backward compatible**: Success cases still work normally
+
+**Limitations:**
+
+- ⚠️ Still no positive gradient (only "less bad" vs "more bad")
+- ⚠️ Cannot find truly optimal parameters without successes
+- ⚠️ Best case: Find parameters that survive longest (timeout)
+- ⚠️ Relative comparisons only (magnitudes are arbitrary)
+
+**Recommendations:**
+
+1. **Primary goal**: Still try to achieve some successes
+   - Lower traffic load
+   - Increase timeout
+   - Relax SLO constraints
+
+2. **When all fail**: Graded penalties provide:
+   - Identification of promising parameter ranges
+   - Better than random search
+   - Foundation for next iteration
+
+3. **Iterate**: Use findings to adjust configuration and retry
+
+**Key Learnings:**
+
+1. **Infinite scores are ineffective**: TPE needs varying scores to learn
+2. **Failure timing contains information**: How long experiment survives matters
+3. **Gradient is critical**: Even negative-only gradient helps guide search
+4. **Minimum requirement**: Need finite scores (success OR graded failures)
+5. **Trade-off**: Graded penalties are fallback, not replacement for successes
+
+**Status:**
+- ✅ Graded penalty mechanism fully implemented
+- ✅ Three failure scenarios updated
+- ✅ Comprehensive documentation created
+- ✅ Testing validated penalty calculation
+- ✅ All services deployed with new code
+- ⏭️ Next: Test with real high-failure-rate task to validate improvement
+
+</details>

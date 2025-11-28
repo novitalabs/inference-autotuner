@@ -155,6 +155,75 @@ def setup_experiment_logging(task_id: int, experiment_id: int):
 	return logger
 
 
+def calculate_failure_penalty(
+	started_at: datetime,
+	failed_at: datetime,
+	timeout_seconds: int,
+	experiment_status: ExperimentStatus,
+	error_message: str,
+	objective_name: str
+) -> float:
+	"""Calculate penalty score for failed experiment based on failure timing.
+
+	The earlier the failure, the worse the penalty. This provides gradient information
+	to the Bayesian optimizer even when all experiments fail.
+
+	IMPORTANT: All objectives use minimize direction (throughput is negated).
+	Failed experiments should return POSITIVE penalty values (higher = worse).
+
+	Args:
+		started_at: When experiment started
+		failed_at: When experiment failed
+		timeout_seconds: Maximum allowed time
+		experiment_status: Experiment status (DEPLOYING, BENCHMARKING, FAILED)
+		error_message: Error message describing failure
+		objective_name: Optimization objective (e.g., "maximize_throughput")
+
+	Returns:
+		Penalty score (positive value, higher = worse failure)
+
+	Penalty scale (all objectives use minimize, so positive penalties):
+		- Early failure (0-20% completion): 1000 (worst)
+		- Mid failure (20-60% completion): 500
+		- Late failure (60-100% completion): 200
+		- Timeout (100% time used): 100 (least bad)
+	"""
+	# Calculate completion percentage
+	elapsed = (failed_at - started_at).total_seconds()
+	completion_pct = min(elapsed / timeout_seconds, 1.0) if timeout_seconds > 0 else 0.0
+
+	# Base penalty depends on completion percentage
+	# Using positive values because all objectives use minimize direction
+	if completion_pct < 0.20:
+		# Very early failure (deployment, immediate crash)
+		base_penalty = 1000
+	elif completion_pct < 0.60:
+		# Mid-stage failure (benchmark started but failed early)
+		base_penalty = 500
+	elif completion_pct < 0.95:
+		# Late-stage failure (benchmark mostly completed)
+		base_penalty = 200
+	else:
+		# Timeout or near-timeout (experiment ran full duration)
+		base_penalty = 100
+
+	# Additional penalty modifiers based on error type
+	error_lower = error_message.lower() if error_message else ""
+
+	# Deployment failures are worse than benchmark failures
+	if "deploy" in error_lower or "not found" in error_lower:
+		base_penalty *= 1.2
+	# OOM or resource errors are severe
+	elif "oom" in error_lower or "memory" in error_lower or "cuda" in error_lower:
+		base_penalty *= 1.5
+	# Connection errors might be transient
+	elif "connection" in error_lower or "timeout" in error_lower:
+		base_penalty *= 0.8
+
+	return base_penalty
+
+
+
 async def run_experiment_with_timeout(
 	orchestrator: AutotunerOrchestrator,
 	task_config: Dict[str, Any],
@@ -579,12 +648,26 @@ async def run_autotuning_task(ctx: Dict[str, Any], task_id: int) -> Dict[str, An
 							best_experiment_id = db_experiment.id
 							logger.info(f"[Experiment {iteration}] New best score: {best_score:.4f}")
 					else:
-						# Tell strategy about failed experiment (worst score)
+						# Experiment failed - calculate penalty based on failure timing
 						objective_name = optimization_config.get("objective", "minimize_latency")
-						worst_score = float("inf") if "minimize" in objective_name else float("-inf")
+
+						# Calculate penalty score based on when failure occurred
+						penalty_score = calculate_failure_penalty(
+							started_at=db_experiment.started_at,
+							failed_at=db_experiment.completed_at,
+							timeout_seconds=timeout_per_iteration,
+							experiment_status=db_experiment.status,
+							error_message=result.get("error_message", ""),
+							objective_name=objective_name
+						)
+
+						logger.info(f"[Experiment {iteration}] Failed with penalty score: {penalty_score:.1f}")
+						logger.info(f"[Experiment {iteration}] Elapsed: {(db_experiment.completed_at - db_experiment.started_at).total_seconds():.1f}s / {timeout_per_iteration}s")
+
+						# Tell strategy about failed experiment with graded penalty
 						strategy.tell_result(
 							parameters=params,
-							objective_score=worst_score,
+							objective_score=penalty_score,
 							metrics={}
 						)
 
@@ -669,12 +752,23 @@ async def run_autotuning_task(ctx: Dict[str, Any], task_id: int) -> Dict[str, An
 					db_experiment.completed_at = datetime.utcnow()
 					await db.commit()
 
-					# Tell strategy about failed experiment
+					# Calculate penalty for timeout failure
 					objective_name = optimization_config.get("objective", "minimize_latency")
-					worst_score = float("inf") if "minimize" in objective_name else float("-inf")
+					penalty_score = calculate_failure_penalty(
+						started_at=db_experiment.started_at,
+						failed_at=db_experiment.completed_at,
+						timeout_seconds=timeout_per_iteration,
+						experiment_status=db_experiment.status,
+						error_message=db_experiment.error_message,
+						objective_name=objective_name
+					)
+
+					logger.info(f"[Experiment {iteration}] Timeout penalty score: {penalty_score:.1f}")
+
+					# Tell strategy about timeout with graded penalty
 					strategy.tell_result(
 						parameters=params,
-						objective_score=worst_score,
+						objective_score=penalty_score,
 						metrics={}
 					)
 
@@ -709,12 +803,23 @@ async def run_autotuning_task(ctx: Dict[str, Any], task_id: int) -> Dict[str, An
 					db_experiment.completed_at = datetime.utcnow()
 					await db.commit()
 
-					# Tell strategy about failed experiment
+					# Calculate penalty for exception failure
 					objective_name = optimization_config.get("objective", "minimize_latency")
-					worst_score = float("inf") if "minimize" in objective_name else float("-inf")
+					penalty_score = calculate_failure_penalty(
+						started_at=db_experiment.started_at,
+						failed_at=db_experiment.completed_at,
+						timeout_seconds=timeout_per_iteration,
+						experiment_status=db_experiment.status,
+						error_message=db_experiment.error_message,
+						objective_name=objective_name
+					)
+
+					logger.info(f"[Experiment {iteration}] Exception penalty score: {penalty_score:.1f}")
+
+					# Tell strategy about exception with graded penalty
 					strategy.tell_result(
 						parameters=params,
-						objective_score=worst_score,
+						objective_score=penalty_score,
 						metrics={}
 					)
 
