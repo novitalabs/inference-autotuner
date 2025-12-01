@@ -18,6 +18,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from utils.gpu_monitor import get_gpu_monitor, GPUSnapshot
+from utils.optimizer import check_batch_slo_compliance
 
 
 class DirectBenchmarkController:
@@ -490,7 +491,7 @@ class DirectBenchmarkController:
 				return None
 
 			# Parse results from output directory
-			metrics = self._parse_results(output_dir)
+			metrics = self._parse_results(output_dir, slo_config=benchmark_config.get("slo_config"))
 			if metrics:
 				metrics["elapsed_time"] = elapsed_time
 				metrics["benchmark_name"] = benchmark_name
@@ -531,7 +532,7 @@ class DirectBenchmarkController:
 			if need_cleanup:
 				self.cleanup_port_forward()
 
-	def _parse_results(self, output_dir: Path) -> Optional[Dict[str, Any]]:
+	def _parse_results(self, output_dir: Path, slo_config: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
 		"""Parse benchmark results from output directory.
 
 		Args:
@@ -560,14 +561,41 @@ class DirectBenchmarkController:
 			all_metrics = []
 			for result_file in result_files:
 				print(f"[Benchmark] Parsing {result_file.name}")
-				with open(result_file, "r") as f:
-					data = json.load(f)
+				try:
+					with open(result_file, "r") as f:
+						data = json.load(f)
 
-				# genai-bench result structure: {"aggregated_metrics": {...}}
-				if "aggregated_metrics" in data:
-					all_metrics.append(data["aggregated_metrics"])
+					# genai-bench result structure: {"aggregated_metrics": {...}}
+					if "aggregated_metrics" in data:
+						all_metrics.append(data["aggregated_metrics"])
+					else:
+						print(f"[Benchmark] Warning: No aggregated_metrics in {result_file.name}")
+				except Exception as e:
+					print(f"[Benchmark] Error parsing {result_file.name}: {e}")
+					continue
+
+			# Filter batches by SLO compliance if slo_config is provided
+			if slo_config and all_metrics:
+				print(f"[Benchmark] Filtering {len(all_metrics)} batches by SLO compliance...")
+				slo_compliant_metrics = []
+				slo_violated_metrics = []
+				
+				for batch_metrics in all_metrics:
+					is_compliant, violations = check_batch_slo_compliance(batch_metrics, slo_config)
+					if is_compliant:
+						slo_compliant_metrics.append(batch_metrics)
+					else:
+						slo_violated_metrics.append(batch_metrics)
+						concurrency = batch_metrics.get("num_concurrency", "?")
+						print(f"[Benchmark] ✗ Batch concurrency={concurrency} violated SLO: {violations}")
+				
+				if slo_compliant_metrics:
+					print(f"[Benchmark] ✓ {len(slo_compliant_metrics)}/{len(all_metrics)} batches passed SLO")
+					# Use only SLO-compliant batches for aggregation
+					all_metrics = slo_compliant_metrics
 				else:
-					print(f"[Benchmark] Warning: No aggregated_metrics in {result_file.name}")
+					print(f"[Benchmark] ✗ No batches passed SLO! Using all {len(all_metrics)} batches with penalties")
+					# Keep all batches - let penalty system handle it
 
 			if not all_metrics:
 				print(f"[Benchmark] No valid metrics found in result files")
@@ -612,7 +640,7 @@ class DirectBenchmarkController:
 				if tpot_means:
 					aggregated["mean_tpot"] = sum(tpot_means) / len(tpot_means)
 
-				# Throughput (tokens/s) - use max throughput achieved
+				# Throughput (tokens/s) - calculated from SLO-compliant batches only
 				output_throughputs = [m.get("mean_output_throughput_tokens_per_s", 0) for m in all_metrics]
 				if output_throughputs:
 					aggregated["mean_output_throughput"] = sum(output_throughputs) / len(output_throughputs)

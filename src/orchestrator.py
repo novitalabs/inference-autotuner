@@ -268,12 +268,17 @@ class AutotunerOrchestrator:
 					print(f"[GPU Monitor] Will monitor GPUs: {gpu_indices} during benchmark")
 
 			# Direct CLI execution with automatic port forwarding (OME) or direct URL (Docker)
+			# Merge slo_config into benchmark_config for SLO-aware filtering
+			benchmark_config_with_slo = task["benchmark"].copy()
+			if "slo" in task:
+				benchmark_config_with_slo["slo_config"] = task["slo"]
+
 			metrics = self.benchmark_controller.run_benchmark(
 				task_name=task_name,
 				experiment_id=experiment_id,
 				service_name=isvc_name,
 				namespace=namespace,
-				benchmark_config=task["benchmark"],
+				benchmark_config=benchmark_config_with_slo,
 				timeout=timeout,
 				endpoint_url=endpoint_url,
 				gpu_indices=gpu_indices,

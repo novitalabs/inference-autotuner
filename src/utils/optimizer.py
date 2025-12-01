@@ -235,6 +235,139 @@ def calculate_slo_penalty(
 	return penalty_multiplier, is_hard_failure, violation_details
 
 
+
+def check_batch_slo_compliance(batch_metrics: Dict[str, Any], slo_config: Optional[Dict[str, Any]] = None) -> Tuple[bool, Dict[str, Any]]:
+	"""Check if a single batch (concurrency level) meets SLO requirements.
+
+	This is used to filter out batches that violate SLO constraints before aggregation.
+
+	Args:
+	    batch_metrics: Single batch metrics from genai-bench (one concurrency level)
+	    slo_config: SLO configuration from task JSON
+
+	Returns:
+	    Tuple of (is_compliant, violation_details)
+	    - is_compliant: True if batch meets all SLO requirements
+	    - violation_details: Dict with violation information for logging
+	"""
+	# No SLO means all batches are compliant
+	if not slo_config or not batch_metrics:
+		return True, {}
+
+	violation_details = {}
+	is_compliant = True
+
+	# Extract metrics from batch (genai-bench structure: {"stats": {...}})
+	stats = batch_metrics.get("stats", {})
+	if not stats:
+		return True, {}  # No stats means we can't check, assume compliant
+
+	# Check latency SLOs (P50, P90, P99)
+	latency_slo = slo_config.get("latency", {})
+	for percentile in ["p50", "p90", "p99"]:
+		if percentile not in latency_slo:
+			continue
+
+		slo_spec = latency_slo[percentile]
+		threshold = slo_spec.get("threshold")
+		hard_fail = slo_spec.get("hard_fail", False)
+		fail_ratio = slo_spec.get("fail_ratio", 0.5)
+
+		if threshold is None:
+			continue
+
+		# Get actual value from batch stats
+		e2e_latency_stats = stats.get("e2e_latency", {})
+		actual_value = e2e_latency_stats.get(percentile)
+
+		if actual_value is None:
+			continue
+
+		if actual_value > threshold:
+			violation_ratio = (actual_value - threshold) / threshold
+
+			# For SLO compliance check, we only care about hard_fail violations
+			# Soft violations are OK - they just get penalties later
+			if hard_fail and violation_ratio > fail_ratio:
+				is_compliant = False
+				violation_details[percentile] = {
+					"threshold": threshold,
+					"actual": actual_value,
+					"violation_ratio": violation_ratio,
+					"type": "HARD_FAIL"
+				}
+			else:
+				# Soft violation - still compliant, but log it
+				violation_details[percentile] = {
+					"threshold": threshold,
+					"actual": actual_value,
+					"violation_ratio": violation_ratio,
+					"type": "SOFT_VIOLATION"
+				}
+
+	# Check TTFT SLO
+	ttft_slo = slo_config.get("ttft", {})
+	if ttft_slo:
+		threshold = ttft_slo.get("threshold")
+		hard_fail = ttft_slo.get("hard_fail", False)
+		fail_ratio = ttft_slo.get("fail_ratio", 0.5)
+
+		if threshold is not None:
+			ttft_stats = stats.get("ttft", {})
+			actual_value = ttft_stats.get("mean")
+
+			if actual_value is not None and actual_value > threshold:
+				violation_ratio = (actual_value - threshold) / threshold
+
+				if hard_fail and violation_ratio > fail_ratio:
+					is_compliant = False
+					violation_details["ttft"] = {
+						"threshold": threshold,
+						"actual": actual_value,
+						"violation_ratio": violation_ratio,
+						"type": "HARD_FAIL"
+					}
+				else:
+					violation_details["ttft"] = {
+						"threshold": threshold,
+						"actual": actual_value,
+						"violation_ratio": violation_ratio,
+						"type": "SOFT_VIOLATION"
+					}
+
+	# Check TPOT SLO
+	tpot_slo = slo_config.get("tpot", {})
+	if tpot_slo:
+		threshold = tpot_slo.get("threshold")
+		hard_fail = tpot_slo.get("hard_fail", False)
+		fail_ratio = tpot_slo.get("fail_ratio", 0.5)
+
+		if threshold is not None:
+			tpot_stats = stats.get("tpot", {})
+			actual_value = tpot_stats.get("mean")
+
+			if actual_value is not None and actual_value > threshold:
+				violation_ratio = (actual_value - threshold) / threshold
+
+				if hard_fail and violation_ratio > fail_ratio:
+					is_compliant = False
+					violation_details["tpot"] = {
+						"threshold": threshold,
+						"actual": actual_value,
+						"violation_ratio": violation_ratio,
+						"type": "HARD_FAIL"
+					}
+				else:
+					violation_details["tpot"] = {
+						"threshold": threshold,
+						"actual": actual_value,
+						"violation_ratio": violation_ratio,
+						"type": "SOFT_VIOLATION"
+					}
+
+	return is_compliant, violation_details
+
+
 def calculate_objective_score(results: Dict[str, Any], objective: str = "minimize_latency", slo_config: Optional[Dict[str, Any]] = None) -> float:
 	"""Calculate objective score from benchmark results with optional SLO penalties.
 
