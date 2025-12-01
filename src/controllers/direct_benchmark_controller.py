@@ -487,10 +487,13 @@ class DirectBenchmarkController:
 				if result_stderr:
 					print(f"[Benchmark] STDERR:\n{result_stderr}")
 
+			# Even if genai-bench exits with error, try to parse partial results
+			# This allows partial batch success (e.g., some concurrency levels succeed before OOM)
 			if result_returncode != 0:
-				return None
+				print(f"[Benchmark] WARNING: genai-bench exited with non-zero code: {result_returncode}")
+				print(f"[Benchmark] Will attempt to parse partial results from successful batches...")
 
-			# Parse results from output directory
+			# Parse results from output directory (may contain partial results)
 			metrics = self._parse_results(output_dir, slo_config=benchmark_config.get("slo_config"))
 			if metrics:
 				metrics["elapsed_time"] = elapsed_time
@@ -514,6 +517,9 @@ class DirectBenchmarkController:
 				return metrics
 			else:
 				print(f"[Benchmark] No results found in {output_dir}")
+				# If genai-bench failed AND no results exist, this is a complete failure
+				if result_returncode != 0:
+					print(f"[Benchmark] FAILED: No successful batches (exit code: {result_returncode})")
 				return None
 
 		except subprocess.TimeoutExpired:
