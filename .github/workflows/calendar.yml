@@ -1,0 +1,34 @@
+name: Calendar build
+
+on:
+  schedule:
+    # Run every night at 20:00 UTC (4am China time)
+    - cron: 0 20 * * *
+  push:
+    branches: ["develop"]
+    paths:
+      - agentlog/buildCalendar.js
+      - agentlog/2025/**
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    strategy:
+      matrix:
+        node-version: [20.x]
+
+    steps:
+    - uses: actions/checkout@v3
+    - name: Use Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v3
+      with:
+        node-version: ${{ matrix.node-version }}
+    - run: node ./agentlog/buildCalendar.js
+    - name: Commit README
+      uses: actions-js/push@master
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
