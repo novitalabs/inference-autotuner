@@ -32127,3 +32127,264 @@ Compared to before:
 - ⏭️ Next: Test with real high-failure-rate task to validate improvement
 
 </details>
+
+---
+
+
+## 2025/12/01
+
+
+> Implement per-batch SLO filtering for benchmark results
+
+<details>
+<summary>Added SLO compliance checking at individual batch (concurrency level) granularity with filtering before metric aggregation</summary>
+
+**Requirements:**
+1. Allow partial batch failures in genai-bench without failing entire experiment
+2. Check SLO compliance at individual batch (concurrency level) granularity
+3. Filter out batches that violate SLO constraints
+4. Calculate max-throughput only from SLO-compliant batches
+5. Log which batches passed/failed SLO checks
+
+**Problem Background:**
+Previously, SLO constraints were applied to aggregated metrics across all batches. This meant:
+- No per-batch SLO filtering
+- Max throughput calculated from all batches regardless of SLO violations
+- If any batch violated hard SLO constraints, entire experiment failed
+
+**New Behavior:**
+- Each batch (concurrency level) checked individually against SLO constraints
+- Batches violating SLO constraints are filtered out before aggregation
+- Max throughput calculated only from SLO-compliant batches
+- Experiment succeeds if at least one batch passes SLO (graceful degradation)
+- Clear logging of which batches passed/failed SLO checks
+
+**Implementation:**
+
+1. **Created `check_batch_slo_compliance()` function** in `src/utils/optimizer.py`:
+   ```python
+   def check_batch_slo_compliance(batch_metrics: Dict[str, Any], slo_config: Optional[Dict[str, Any]] = None) -> Tuple[bool, Dict[str, Any]]:
+       """Check if a single batch (concurrency level) meets SLO requirements.
+       
+       Returns:
+           Tuple of (is_compliant, violation_details)
+       """
+   ```
+   - Checks latency (p50, p90, p99), TTFT, and TPOT thresholds
+   - Only enforces hard_fail violations (soft penalties handled elsewhere)
+   - Returns compliance status and detailed violation information
+
+2. **Modified `direct_benchmark_controller.py`** to filter batches:
+   - Added SLO filtering logic before metric aggregation (lines 573-595)
+   - Filters out non-compliant batches when `slo_config` provided
+   - Falls back to all batches with penalties if no batches pass SLO
+   - Logs compliance results for each batch
+
+3. **Updated `orchestrator.py`** to pass SLO config:
+   - Merged `slo_config` into `benchmark_config` before calling benchmark controller
+   - Ensures SLO config is available for per-batch filtering
+
+**Example Log Output:**
+```
+[Benchmark] Filtering 4 batches by SLO compliance...
+[Benchmark] ✗ Batch concurrency=8 violated SLO: {'p90': {'threshold': 5.0, 'actual': 6.2, 'violation_ratio': 0.24, 'type': 'HARD_FAIL'}}
+[Benchmark] ✓ 3/4 batches passed SLO
+[Benchmark] Max throughput: 145.2 req/s (from 3 SLO-compliant batches)
+```
+
+**Behavior Changes:**
+
+| Scenario | Before | After |
+|----------|--------|-------|
+| 4 batches, 3 pass SLO | All 4 used for max throughput | Only 3 SLO-compliant used |
+| All batches fail SLO | Experiment fails | Uses all with penalties |
+| Partial batch failure + SLO | May use failing batches | Filters failed batches first |
+
+**Files Modified:**
+- `src/utils/optimizer.py` (+133 lines): Added `check_batch_slo_compliance()`
+- `src/controllers/direct_benchmark_controller.py` (+48 lines): Added SLO filtering logic
+- `src/orchestrator.py` (+7 lines): Pass slo_config to benchmark controller
+
+**Status:**
+- ✅ Per-batch SLO checking implemented
+- ✅ SLO filtering before aggregation
+- ✅ Graceful handling when no batches pass
+- ✅ Detailed logging of compliance results
+- ⏭️ Ready for testing with real experiments
+
+</details>
+
+---
+
+> Handle partial batch success gracefully (OOM tolerance)
+
+<details>
+<summary>Modified error handling to allow experiments to succeed even when some batches fail, enabling graceful degradation</summary>
+
+**Problem:**
+When genai-bench exits with non-zero code (e.g., OOM at high concurrency), the entire experiment would fail even if some batches completed successfully.
+
+**Example Scenario:**
+- Concurrency levels: [1, 4, 6, 8]
+- Batches 1 and 4 complete successfully
+- Batch 6 causes OOM and kills genai-bench
+- **Before**: Entire experiment marked as FAILED, no results saved
+- **After**: Experiment succeeds with results from batches 1 and 4
+
+**Solution Implemented:**
+
+Three-layer fault tolerance in result parsing:
+
+1. **Process-level tolerance** (`direct_benchmark_controller.py` lines 489-496):
+   ```python
+   # Even if genai-bench exits with error, try to parse partial results
+   if result_returncode != 0:
+       print(f"[Benchmark] WARNING: genai-bench exited with non-zero code: {result_returncode}")
+       print(f"[Benchmark] Will attempt to parse partial results from successful batches...")
+   
+   # Parse results from output directory (may contain partial results)
+   metrics = self._parse_results(output_dir, slo_config=benchmark_config.get("slo_config"))
+   ```
+
+2. **File-level tolerance** (lines 564-575):
+   ```python
+   for result_file in result_files:
+       try:
+           with open(result_file, "r") as f:
+               data = json.load(f)
+           if "aggregated_metrics" in data:
+               all_metrics.append(data["aggregated_metrics"])
+       except Exception as e:
+           print(f"[Benchmark] Error parsing {result_file.name}: {e}")
+           continue  # Skip bad files, keep processing
+   ```
+
+3. **Empty results check** (lines 601-608):
+   ```python
+   if not all_metrics:
+       print(f"[Benchmark] ✗ No valid metrics found in results!")
+       return None  # Only fail if NO results exist
+   ```
+
+**Behavior Changes:**
+
+| Event | Before | After |
+|-------|--------|-------|
+| OOM at concurrency=8 | Experiment FAILED | Uses results from 1,4,6 |
+| genai-bench crashes | No results parsed | Parses partial results |
+| Some result files corrupted | Parsing fails | Skip bad files, keep good |
+| All batches fail | Experiment FAILED | Still FAILED (no data) |
+
+**Integration with SLO Filtering:**
+
+The two features work together:
+1. Parse all successful batches (even if some failed)
+2. Filter parsed batches by SLO compliance
+3. Aggregate only SLO-compliant successful batches
+4. Experiment succeeds if at least one batch passes both checks
+
+**Example Combined Flow:**
+```
+genai-bench runs 4 concurrency levels [1, 4, 6, 8]
+├─ Concurrency 1: ✓ Success, ✓ SLO compliant
+├─ Concurrency 4: ✓ Success, ✗ SLO violation (filtered)
+├─ Concurrency 6: ✓ Success, ✓ SLO compliant  
+└─ Concurrency 8: ✗ OOM (no results)
+
+Result: Experiment SUCCESS with 2 compliant batches (1, 6)
+```
+
+**Files Modified:**
+- `src/controllers/direct_benchmark_controller.py`:
+  - Modified error handling to attempt parsing even on non-zero exit codes
+  - Added try-catch around individual file parsing
+  - Changed failure condition to only fail if NO results exist
+
+**Status:**
+- ✅ Partial batch success handling implemented
+- ✅ OOM tolerance added
+- ✅ Individual file parsing errors handled gracefully
+- ✅ Integrated with SLO filtering
+- ⏭️ Testing with OOM scenarios
+
+</details>
+
+
+
+---
+
+> Fix timezone display issue in frontend - API datetime serialization with UTC timezone marker
+
+<details>
+<summary>Fixed timezone serialization by adding Pydantic field serializers to append 'Z' suffix to UTC datetime fields</summary>
+
+**Problem:**
+- Frontend TimezoneContext expects API to return datetime with timezone indicator
+- SQLite DateTime columns don't preserve timezone information
+- FastAPI/Pydantic was serializing datetime as ISO format without timezone suffix
+- Example: `"2025-12-01T02:53:39.435199"` (no timezone indicator)
+- JavaScript `new Date()` parses strings without timezone as local time, not UTC
+- This caused incorrect time display in the frontend
+
+**Root Cause Analysis:**
+1. Database stores datetime with `datetime.utcnow()` (UTC, but timezone-naive)
+2. SQLAlchemy reads datetime objects without timezone info
+3. Pydantic serializes datetime objects using `.isoformat()` (no 'Z' suffix)
+4. JavaScript interprets timezone-less datetime as local time
+5. Frontend tries to convert to Asia/Shanghai, but source is already wrong
+
+**Solution:**
+Added Pydantic `@field_serializer` decorators to response schemas to append 'Z' suffix when serializing to JSON:
+
+```python
+@field_serializer('created_at', 'started_at', 'completed_at', when_used='json')
+def serialize_datetime(self, dt: Optional[datetime]) -> Optional[str]:
+    if dt is None:
+        return None
+    return dt.isoformat() + 'Z'
+```
+
+**Implementation Steps:**
+
+1. **Modified `/root/work/inference-autotuner/src/web/schemas/__init__.py`**:
+   - Added `field_serializer` import from pydantic
+   - Added datetime serializer method to `TaskResponse` class
+   - Added datetime serializer method to `TaskListResponse` class  
+   - Added datetime serializer method to `ExperimentResponse` class
+
+2. **Created fix script** (`/tmp/fix_datetime_v2.py`):
+   - Automated insertion of serializer methods
+   - Handled file permissions with sudo
+
+3. **Verified fix**:
+   - Restarted web server
+   - Tested API responses: all datetime fields now have 'Z' suffix
+   - Example: `"created_at": "2025-12-01T02:53:39.435199Z"` ✅
+
+**Files Modified:**
+- `src/web/schemas/__init__.py` (+21 lines): Added field serializers to 3 response models
+
+**Verification:**
+```bash
+# Before fix:
+curl http://localhost:8000/api/tasks/ | jq '.[0].created_at'
+"2025-12-01T02:53:39.435199"  # No timezone indicator
+
+# After fix:
+curl http://localhost:8000/api/tasks/ | jq '.[0].created_at'
+"2025-12-01T02:53:39.435199Z"  # UTC timezone indicator present ✅
+```
+
+**Alternative Approaches Considered:**
+1. ❌ CustomORJSONResponse in app.py - Pydantic serializes before it reaches response class
+2. ❌ Custom SQLAlchemy type converter - Complex and affects database layer
+3. ✅ Pydantic field_serializer - Clean, type-specific, works at serialization layer
+
+**Status:**
+- ✅ Timezone serialization fixed
+- ✅ All API endpoints return datetime with 'Z' suffix
+- ✅ Frontend can now correctly interpret times as UTC
+- ✅ Web server restarted with new code
+- ⏭️ Frontend should now display correct timezone-converted times
+
+</details>

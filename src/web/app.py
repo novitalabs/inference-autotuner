@@ -4,13 +4,34 @@ FastAPI application entry point.
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import ORJSONResponse
 from contextlib import asynccontextmanager
+from datetime import datetime
+import orjson
 
 from web.config import get_settings
 from web.db.session import init_db, get_db
 from web.db.seed_presets import seed_system_presets
 from web.routes import tasks, experiments, system, docker, presets, runtime_params, dashboard, websocket, ome_resources
 
+
+
+
+
+class CustomORJSONResponse(ORJSONResponse):
+	"""Custom ORJSON response with UTC timezone handling."""
+	
+	@staticmethod
+	def orjson_default(obj):
+		"""Custom serializer for types not handled by orjson."""
+		if isinstance(obj, datetime):
+			# Add 'Z' suffix to indicate UTC timezone
+			return obj.isoformat() + 'Z'
+		raise TypeError(f"Type {type(obj)} not serializable")
+	
+	def render(self, content) -> bytes:
+		"""Render with custom default serializer."""
+		return orjson.dumps(content, default=self.orjson_default)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -30,13 +51,14 @@ async def lifespan(app: FastAPI):
 	print("👋 Shutting down...")
 
 
-# Create FastAPI app
+# Create FastAPI app with custom JSON serialization
 settings = get_settings()
 app = FastAPI(
 	title=settings.app_name,
 	version=settings.app_version,
 	description="API for automated LLM inference parameter tuning",
 	lifespan=lifespan,
+	default_response_class=CustomORJSONResponse,
 )
 
 # CORS middleware

@@ -2,7 +2,7 @@
 Pydantic schemas for API request/response models.
 """
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_serializer
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 from enum import Enum
@@ -95,6 +95,15 @@ class TaskResponse(BaseModel):
 	elapsed_time: Optional[float]
 
 
+
+	# Datetime serializers to add 'Z' suffix for UTC timezone
+	@field_serializer('created_at', 'started_at', 'completed_at', when_used='json')
+	def serialize_datetime(self, dt: Optional[datetime]) -> Optional[str]:
+		if dt is None:
+			return None
+		return dt.isoformat() + 'Z'
+
+
 class TaskListResponse(BaseModel):
 	"""Schema for task list response."""
 
@@ -110,6 +119,15 @@ class TaskListResponse(BaseModel):
 	best_experiment_id: Optional[int]
 	created_at: datetime
 	elapsed_time: Optional[float]
+
+
+
+	# Datetime serializers to add 'Z' suffix for UTC timezone
+	@field_serializer('created_at', when_used='json')
+	def serialize_datetime(self, dt: Optional[datetime]) -> Optional[str]:
+		if dt is None:
+			return None
+		return dt.isoformat() + 'Z'
 
 
 # Experiment schemas
@@ -133,6 +151,15 @@ class ExperimentResponse(BaseModel):
 	started_at: Optional[datetime]
 	completed_at: Optional[datetime]
 	elapsed_time: Optional[float]
+
+
+
+	# Datetime serializers to add 'Z' suffix for UTC timezone
+	@field_serializer('created_at', 'started_at', 'completed_at', when_used='json')
+	def serialize_datetime(self, dt: Optional[datetime]) -> Optional[str]:
+		if dt is None:
+			return None
+		return dt.isoformat() + 'Z'
 
 
 # Progress update schema
