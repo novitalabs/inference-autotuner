@@ -15,24 +15,35 @@ source env/bin/activate
 # Add src directory to PYTHONPATH so imports work
 export PYTHONPATH="$PROJECT_ROOT/src:$PYTHONPATH"
 
-# Load environment variables from .env.local if it exists
-if [ -f "$PROJECT_ROOT/.env.local" ]; then
-    echo "Loading environment variables from .env.local..."
-    source "$PROJECT_ROOT/.env.local"
-    # Explicitly export variables for child processes
-    export HF_TOKEN
+# Load environment variables from .env if it exists
+if [ -f "$PROJECT_ROOT/.env" ]; then
+    echo "Loading environment variables from .env..."
+    # Export all variables from .env file
+    set -a
+    source "$PROJECT_ROOT/.env"
+    set +a
 else
-    echo "Warning: .env.local not found. HF_TOKEN may not be set."
+    echo "Warning: .env not found. Proxy and HF_TOKEN may not be set."
 fi
 
-# Configure proxy settings for HuggingFace downloads
-# IMPORTANT: If you're behind a proxy, uncomment and configure these variables:
-# export HTTP_PROXY=http://172.17.0.1:1081
-# export HTTPS_PROXY=http://172.17.0.1:1081
-# export NO_PROXY=localhost,127.0.0.1
-#
-# NO_PROXY is crucial - it prevents proxying localhost connections,
-# which would break health checks and benchmarking against local inference services
+# Load environment variables from .env.local if it exists (overrides .env)
+if [ -f "$PROJECT_ROOT/.env.local" ]; then
+    echo "Loading environment variables from .env.local..."
+    set -a
+    source "$PROJECT_ROOT/.env.local"
+    set +a
+fi
+
+# Verify proxy configuration
+if [ -n "$HTTP_PROXY" ]; then
+    echo "HTTP_PROXY configured: $HTTP_PROXY"
+fi
+if [ -n "$HTTPS_PROXY" ]; then
+    echo "HTTPS_PROXY configured: $HTTPS_PROXY"
+fi
+if [ -n "$NO_PROXY" ]; then
+    echo "NO_PROXY configured: $NO_PROXY"
+fi
 
 # Unset HF_HUB_OFFLINE to allow genai-bench to fetch tokenizer info from HuggingFace
 unset HF_HUB_OFFLINE
