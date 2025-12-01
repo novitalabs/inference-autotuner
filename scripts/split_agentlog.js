@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
  * Split agentlog.md by date markers into separate files
+ * Date marker lines are automatically excluded from output files
  * Usage: node scripts/split_agentlog.js
  */
 
@@ -24,7 +25,7 @@ async function splitAgentlog() {
   const lines = content.split('\n');
 
   console.log(`✅ Loaded ${lines.length} lines`);
-  console.log('🔍 Parsing dates and grouping content...');
+  console.log('🔍 Parsing dates and grouping content (excluding date marker lines)...');
 
   // Parse and group content by date
   const dateContents = new Map();
@@ -42,10 +43,10 @@ async function splitAgentlog() {
         dateContents.set(currentDate, existing);
       }
 
-      // Start new date section
+      // Start new date section (don't include the date marker line)
       const [_, year, month, day] = match;
       currentDate = `${year}/${month}/${day}`;
-      currentLines = [line]; // Include the date marker line
+      currentLines = []; // Empty - date marker line is excluded
     } else {
       currentLines.push(line);
     }
@@ -91,6 +92,7 @@ async function splitAgentlog() {
   console.log(`   - Dates processed: ${dateContents.size}`);
   console.log(`   - Files created: ${filesCreated}`);
   console.log(`   - Output directory: ${OUTPUT_DIR}/`);
+  console.log(`   - Date marker lines excluded from output`);
 }
 
 // Run the script
