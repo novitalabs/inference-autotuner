@@ -257,6 +257,9 @@ export default function Tasks() {
 							<thead>
 								<tr>
 									<th className="py-3.5 pl-4 pr-3 text-left text-sm font-semibold text-gray-900">
+										ID
+									</th>
+									<th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
 										Task Name
 									</th>
 									<th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
@@ -282,7 +285,10 @@ export default function Tasks() {
 							<tbody className="divide-y divide-gray-200 bg-white">
 								{filteredTasks.map((task: Task) => (
 									<tr key={task.id} className="hover:bg-gray-50">
-										<td className="whitespace-nowrap py-4 pl-4 pr-3 text-sm">
+										<td className="whitespace-nowrap py-4 pl-4 pr-3 text-sm text-gray-500">
+											{task.id}
+										</td>
+										<td className="whitespace-nowrap px-3 py-4 text-sm">
 											<div className="font-medium text-gray-900">
 												{task.task_name}
 											</div>
