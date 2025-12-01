@@ -58,6 +58,7 @@ const main = () => {
 			const fileLink = `agentlog/${year}/${mmdd}.md`;
 
 			let abstract = "";
+			let hasMilestone = false;
 			const past = now - t + 28800e+3; // timezone +8
 			const today = past >= 0 && past < 86400e+3;
 
@@ -65,11 +66,29 @@ const main = () => {
 				const doc = fs.readFileSync(fileLink, "utf-8");
 				const ts = doc.split("\n").filter(l => l.startsWith("##") || l.startsWith("> ")).map(abstractTitle);
 				abstract = ts.join("&#xd;").replace(/"/g, '\\"');
+
+				hasMilestone = /🎉 MILESTONE/.test(doc);
 			}
-			const dayStr = today ? String.fromCodePoint(0x1f305) : // add a mark for today
-				(day == 1 ? "\u2776" : day);
+
+			// Determine the display string for the day
+			let dayStr;
+			if (today) {
+				// Today is marked with 🌅
+				dayStr = String.fromCodePoint(0x1f305);
+			} else if (hasMilestone) {
+				// Days with diary entries (milestones) are marked with 🚩
+				dayStr = "🚩";
+			} else if (day == 1) {
+				// First day of month uses circled 1
+				dayStr = "\u2776";
+			} else {
+				// Regular days show the date number
+				dayStr = day;
+			}
+
 			if (today)
 				abstract = "TODAY&#xd;" + abstract;
+			const relativeFileLink = fileLink.replace(/^agentlog\//, "");
 			const field = abstract ? `[${dayStr}](${fileLink} "${abstract}")` : `${dayStr}`;
 
 			fields.push(field);
