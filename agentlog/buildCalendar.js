@@ -9,7 +9,7 @@ const dateToWeeks = date => Math.floor((Math.floor(date.getTime() / 86400e+3) - 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 
-const README_PATH = "./agentlog/README.md";
+const README_PATH = "./README.md";
 
 
 const abstractTitle = line => line.replace(/[\r]/g, "").replace(/^#/, ".").replace(/#/g, "    ").replace(/\]\(.*\)/, "]").replace(/^[>]/, "&#xd;>");
@@ -86,7 +86,7 @@ const main = () => {
 		readme = fs.readFileSync(README_PATH, "utf-8");
 
 	// Find ## CALENDAR heading
-	const calendarHeading = "## CALENDAR";
+	const calendarHeading = "## DEVELOPMENT CALENDAR";
 	const calendarIndex = readme.indexOf(calendarHeading);
 
 	let finalDocument;

@@ -479,22 +479,32 @@ HF_TOKEN=<your-token>            # Optional: for gated models
 - `docs/OME_INSTALLATION.md`: Kubernetes/OME setup
 - `docs/TROUBLESHOOTING.md`: Common issues and solutions
 - `docs/GENAI_BENCH_LOGS.md`: Viewing benchmark logs
-- `agentlog.md`: Development history and debugging notes
+- `agentlog/`: Development diary organized by date (yyyy/mmdd.md format)
 
 ## Meta-Instructions
 
 **Critical constraints**:
 1. **Kubernetes Dashboard on port 8443** - do not use this port
 2. **Frontend dev server on port 5173** - Vite default, proxies API to port 8000
-3. **Update `agentlog.md`** when mini-milestones are accomplished
-    agentlog should include both user's prompt and agent's response, agent's response should be enclosed inside a foldable `<details>`.
-    The content should be summarized concisely if the original text is too redundance.
-    Fix typos in prompt text if present.
+3. **Update development diary** when a mini-milestone is accomplished
+    - Write directly to today's diary file: `agentlog/yyyy/mmdd.md`
+    - Include both user's prompt and agent's response
+    - Agent's response should be enclosed in foldable `<details>`
+    - Summarize concisely if original text is too redundant
+    - Fix typos in prompt text if present
 4. **Place new .md docs in `./docs/`**
 5. **Consult `docs/TROUBLESHOOTING.md`** when encountering issues, maintain it when resolving new issues
 6. **Restart ARQ worker** after editing relevant code files
 7. DONOT use git commands with writing effects
 8. **Follow `CLAUDE.local.md`** if present for further local instructions
+
+**Development Diary Structure**:
+- **Diary Files**: `agentlog/yyyy/mmdd.md` - Daily entries written directly
+- **Format**: Date-based section headers + user prompt + agent response in `<details>`
+- **Creation**: Auto-create directory and file if today's diary doesn't exist
+- **Separators**: Use `---` between multiple entries on same day
+- **Legacy Script**: `scripts/split_agentlog.js` preserved for historical log processing
+
 
 **Current implementation status**:
 - ✅ **React frontend is fully implemented** (Dashboard, Tasks, Experiments, Container monitoring)

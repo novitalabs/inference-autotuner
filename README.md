@@ -575,6 +575,9 @@ For production implementation:
 - [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) - Common issues and solutions
 - [GENAI_BENCH_LOGS.md](docs/GENAI_BENCH_LOGS.md) - Viewing benchmark logs
 
+### Development History
+- [agentlog/](agentlog/) - Daily development diary (yyyy/mmdd.md format) written directly to files
+
 ## Contributing
 
 See [CLAUDE.md](CLAUDE.md) for development guidelines and project architecture.
