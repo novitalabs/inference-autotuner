@@ -12,7 +12,8 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "
 const README_PATH = "./agentlog/README.md";
 
 
-const abstractTitle = line => line.replace(/[\r]/g, "").replace(/^#/, ".").replace(/#/g, "    ").replace(/\]\(.*\)/, "]").replace(/^[>]/, "&#xd;>");
+const abstractTitle = line => line.replace(/[\r]/g, "").replace(/^#/, ".").replace(/#/g, "    ")
+	.replace(/\]\(.*\)/, "]").replace(/^[>]/, "&#xd;>").replace(/^(.{60}).+/, "$1...");
 
 
 const main = () => {
@@ -58,7 +59,7 @@ const main = () => {
 			const fileLink = `agentlog/${year}/${mmdd}.md`;
 
 			let abstract = "";
-			let hasMilestone = false;
+			let milestoneLine = null;
 			const past = now - t + 28800e+3; // timezone +8
 			const today = past >= 0 && past < 86400e+3;
 
@@ -67,7 +68,8 @@ const main = () => {
 				const ts = doc.split("\n").filter(l => l.startsWith("##") || l.startsWith("> ")).map(abstractTitle);
 				abstract = ts.join("&#xd;").replace(/"/g, '\\"');
 
-				hasMilestone = /🎉 MILESTONE/.test(doc);
+				milestoneLine = doc.match(/.*🎉 MILESTONE\b.*/);
+				milestoneLine = milestoneLine ? abstractTitle(milestoneLine[0]).replace(/^.\s+/, "") : null;
 			}
 
 			// Determine the display string for the day
@@ -75,8 +77,9 @@ const main = () => {
 			if (today) {
 				// Today is marked with 🌅
 				dayStr = String.fromCodePoint(0x1f305);
-			} else if (hasMilestone) {
+			} else if (milestoneLine) {
 				// Days with diary entries (milestones) are marked with 🚩
+				abstract = milestoneLine + "&#xd;&#xd;" + abstract;
 				dayStr = "🚩";
 			} else if (day == 1) {
 				// First day of month uses circled 1
@@ -87,7 +90,7 @@ const main = () => {
 			}
 
 			if (today)
-				abstract = "TODAY&#xd;" + abstract;
+				abstract = "TODAY&#xd;&#xd;" + abstract;
 			const relativeFileLink = fileLink.replace(/^agentlog\//, "");
 			const field = abstract ? `[${dayStr}](${fileLink} "${abstract}")` : `${dayStr}`;
 
