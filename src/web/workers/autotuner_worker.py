@@ -331,6 +331,7 @@ async def run_autotuning_task(ctx: Dict[str, Any], task_id: int) -> Dict[str, An
 				"deployment_mode": task.deployment_mode,
 				"clusterbasemodel_config": task.clusterbasemodel_config,
 				"clusterservingruntime_config": task.clusterservingruntime_config,
+				"slo": task.slo_config,
 			}
 
 			# Check GPU availability before starting task (only for Docker mode)

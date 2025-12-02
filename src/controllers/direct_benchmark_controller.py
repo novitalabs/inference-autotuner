@@ -581,6 +581,8 @@ class DirectBenchmarkController:
 					continue
 
 			# Filter batches by SLO compliance if slo_config is provided
+			print(f"[DEBUG] _parse_results: slo_config type={type(slo_config)}, value={slo_config}")
+			print(f"[DEBUG] _parse_results: all_metrics count={len(all_metrics) if all_metrics else 0}")
 			if slo_config and all_metrics:
 				print(f"[Benchmark] Filtering {len(all_metrics)} batches by SLO compliance...")
 				slo_compliant_metrics = []

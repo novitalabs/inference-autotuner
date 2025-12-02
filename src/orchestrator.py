@@ -272,6 +272,8 @@ class AutotunerOrchestrator:
 			benchmark_config_with_slo = task["benchmark"].copy()
 			if "slo" in task:
 				benchmark_config_with_slo["slo_config"] = task["slo"]
+				slo_value = benchmark_config_with_slo.get("slo_config")
+				print(f"[DEBUG ORCHESTRATOR] slo_config value: {slo_value}")
 
 			metrics = self.benchmark_controller.run_benchmark(
 				task_name=task_name,
