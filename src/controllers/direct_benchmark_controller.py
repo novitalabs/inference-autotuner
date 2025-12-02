@@ -271,6 +271,55 @@ class DirectBenchmarkController:
 				self.port_forward_proc = None
 				self.local_port = None
 
+
+	def _warmup_service(self, endpoint_url: str, model_name: str, num_requests: int = 3):
+		"""Warmup the inference service by sending a few requests.
+		
+		This triggers torch compile, CUDA graph capture, and other JIT optimizations
+		that would otherwise impact the first benchmark batch.
+		
+		Args:
+		    endpoint_url: Service endpoint URL
+		    model_name: Model name for the API request
+		    num_requests: Number of warmup requests to send (default: 3)
+		"""
+		import requests
+		import time
+		
+		print(f"[Warmup] Sending {num_requests} warmup requests to trigger JIT compilation...")
+		
+		warmup_prompt = "Hello, this is a warmup request."
+		
+		for i in range(num_requests):
+			try:
+				response = requests.post(
+					f"{endpoint_url}/v1/completions",
+					json={
+						"model": model_name,
+						"prompt": warmup_prompt,
+						"max_tokens": 10,
+						"temperature": 0.0
+					},
+					timeout=30
+				)
+				
+				if response.status_code == 200:
+					print(f"[Warmup] Request {i+1}/{num_requests} completed")
+				else:
+					print(f"[Warmup] Request {i+1}/{num_requests} returned status {response.status_code}")
+					
+			except Exception as e:
+				print(f"[Warmup] Request {i+1}/{num_requests} failed: {e}")
+			
+			# Small delay between requests
+			if i < num_requests - 1:
+				time.sleep(0.5)
+		
+		# Wait a bit for compilation to fully complete
+		print(f"[Warmup] Waiting 2 seconds for JIT compilation to complete...")
+		time.sleep(2)
+		print(f"[Warmup] Warmup phase completed")
+
 	def run_benchmark(
 		self,
 		task_name: str,
@@ -324,6 +373,9 @@ class DirectBenchmarkController:
 		print(f"[Benchmark] Running genai-bench for experiment {experiment_id}")
 		print(f"[Benchmark] Endpoint: {endpoint_url}")
 		print(f"[Benchmark] Output directory: {output_dir}")
+
+		# Warmup phase: Send requests to trigger torch compile and CUDA graph capture
+		self._warmup_service(endpoint_url, model_name)
 
 		# Build genai-bench command
 		cmd = [
