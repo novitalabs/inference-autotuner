@@ -374,6 +374,9 @@ class DirectBenchmarkController:
 		print(f"[Benchmark] Endpoint: {endpoint_url}")
 		print(f"[Benchmark] Output directory: {output_dir}")
 
+		# Get model name first (needed for warmup)
+		model_name = benchmark_config.get("model_name", "unknown")
+
 		# Warmup phase: Send requests to trigger torch compile and CUDA graph capture
 		self._warmup_service(endpoint_url, model_name)
 
@@ -395,8 +398,7 @@ class DirectBenchmarkController:
 			output_dir.name,
 		]
 
-		# Add model name (required by genai-bench)
-		model_name = benchmark_config.get("model_name", "unknown")
+		# Add model name to command (already extracted above)
 		cmd.extend(["--api-model-name", model_name])
 
 		# Add model tokenizer (required by genai-bench)
