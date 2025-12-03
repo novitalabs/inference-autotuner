@@ -263,8 +263,8 @@ export default function Layout() {
 					))}
 				</nav>
 
-				{/* Sidebar Footer */}
-				<div className="flex-shrink-0 border-t border-gray-200 p-4">
+				{/* Sidebar Footer - PLACEHOLDER: User profile and settings (not implemented) */}
+				{/* <div className="flex-shrink-0 border-t border-gray-200 p-4">
 					<div className="flex items-center">
 						<div className="flex-shrink-0">
 							<div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center">
@@ -309,7 +309,7 @@ export default function Layout() {
 							</svg>
 						</button>
 					</div>
-				</div>
+				</div> */}
 			</div>
 
 			{/* Main content area */}
@@ -354,8 +354,8 @@ export default function Layout() {
 								</div>
 							</div>
 
-							{/* Right side */}
-							<div className="flex items-center space-x-2">
+							{/* Right side - PLACEHOLDER: Search and notifications (not implemented) */}
+							{/* <div className="flex items-center space-x-2">
 								<button className="p-2 text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-100">
 									<svg
 										className="w-5 h-5"
@@ -387,7 +387,7 @@ export default function Layout() {
 									</svg>
 									<span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
 								</button>
-							</div>
+							</div> */}
 						</div>
 					</div>
 				</header>
