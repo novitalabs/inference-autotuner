@@ -5,6 +5,7 @@ import Experiments from "@/pages/Experiments";
 import NewTask from "@/pages/NewTask";
 import Containers from "@/pages/Containers";
 import Presets from "@/pages/Presets";
+import { UpdateNotification } from "./UpdateNotification";
 
 type TabId = "dashboard" | "tasks" | "experiments" | "new-task" | "containers" | "presets";
 
@@ -173,6 +174,9 @@ export default function Layout() {
 
 	return (
 		<div className="h-screen flex overflow-hidden bg-gray-100">
+			{/* Update notification banner */}
+			<UpdateNotification githubRepo={import.meta.env.VITE_GITHUB_REPO || "novitalabs/inference-autotuner"} />
+
 			{/* Mobile sidebar backdrop */}
 			{sidebarOpen && (
 				<div
@@ -195,8 +199,15 @@ export default function Layout() {
 						</div>
 						<div>
 							<h1 className="text-sm font-bold text-gray-900">Inference Autotuner</h1>
-							<p className="text-xs text-gray-500">
-								{version ? `v${version}` : 'Loading...'}
+							<p className="text-xs text-gray-500" title={`Build: ${typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : 'dev'}`}>
+								{version ? (
+									<>
+										v{version}
+										<span className="text-[0.625rem] text-gray-400">
+											{typeof __BUILD_TIME__ !== 'undefined' ? `+${__BUILD_TIME__}` : '-dev'}
+										</span>
+									</>
+								) : 'Loading...'}
 							</p>
 						</div>
 					</div>

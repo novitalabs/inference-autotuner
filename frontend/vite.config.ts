@@ -5,11 +5,18 @@ import { fileURLToPath } from 'url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
+// Generate build timestamp
+const buildTime = new Date().toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z'
+
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
   // Load .env from parent directory (project root)
   envDir: '../',
+  define: {
+    // Inject build time as a global constant
+    '__BUILD_TIME__': JSON.stringify(buildTime),
+  },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
