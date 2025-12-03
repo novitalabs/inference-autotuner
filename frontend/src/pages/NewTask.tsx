@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import { apiClient } from '../services/api';
 import toast from 'react-hot-toast';
@@ -9,6 +9,7 @@ import type { Task, QuantizationConfig, ParallelConfig } from '../types/api';
 import PresetSelector from '../components/PresetSelector';
 import { QuantizationConfigForm } from '../components/QuantizationConfigForm';
 import { ParallelConfigForm } from '../components/ParallelConfigForm';
+import yaml from 'js-yaml';
 
 interface TaskFormData {
   task_name: string;
@@ -315,6 +316,11 @@ export default function NewTask() {
   const [baseRuntime, setBaseRuntime] = useState('sglang');
   const [runtimeImageTag, setRuntimeImageTag] = useState('');
 
+  // YAML Import state
+  const [isDragging, setIsDragging] = useState(false);
+  const [importedFileName, setImportedFileName] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   // Model config
   const [modelIdOrPath, setModelIdOrPath] = useState('');
   const [modelNamespace, setModelNamespace] = useState('autotuner');
@@ -471,6 +477,151 @@ export default function NewTask() {
       });
   };
 
+  // YAML Import handlers
+  const handleYAMLImport = async (file: File) => {
+    try {
+      const text = await file.text();
+      const config = yaml.load(text) as any;
+
+      // Load the configuration into form
+      if (config.task_name) setTaskName(config.task_name);
+      if (config.description) setDescription(config.description);
+      if (config.deployment_mode) setDeploymentMode(config.deployment_mode);
+      if (config.base_runtime) setBaseRuntime(config.base_runtime);
+      if (config.runtime_image_tag) setRuntimeImageTag(config.runtime_image_tag);
+
+      // Model config
+      if (config.model) {
+        if (config.model.id_or_path) setModelIdOrPath(config.model.id_or_path);
+        if (config.model.namespace) setModelNamespace(config.model.namespace);
+      }
+
+      // Parameters
+      if (config.parameters) {
+        const params: ParamField[] = [];
+        for (const [key, value] of Object.entries(config.parameters)) {
+          if (Array.isArray(value)) {
+            params.push({ name: key, values: value.join(', ') });
+          }
+        }
+        if (params.length > 0) setParameters(params);
+      }
+
+      // Optimization
+      if (config.optimization) {
+        if (config.optimization.strategy) setStrategy(config.optimization.strategy);
+        if (config.optimization.objective) setObjective(config.optimization.objective);
+        if (config.optimization.max_iterations) setMaxIterations(config.optimization.max_iterations);
+        if (config.optimization.timeout_per_iteration) setTimeoutPerIteration(config.optimization.timeout_per_iteration);
+      }
+
+      // Benchmark
+      if (config.benchmark) {
+        if (config.benchmark.task) setBenchmarkTask(config.benchmark.task);
+        if (config.benchmark.model_name) setBenchmarkModelName(config.benchmark.model_name);
+        if (config.benchmark.model_tokenizer) setModelTokenizer(config.benchmark.model_tokenizer);
+        if (config.benchmark.traffic_scenarios) setTrafficScenarios(config.benchmark.traffic_scenarios.join(', '));
+        if (config.benchmark.num_concurrency) setNumConcurrency(config.benchmark.num_concurrency.join(', '));
+        if (config.benchmark.max_time_per_iteration) setMaxTimePerIteration(config.benchmark.max_time_per_iteration);
+        if (config.benchmark.max_requests_per_iteration) setMaxRequestsPerIteration(config.benchmark.max_requests_per_iteration);
+        if (config.benchmark.additional_params?.temperature !== undefined) {
+          setTemperature(config.benchmark.additional_params.temperature.toString());
+        }
+      }
+
+      // SLO Configuration
+      if (config.slo) {
+        setEnableSLO(true);
+
+        // Latency metrics
+        if (config.slo.latency) {
+          if (config.slo.latency.p50) {
+            setEnableP50(true);
+            setSloP50Threshold(config.slo.latency.p50.threshold?.toString() || '2.0');
+            setSloP50Weight(config.slo.latency.p50.weight?.toString() || '1.0');
+          }
+
+          if (config.slo.latency.p90) {
+            setEnableP90(true);
+            setSloP90Threshold(config.slo.latency.p90.threshold?.toString() || '5.0');
+            setSloP90Weight(config.slo.latency.p90.weight?.toString() || '2.0');
+            if (config.slo.latency.p90.hard_fail !== undefined) setSloP90HardFail(config.slo.latency.p90.hard_fail);
+            if (config.slo.latency.p90.fail_ratio !== undefined) setSloP90FailRatio(config.slo.latency.p90.fail_ratio.toString());
+          }
+
+          if (config.slo.latency.p99) {
+            setEnableP99(true);
+            setSloP99Threshold(config.slo.latency.p99.threshold?.toString() || '10.0');
+            setSloP99Weight(config.slo.latency.p99.weight?.toString() || '3.0');
+            if (config.slo.latency.p99.hard_fail !== undefined) setSloP99HardFail(config.slo.latency.p99.hard_fail);
+            if (config.slo.latency.p99.fail_ratio !== undefined) setSloP99FailRatio(config.slo.latency.p99.fail_ratio.toString());
+          }
+        }
+
+        // TTFT
+        if (config.slo.ttft) {
+          setEnableTTFT(true);
+          setSloTtftThreshold(config.slo.ttft.threshold?.toString() || '1.0');
+          setSloTtftWeight(config.slo.ttft.weight?.toString() || '2.0');
+        }
+
+        // TPOT
+        if (config.slo.tpot) {
+          setEnableTPOT(true);
+          setSloTpotThreshold(config.slo.tpot.threshold?.toString() || '0.05');
+          setSloTpotWeight(config.slo.tpot.weight?.toString() || '2.0');
+        }
+
+        // Steepness
+        if (config.slo.steepness !== undefined) {
+          setSloSteepness(config.slo.steepness.toString());
+        }
+      }
+
+      // Quantization and Parallel configs
+      if (config.quant_config) setQuantConfig(config.quant_config);
+      if (config.parallel_config) setParallelConfig(config.parallel_config);
+
+      // Set imported state
+      setImportedFileName(file.name);
+      toast.success(`Configuration loaded from ${file.name}`);
+    } catch (error) {
+      console.error('Error parsing YAML:', error);
+      toast.error('Failed to parse YAML file. Please check the file format.');
+    }
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      handleYAMLImport(file);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+
+    const file = e.dataTransfer.files[0];
+    if (file) {
+      if (file.name.endsWith('.yaml') || file.name.endsWith('.yml')) {
+        handleYAMLImport(file);
+      } else {
+        toast.error('Please drop a YAML file (.yaml or .yml)');
+      }
+    }
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -592,10 +743,108 @@ export default function NewTask() {
   };
 
   return (
-    <div className="max-w-4xl mx-auto">
+    <div
+      className="max-w-4xl mx-auto relative"
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {/* Full-page drag overlay */}
+      {isDragging && (
+        <div className="fixed inset-0 z-50 bg-blue-500 bg-opacity-10 pointer-events-none flex items-center justify-center">
+          <div className="bg-white rounded-lg shadow-2xl p-8 border-4 border-dashed border-blue-500">
+            <div className="flex flex-col items-center">
+              <svg
+                className="w-20 h-20 mb-4 text-blue-500 animate-bounce"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
+                />
+              </svg>
+              <h3 className="text-2xl font-bold text-blue-900 mb-2">
+                Drop YAML file anywhere
+              </h3>
+              <p className="text-blue-700">
+                Release to import task configuration
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="mb-6">
         <h1 className="text-3xl font-bold text-gray-900">{originalTask ? "Edit Task" : "Create New Task"}</h1>
         <p className="mt-2 text-gray-600">Configure a new autotuning task</p>
+      </div>
+
+      {/* YAML Import Section - Always minimal, no resizing */}
+      <div className="mb-6">
+        <div
+          className={`flex items-center gap-3 rounded-lg px-4 py-3 transition-colors cursor-pointer ${
+            importedFileName
+              ? 'bg-green-50 border-2 border-green-500 hover:bg-green-100'
+              : 'bg-gray-50 border border-gray-200 hover:bg-gray-100'
+          }`}
+          onClick={() => fileInputRef.current?.click()}
+        >
+          {importedFileName ? (
+            // Success state - checkmark icon
+            <svg
+              className="w-5 h-5 text-green-600"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+              />
+            </svg>
+          ) : (
+            // Default state - upload icon
+            <svg
+              className="w-5 h-5 text-gray-400"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
+              />
+            </svg>
+          )}
+          <span className={`text-sm font-medium ${importedFileName ? 'text-green-900' : 'text-gray-700'}`}>
+            {importedFileName ? `Imported: ${importedFileName}` : 'Import YAML Configuration'}
+          </span>
+          {!importedFileName && (
+            <span className="text-xs text-gray-500">
+              Drag file anywhere or click to browse
+            </span>
+          )}
+          {importedFileName && (
+            <span className="text-xs text-green-600 ml-auto">
+              Click to import another file
+            </span>
+          )}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".yaml,.yml"
+            onChange={handleFileSelect}
+            className="hidden"
+          />
+        </div>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-8">
