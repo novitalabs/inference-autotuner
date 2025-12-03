@@ -446,10 +446,26 @@ def calculate_objective_score(results: Dict[str, Any], objective: str = "minimiz
 						print(f"  {metric}: {details['actual']:.4f} >> {details['threshold']:.4f} (violation: {details['violation_ratio']*100:.1f}%)")
 				return float("inf") if "minimize" in objective else float("-inf")
 
-			# Soft penalties: multiply base score
+			# NOTE: Batch-level SLO filtering already handles hard failures and filtering.
+			# No additional penalty should be applied here for SUCCESS experiments.
+			# This section is kept for backward compatibility but should not trigger
+			# since batch-level filtering removes non-compliant data.
+
+			# Soft penalties: ADD to base score (not multiply, to handle negative scores correctly)
 			if penalty_multiplier > 1.0:
-				final_score = base_score * penalty_multiplier
-				print(f"[Optimizer] Base score: {base_score:.4f}, SLO penalty multiplier: {penalty_multiplier:.2f}x, Final: {final_score:.4f}")
+				# Convert penalty_multiplier (1.0 + penalty) to addition value
+				penalty_value = (penalty_multiplier - 1.0) * abs(base_score)
+
+				# For minimize objectives (positive base_score), add penalty makes it worse (larger)
+				# For maximize objectives (negative base_score), add penalty makes it worse (less negative)
+				if "maximize" in objective:
+					# base_score is negative (e.g., -5000), adding positive penalty makes it less negative (worse)
+					final_score = base_score + penalty_value
+				else:
+					# base_score is positive, adding penalty makes it larger (worse)
+					final_score = base_score + penalty_value
+
+				print(f"[Optimizer] Base score: {base_score:.4f}, SLO penalty: +{penalty_value:.2f}, Final: {final_score:.4f}")
 				if violation_details:
 					print(f"[Optimizer] SLO violations detected:")
 					for metric, details in violation_details.items():
