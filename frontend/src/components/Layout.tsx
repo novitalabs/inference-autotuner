@@ -6,6 +6,7 @@ import NewTask from "@/pages/NewTask";
 import Containers from "@/pages/Containers";
 import Presets from "@/pages/Presets";
 import { UpdateNotification } from "./UpdateNotification";
+import { Logo } from "./Logo";
 
 type TabId = "dashboard" | "tasks" | "experiments" | "new-task" | "containers" | "presets";
 
@@ -194,8 +195,8 @@ export default function Layout() {
 				{/* Sidebar Header */}
 				<div className="flex items-center justify-between h-16 px-4 border-b border-gray-200 flex-shrink-0">
 					<div className="flex items-center space-x-3">
-						<div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center">
-							<span className="text-white text-sm font-bold">AI</span>
+						<div className="w-8 h-8 flex items-center justify-center">
+							<Logo className="w-full h-full" />
 						</div>
 						<div>
 							<h1 className="text-sm font-bold text-gray-900">Inference Autotuner</h1>
