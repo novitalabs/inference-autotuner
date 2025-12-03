@@ -19,6 +19,7 @@ import {
   ZAxis,
   LineChart,
   Line,
+  ReferenceLine,
 } from 'recharts';
 
 interface TaskResultsProps {
@@ -286,6 +287,37 @@ export default function TaskResults({ task, onClose }: TaskResultsProps) {
 
       return flatData;
     });
+  };
+
+  // Helper function to get SLO threshold for a given metric axis
+  const getSLOThreshold = (metricName: string): number | null => {
+    if (!task.slo) return null;
+
+    // Map metric names to SLO config paths
+    const metricMap: Record<string, { path: string; percentile?: string }> = {
+      'ttft_mean': { path: 'ttft' },
+      'tpot_mean': { path: 'tpot' },
+      'e2e_latency_p50': { path: 'latency', percentile: 'p50' },
+      'e2e_latency_p90': { path: 'latency', percentile: 'p90' },
+      'e2e_latency_p99': { path: 'latency', percentile: 'p99' },
+    };
+
+    const mapping = metricMap[metricName];
+    if (!mapping) return null;
+
+    try {
+      if (mapping.percentile) {
+        // For latency percentiles
+        const latencyConfig = task.slo.latency?.[mapping.percentile as 'p50' | 'p90' | 'p99'];
+        return latencyConfig?.threshold ?? null;
+      } else {
+        // For ttft/tpot
+        const metricConfig = task.slo[mapping.path as 'ttft' | 'tpot'];
+        return metricConfig?.threshold ?? null;
+      }
+    } catch {
+      return null;
+    }
   };
 
   // Get scatter data for best experiment (always show in green)
@@ -890,6 +922,47 @@ export default function TaskResults({ task, onClose }: TaskResultsProps) {
                               }}
                             />
                             <Legend />
+
+                            {/* SLO Reference Lines */}
+                            {(() => {
+                              const xSLO = getSLOThreshold(scatterXAxis);
+                              const ySLO = getSLOThreshold(scatterYAxis);
+
+                              return (
+                                <>
+                                  {xSLO !== null && (
+                                    <ReferenceLine
+                                      x={xSLO}
+                                      stroke="#ef4444"
+                                      strokeWidth={2}
+                                      strokeDasharray="5 5"
+                                      label={{
+                                        value: `SLO: ${xSLO}`,
+                                        position: 'top',
+                                        fill: '#ef4444',
+                                        fontSize: 11,
+                                        fontWeight: 'bold',
+                                      }}
+                                    />
+                                  )}
+                                  {ySLO !== null && (
+                                    <ReferenceLine
+                                      y={ySLO}
+                                      stroke="#ef4444"
+                                      strokeWidth={2}
+                                      strokeDasharray="5 5"
+                                      label={{
+                                        value: `SLO: ${ySLO}`,
+                                        position: 'right',
+                                        fill: '#ef4444',
+                                        fontSize: 11,
+                                        fontWeight: 'bold',
+                                      }}
+                                    />
+                                  )}
+                                </>
+                              );
+                            })()}
 
                             {/* Best experiment data (green dots) */}
                             {bestExperimentData.length > 0 && (

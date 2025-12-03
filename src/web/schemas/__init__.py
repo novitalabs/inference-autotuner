@@ -107,7 +107,7 @@ class TaskResponse(BaseModel):
 class TaskListResponse(BaseModel):
 	"""Schema for task list response."""
 
-	model_config = {"from_attributes": True}
+	model_config = {"from_attributes": True, "populate_by_name": True}
 
 	id: int
 	task_name: str
@@ -119,6 +119,7 @@ class TaskListResponse(BaseModel):
 	best_experiment_id: Optional[int]
 	created_at: datetime
 	elapsed_time: Optional[float]
+	slo: Optional[Dict[str, Any]] = Field(None, alias="slo_config", serialization_alias="slo")
 
 
 
