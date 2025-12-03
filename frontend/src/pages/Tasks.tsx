@@ -10,6 +10,7 @@ import { navigateTo } from "@/components/Layout";
 import { setEditingTaskId } from "@/utils/editTaskStore";
 import { useTaskWebSocket } from "@/hooks/useTaskWebSocket";
 import toast from "react-hot-toast";
+import yaml from "js-yaml";
 
 export default function Tasks() {
 	const queryClient = useQueryClient();
@@ -563,6 +564,51 @@ function TaskDetailModal({ task, onClose }: { task: Task; onClose: () => void })
 		toast.success("Task configuration loaded for duplication");
 	};
 
+	const handleExportYAML = () => {
+		// Extract task configuration for export
+		const taskConfig: any = {
+			task_name: task.task_name,
+			model: task.model,
+			base_runtime: task.base_runtime,
+			parameters: task.parameters,
+			optimization: task.optimization,
+			benchmark: task.benchmark,
+		};
+
+		// Add optional fields if present
+		if (task.description) taskConfig.description = task.description;
+		if (task.runtime_image_tag) taskConfig.runtime_image_tag = task.runtime_image_tag;
+		if (task.slo) taskConfig.slo = task.slo;
+		if (task.quant_config) taskConfig.quant_config = task.quant_config;
+		if (task.parallel_config) taskConfig.parallel_config = task.parallel_config;
+		if (task.deployment_mode) taskConfig.deployment_mode = task.deployment_mode;
+
+		try {
+			// Convert to YAML
+			const yamlContent = yaml.dump(taskConfig, {
+				indent: 2,
+				lineWidth: -1, // Disable line wrapping
+				noRefs: true, // Avoid references
+			});
+
+			// Create blob and download
+			const blob = new Blob([yamlContent], { type: "text/yaml;charset=utf-8" });
+			const url = URL.createObjectURL(blob);
+			const link = document.createElement("a");
+			link.href = url;
+			link.download = `${task.task_name}.yaml`;
+			document.body.appendChild(link);
+			link.click();
+			document.body.removeChild(link);
+			URL.revokeObjectURL(url);
+
+			toast.success(`Task configuration exported as ${task.task_name}.yaml`);
+		} catch (error) {
+			console.error("Error exporting YAML:", error);
+			toast.error("Failed to export task configuration");
+		}
+	};
+
 	return (
 		<div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center p-4 z-50">
 			<div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
@@ -570,6 +616,26 @@ function TaskDetailModal({ task, onClose }: { task: Task; onClose: () => void })
 					<div className="flex items-center justify-between">
 						<h2 className="text-xl font-bold text-gray-900">{task.task_name}</h2>
 						<div className="flex items-center gap-2">
+							<button
+								onClick={handleExportYAML}
+								className="inline-flex items-center px-3 py-1.5 text-sm font-medium text-green-600 bg-green-50 rounded-md hover:bg-green-100 transition-colors"
+								title="Export task configuration as YAML"
+							>
+								<svg
+									className="w-4 h-4 mr-1.5"
+									fill="none"
+									viewBox="0 0 24 24"
+									stroke="currentColor"
+								>
+									<path
+										strokeLinecap="round"
+										strokeLinejoin="round"
+										strokeWidth={2}
+										d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+									/>
+								</svg>
+								Export YAML
+							</button>
 							<button
 								onClick={handleDuplicateTask}
 								className="inline-flex items-center px-3 py-1.5 text-sm font-medium text-blue-600 bg-blue-50 rounded-md hover:bg-blue-100 transition-colors"
