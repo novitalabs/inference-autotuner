@@ -138,6 +138,7 @@ export default function Layout() {
 	// Initialize activeTab from URL hash, or default to "dashboard"
 	const [activeTab, setActiveTab] = useState<TabId>(getTabFromHash);
 	const [sidebarOpen, setSidebarOpen] = useState(false);
+	const [version, setVersion] = useState<string>('');
 
 	// Update URL hash when tab changes
 	const updateActiveTab = (tabId: TabId) => {
@@ -157,6 +158,14 @@ export default function Layout() {
 
 		window.addEventListener("hashchange", handleHashChange);
 		return () => window.removeEventListener("hashchange", handleHashChange);
+	}, []);
+
+	// Fetch version info on mount
+	useEffect(() => {
+		fetch('/api/system/info')
+			.then(res => res.json())
+			.then(data => setVersion(data.version))
+			.catch(() => setVersion('unknown'));
 	}, []);
 
 	const ActiveComponent =
@@ -186,7 +195,9 @@ export default function Layout() {
 						</div>
 						<div>
 							<h1 className="text-sm font-bold text-gray-900">Inference Autotuner</h1>
-							<p className="text-xs text-gray-500">v0.1.0</p>
+							<p className="text-xs text-gray-500">
+								{version ? `v${version}` : 'Loading...'}
+							</p>
 						</div>
 					</div>
 					<button
