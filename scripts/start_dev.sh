@@ -15,26 +15,9 @@ source env/bin/activate
 # Set PYTHONPATH
 export PYTHONPATH="$PROJECT_ROOT/src:$PYTHONPATH"
 
-# Stop any existing server on port 8000
-echo "🔍 Checking for existing server on port 8000..."
-if fuser 8000/tcp > /dev/null 2>&1; then
-    echo "   Killing existing server on port 8000..."
-    fuser -k 8000/tcp > /dev/null 2>&1
-    sleep 2
-fi
-
-# Stop any existing ARQ worker
-echo "🔍 Checking for existing ARQ worker..."
-EXISTING_WORKER=$(pgrep -f "arq.*autotuner_worker" 2>/dev/null)
-if [ -n "$EXISTING_WORKER" ]; then
-    echo "   Killing existing worker PIDs: $EXISTING_WORKER"
-    kill $EXISTING_WORKER 2>/dev/null
-    sleep 2
-fi
-
 # Load environment variables from .env if it exists
 if [ -f "$PROJECT_ROOT/.env" ]; then
-    echo "📋 Loading environment variables from .env..."
+    echo "Loading environment variables from .env..."
     set -a
     source "$PROJECT_ROOT/.env"
     set +a
@@ -42,10 +25,21 @@ fi
 
 # Load environment variables from .env.local if it exists (overrides .env)
 if [ -f "$PROJECT_ROOT/.env.local" ]; then
-    echo "📋 Loading environment variables from .env.local..."
+    echo "Loading environment variables from .env.local..."
     set -a
     source "$PROJECT_ROOT/.env.local"
     set +a
+fi
+
+# Set default port if not configured
+SERVER_PORT=${SERVER_PORT:-8001}
+
+# Stop any existing server on configured port
+echo "Checking for existing server on port $SERVER_PORT..."
+if fuser ${SERVER_PORT}/tcp > /dev/null 2>&1; then
+    echo "   Killing existing server on port $SERVER_PORT..."
+    fuser -k ${SERVER_PORT}/tcp > /dev/null 2>&1
+    sleep 2
 fi
 
 # Verify proxy configuration
@@ -56,15 +50,24 @@ if [ -n "$HTTPS_PROXY" ]; then
     echo "   HTTPS_PROXY configured: $HTTPS_PROXY"
 fi
 
+# Stop any existing ARQ worker
+echo "Checking for existing ARQ worker..."
+EXISTING_WORKER=$(pgrep -f "arq.*autotuner_worker" 2>/dev/null)
+if [ -n "$EXISTING_WORKER" ]; then
+    echo "   Killing existing worker PIDs: $EXISTING_WORKER"
+    kill $EXISTING_WORKER 2>/dev/null
+    sleep 2
+fi
+
 # Unset HF_HUB_OFFLINE to allow genai-bench to fetch tokenizer info from HuggingFace
 unset HF_HUB_OFFLINE
 
 
-echo "🚀 Starting Inference Autotuner Development Environment..."
+echo "Starting Inference Autotuner Development Environment..."
 echo ""
 
 # Start ARQ worker in background with nohup
-echo "📋 Starting ARQ worker with nohup..."
+echo "Starting ARQ worker with nohup..."
 cd "$PROJECT_ROOT/src"
 nohup arq web.workers.autotuner_worker.WorkerSettings --verbose > ../logs/worker.log 2>&1 &
 cd "$PROJECT_ROOT"
@@ -79,9 +82,9 @@ echo ""
 sleep 2
 
 # Start web server (foreground)
-echo "🌐 Starting web server..."
-echo "   API: http://localhost:8000"
-echo "   Docs: http://localhost:8000/docs"
+echo "Starting web server..."
+echo "   API: http://localhost:$SERVER_PORT"
+echo "   Docs: http://localhost:$SERVER_PORT/docs"
 echo ""
 echo "Press Ctrl+C to stop web server (worker will continue running)"
 echo "To stop worker: kill \$(cat logs/worker.pid)"

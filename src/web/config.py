@@ -29,6 +29,10 @@ class Settings(BaseSettings):
 	app_version: str = "0.1.0"
 	debug: bool = True
 
+	# Server
+	server_host: str = Field(default="0.0.0.0", description="Server bind host")
+	server_port: int = Field(default=8001, description="Server port")
+
 	# Database
 	# Store database in user's home directory by default
 	# Use environment variable DATABASE_URL to override
