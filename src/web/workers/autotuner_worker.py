@@ -502,8 +502,9 @@ async def run_autotuning_task(ctx: Dict[str, Any], task_id: int, task_config: Di
 				best_score = checkpoint["best_score"]
 				best_experiment_id = checkpoint.get("best_experiment_id")
 				iteration = checkpoint["iteration"]
+				successful_experiments = checkpoint.get("successful_experiments", 0)
 
-				logger.info(f"[ARQ Worker] Restored state: iteration={iteration}, best_score={best_score}, best_experiment_id={best_experiment_id}")
+				logger.info(f"[ARQ Worker] Restored state: iteration={iteration}, best_score={best_score}, best_experiment_id={best_experiment_id}, successful={successful_experiments}")
 			else:
 				logger.info(f"[ARQ Worker] No checkpoint found, starting fresh")
 
@@ -531,6 +532,7 @@ async def run_autotuning_task(ctx: Dict[str, Any], task_id: int, task_config: Di
 				best_score = float("inf")
 				best_experiment_id = None
 				iteration = 0
+				successful_experiments = 0  # Local counter for distributed workers
 
 			# Set initial total_experiments (may be less for grid search, unknown for Bayesian)
 			if strategy_name == "grid_search":
@@ -715,6 +717,7 @@ async def run_autotuning_task(ctx: Dict[str, Any], task_id: int, task_config: Di
 
 					# Update strategy with result
 					if result["status"] == "success":
+						successful_experiments += 1  # Local counter (works even without DB access)
 						if task:
 							task.successful_experiments += 1
 						objective_score = result.get("objective_score")
@@ -803,7 +806,7 @@ async def run_autotuning_task(ctx: Dict[str, Any], task_id: int, task_config: Di
 							await checkpoint_db.execute(
 								update(Task).where(Task.id == task_id).values(
 									total_experiments=iteration,
-									successful_experiments=task.successful_experiments if task else 0,
+									successful_experiments=successful_experiments,  # Use local counter
 								)
 							)
 							await checkpoint_db.commit()
@@ -818,7 +821,7 @@ async def run_autotuning_task(ctx: Dict[str, Any], task_id: int, task_config: Di
 								data={
 									"current_experiment": iteration,
 									"total_experiments": total_experiments,
-									"successful_experiments": task.successful_experiments if task else 0,
+									"successful_experiments": successful_experiments,  # Use local counter
 									"progress_percent": (iteration / total_experiments * 100) if total_experiments > 0 else 0,
 									"best_score": best_score if best_score != float("inf") else None
 								},
@@ -907,6 +910,7 @@ async def run_autotuning_task(ctx: Dict[str, Any], task_id: int, task_config: Di
 							best_score=best_score,
 							best_experiment_id=best_experiment_id,
 							strategy_state=strategy.get_state(),
+							successful_experiments=successful_experiments,
 						)
 						task.task_metadata = updated_metadata
 						await db.commit()
@@ -979,6 +983,7 @@ async def run_autotuning_task(ctx: Dict[str, Any], task_id: int, task_config: Di
 							best_score=best_score,
 							best_experiment_id=best_experiment_id,
 							strategy_state=strategy.get_state(),
+							successful_experiments=successful_experiments,
 						)
 						task.task_metadata = updated_metadata
 						await db.commit()
@@ -991,8 +996,8 @@ async def run_autotuning_task(ctx: Dict[str, Any], task_id: int, task_config: Di
 				async with AsyncSessionLocal() as final_db:
 					from sqlalchemy import update
 
-					# Determine final status
-					successful_count = task.successful_experiments if task else 0
+					# Determine final status - use local counter which works even without DB task
+					successful_count = successful_experiments  # Use local counter, not task.successful_experiments
 					final_status = TaskStatus.COMPLETED if successful_count > 0 else TaskStatus.FAILED
 					completed_at = datetime.utcnow()
 					elapsed_time = None
@@ -1048,7 +1053,7 @@ async def run_autotuning_task(ctx: Dict[str, Any], task_id: int, task_config: Di
 				logger.error(f"[ARQ Worker] Failed to update final task status: {final_update_error}")
 
 			logger.info(
-				f"[ARQ Worker] Task finished: {task_name} - {task.successful_experiments if task else 0}/{total_experiments} successful"
+				f"[ARQ Worker] Task finished: {task_name} - {successful_experiments}/{total_experiments} successful"
 			)
 			return {"task_id": task_id, "task_name": task_name, "status": "completed"}
 

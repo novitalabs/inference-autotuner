@@ -18,6 +18,7 @@ class TaskCheckpoint:
         best_score: float,
         best_experiment_id: Optional[int],
         strategy_state: Dict[str, Any],
+        successful_experiments: int = 0,
     ) -> Dict[str, Any]:
         """Save task progress checkpoint to metadata.
 
@@ -27,6 +28,7 @@ class TaskCheckpoint:
             best_score: Best objective score so far
             best_experiment_id: ID of best experiment
             strategy_state: Optimization strategy state
+            successful_experiments: Number of successful experiments so far
 
         Returns:
             Updated metadata dict with checkpoint
@@ -39,6 +41,7 @@ class TaskCheckpoint:
             "best_score": best_score,
             "best_experiment_id": best_experiment_id,
             "strategy_state": strategy_state,
+            "successful_experiments": successful_experiments,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
