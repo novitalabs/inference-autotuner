@@ -1,0 +1,53 @@
+# Simplified task configuration for Qwen3-4B-FP8 on RTX 4090
+# Reduced benchmark scope to complete within timeout
+
+task_name: qwen3-4b-fp8-simple
+description: Simplified Qwen3-4B-FP8 tuning with reduced benchmark scope
+
+model:
+  id_or_path: Qwen/Qwen3-4B-FP8
+  namespace: qwen-tuning
+
+base_runtime: sglang
+runtime_image_tag: v0.5.2-cu126
+
+parameters:
+  tp-size: [1]
+  mem-fraction-static: [0.85, 0.88]
+  max-prefill-tokens: [8192, 16384]
+  max-running-requests: [64, 128]
+  cuda-graph-max-bs: [128]
+  schedule-policy: ["fcfs"]
+  chunked-prefill-size: [4096, 8192]
+  attention-backend: ["flashinfer"]
+  sampling-backend: ["flashinfer"]
+  disable-cuda-graph: [false]
+  enable-mixed-chunk: [true, false]
+  num-continuous-decode-steps: [1]
+  kv-cache-dtype: ["auto"]
+
+optimization:
+  strategy: bayesian
+  objective: minimize_latency
+  max_iterations: 10
+  timeout_per_iteration: 900
+
+slo:
+  ttft:
+    threshold: 10
+    weight: 2
+    hard_fail: false
+  steepness: 0.1
+
+benchmark:
+  task: text-to-text
+  model_name: Qwen/Qwen3-4B-FP8
+  model_tokenizer: Qwen/Qwen3-4B-FP8
+  traffic_scenarios:
+    - D(100,100)
+    - D(200,200)
+  num_concurrency: [1, 4, 10]
+  max_time_per_iteration: 10
+  max_requests_per_iteration: 50
+  additional_params:
+    temperature: 0

@@ -438,13 +438,16 @@ async def get_task_logs(
 			}
 		)
 	
-	# Otherwise return static log content
+	# Collect logs from both local file and Redis remote logs
+	local_logs = ""
+	remote_logs = ""
+
+	# Read local log file if exists
 	if log_file.exists():
 		with open(log_file, "r") as f:
-			logs = f.read()
-		return {"logs": logs}
+			local_logs = f.read().strip()
 
-	# Fallback to Redis remote logs for distributed workers
+	# Also fetch Redis remote logs for distributed workers
 	try:
 		import redis.asyncio as redis
 		import json
@@ -478,16 +481,24 @@ async def get_task_logs(
 		if all_logs:
 			# Sort by timestamp and format as text
 			all_logs.sort(key=lambda x: x.get("timestamp", ""))
-			formatted_logs = "\n".join([
+			remote_logs = "\n".join([
 				f"[{log.get('timestamp', '')}] [{log.get('level', 'INFO')}] [Exp {log.get('experiment_id', '?')}] {log.get('message', '')}"
 				for log in all_logs
 			])
-			return {"logs": formatted_logs, "source": "remote"}
 
 	except Exception as e:
 		logger.warning(f"Failed to fetch remote logs: {e}")
 
-	return {"logs": "No logs available yet."}
+	# Combine logs: local first, then remote (if any)
+	if local_logs and remote_logs:
+		combined_logs = f"=== Local Logs ===\n{local_logs}\n\n=== Remote Worker Logs ===\n{remote_logs}"
+		return {"logs": combined_logs, "source": "combined"}
+	elif remote_logs:
+		return {"logs": remote_logs, "source": "remote"}
+	elif local_logs:
+		return {"logs": local_logs, "source": "local"}
+	else:
+		return {"logs": "No logs available yet."}
 
 
 @router.delete("/{task_id}/logs", status_code=status.HTTP_204_NO_CONTENT)
